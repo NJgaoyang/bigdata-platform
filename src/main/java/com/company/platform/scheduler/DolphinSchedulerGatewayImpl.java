@@ -66,9 +66,13 @@ public class DolphinSchedulerGatewayImpl implements DolphinSchedulerGateway {
         form.put("taskRelationJson", payload.relations());
         form.put("taskDefinitionJson", payload.taskDefinitions());
         form.put("executionType", "PARALLEL");
-        String response = sendForm("POST", path("/process-definition"), form);
-        String dsCode = extractId(response, request.workflowCode());
+        String existing = request.existingProcessCode() == null ? "" : request.existingProcessCode().trim();
+        String response = existing.isBlank()
+                ? sendForm("POST", path("/process-definition"), form)
+                : sendForm("PUT", path("/process-definition/" + encode(existing)), form);
+        String dsCode = extractId(response, existing.isBlank() ? request.workflowCode() : existing);
         processCodes.put(request.workflowCode(), dsCode);
+        processCodes.put(dsCode, dsCode);
         return new PublishResult(dsCode, request.version(), "PUBLISHED@DS-" + version());
     }
 

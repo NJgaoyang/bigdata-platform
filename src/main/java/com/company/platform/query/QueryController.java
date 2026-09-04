@@ -16,6 +16,15 @@ public class QueryController {
         audit.record("QUERY_EXECUTE", "QUERY", null, "status=" + result.status() + ", rows=" + result.rowCount(), "admin");
         return Result.ok(result);
     }
+    @PostMapping("/submit") public Result<QueryService.QueryHandle> submit(@RequestBody QueryRequest request) {
+        return Result.ok(service.submit(request.sql(), request.selected(), request.dataSourceId(), request.databaseName()));
+    }
+    @GetMapping("/{executionId}") public Result<QueryService.QueryResult> status(@PathVariable String executionId) {
+        return Result.ok(service.status(executionId));
+    }
+    @GetMapping("/history") public Result<java.util.List<QueryHistoryView>> history() {
+        return Result.ok(service.history());
+    }
     @PostMapping("/{executionId}/cancel") public Result<Void> cancel(@PathVariable String executionId) {
         service.cancel(executionId); return Result.ok(null, "查询已停止");
     }

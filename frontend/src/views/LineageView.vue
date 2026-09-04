@@ -10,7 +10,7 @@ type LineageRecord = {
   targetTable: string;
   relationType?: string;
 };
-const search = ref("dws_trade_province_1d");
+const search = ref("");
 const level = ref("表级");
 const grain = ref("字段级");
 const env = ref("生产环境");

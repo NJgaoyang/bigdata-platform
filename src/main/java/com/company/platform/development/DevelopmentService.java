@@ -87,11 +87,12 @@ public class DevelopmentService {
     public void deleteFile(long id) {
         if (store.files.remove(id) == null) throw new NotFoundException("文件不存在：" + id);
         store.versions.values().removeIf(version -> version.fileId() == id);
-        store.deleteCore("dev_file", id);
+        store.deleteFileData(id);
     }
     public DevFileView saveFile(long id, DevelopmentRequests.SaveFileRequest request) {
         DevFileView current = requireFile(id);
-        DevFileView updated = new DevFileView(current.id(), current.projectId(), current.folderId(), current.name(),
+        String name = request.name() == null || request.name().isBlank() ? current.name() : request.name().trim();
+        DevFileView updated = new DevFileView(current.id(), current.projectId(), current.folderId(), name,
                 current.fileType(), request.content(), "DRAFT", current.currentVersion() + 1);
         store.files.put(id, updated);
         saveVersion(updated);

@@ -1,58 +1,27 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { ElMessage } from "element-plus";
 import { platformApi, type DataSource } from "../api";
+import * as monaco from "monaco-editor";
 
-const query = ref(
-  `-- 数据探查：支持选中部分 SQL 单独运行\nSELECT\n    user_id,\n    user_name,\n    province,\n    register_time,\n    user_level\nFROM dim.dim_user_info\nWHERE register_time >= '2026-08-01'\nORDER BY register_time DESC\nLIMIT 100;`,
-);
+const query = ref("");
 const selectedTable = ref("");
 const metaSearch = ref("");
-const runMessage = ref("返回 5 行，耗时 128ms");
+const runMessage = ref("运行查询后显示真实结果");
 const executionId = ref("");
-const metadata = ref<Record<string, string[]>>({
-  ods: [
-    "ods_order_info",
-    "ods_user_info",
-    "ods_product_sku",
-    "ods_payment_info",
-  ],
-  dwd: ["dwd_trade_order_detail", "dwd_user_action", "dwd_payment_detail"],
-  dim: ["dim_user_info", "dim_base_province", "dim_sku_info"],
-  dws: ["dws_trade_province_1d", "dws_user_1d"],
-  ads: ["ads_trade_province", "ads_trade_rank", "ads_campaign_daily"],
-});
-const fieldMap = ref<Record<string, string[][]>>({
-  ods_order_info: [
-    ["id", "BIGINT", "订单主键"],
-    ["user_id", "BIGINT", "用户ID"],
-    ["order_status", "VARCHAR(32)", "订单状态"],
-    ["total_amount", "DECIMAL(18,2)", "订单金额"],
-    ["create_time", "DATETIME", "下单时间"],
-    ["dt", "DATE", "分区日期"],
-  ],
-  dwd_trade_order_detail: [
-    ["order_id", "BIGINT", "订单ID"],
-    ["user_id", "BIGINT", "用户ID"],
-    ["province_id", "BIGINT", "省份ID"],
-    ["sku_id", "BIGINT", "商品SKU"],
-    ["order_amount", "DECIMAL(18,2)", "订单金额"],
-    ["dt", "DATE", "业务日期"],
-  ],
-  dim_user_info: [
-    ["user_id", "BIGINT", "用户ID"],
-    ["user_name", "VARCHAR(128)", "用户名称"],
-    ["province", "VARCHAR(64)", "所属省份"],
-    ["register_time", "DATETIME", "注册时间"],
-    ["user_level", "VARCHAR(32)", "会员等级"],
-  ],
-});
+const metadata = ref<Record<string, string[]>>({});
+const fieldMap = ref<Record<string, string[][]>>({});
 const activeDataSourceId = ref<number>();
 const sources = ref<DataSource[]>([]);
 const activeDatabase = ref("");
-const editor = ref<HTMLTextAreaElement>();
+const editorContainer = ref<HTMLElement>();
 const resultColumns = ref<string[]>([]);
 const resultRows = ref<Record<string, unknown>[]>([]);
+const historyVisible = ref(false);
+const queryHistory = ref<Record<string, unknown>[]>([]);
+let queryTimer: number | undefined;
+let monacoEditor: monaco.editor.IStandaloneCodeEditor | null = null;
+let editorChangeDisposable: monaco.IDisposable | null = null;
 const shownMeta = computed(() =>
   Object.entries(metadata.value)
     .map(([db, tables]) => ({
@@ -64,14 +33,7 @@ const shownMeta = computed(() =>
     .filter((item) => item.tables.length),
 );
 const fields = computed(
-  () =>
-    fieldMap.value[selectedTable.value] || [
-      ["id", "BIGINT", "主键ID"],
-      ["name", "VARCHAR(128)", "名称"],
-      ["status", "VARCHAR(32)", "状态"],
-      ["create_time", "DATETIME", "创建时间"],
-      ["dt", "DATE", "业务日期"],
-    ],
+  () => fieldMap.value[selectedTable.value] || [],
 );
 onMounted(async () => {
   try {
@@ -84,6 +46,7 @@ onMounted(async () => {
       selectedTable.value = "";
       activeDatabase.value = "";
       runMessage.value = "请先配置 StarRocks 数据源";
+      initEditor();
       return;
     }
     await loadMetadata(source);
@@ -94,7 +57,36 @@ onMounted(async () => {
     activeDatabase.value = "";
     runMessage.value = "StarRocks 元数据暂不可用";
   }
+  initEditor();
 });
+function initEditor() {
+  if (!editorContainer.value || monacoEditor) return;
+  monacoEditor = monaco.editor.create(editorContainer.value, {
+    value: query.value,
+    language: "sql",
+    theme: "vs",
+    automaticLayout: true,
+    minimap: { enabled: false },
+    fontSize: 13,
+    lineHeight: 22,
+    tabSize: 4,
+    insertSpaces: true,
+    wordWrap: "off",
+    padding: { top: 12, bottom: 12 },
+    suggest: { showKeywords: true, showFunctions: true },
+  });
+  editorChangeDisposable = monacoEditor.onDidChangeModelContent(() => {
+    query.value = monacoEditor?.getValue() || "";
+  });
+  monaco.languages.registerCompletionItemProvider("sql", {
+    provideCompletionItems(model, position) {
+      const word = model.getWordUntilPosition(position);
+      const range = new monaco.Range(position.lineNumber, word.startColumn, position.lineNumber, word.endColumn);
+      const items = ["SELECT", "FROM", "WHERE", "GROUP BY", "ORDER BY", "LIMIT", "COUNT(*)", "SUM()", ...Object.values(metadata.value).flat()];
+      return { suggestions: items.map(label => ({ label, kind: monaco.languages.CompletionItemKind.Keyword, insertText: label, range })) };
+    },
+  });
+}
 async function loadMetadata(source: DataSource) {
   activeDataSourceId.value = source.id;
   const databases =
@@ -107,8 +99,8 @@ async function loadMetadata(source: DataSource) {
       [];
     next[database.name] = tables.map((table) => table.name);
   }
+  metadata.value = next;
   if (Object.keys(next).length) {
-    metadata.value = next;
     const database = Object.keys(next)[0];
     const table = next[database]?.[0];
     activeDatabase.value = database;
@@ -123,6 +115,14 @@ async function changeDataSource() {
   );
   if (source)
     await loadMetadata(source).catch(() => ElMessage.error("元数据加载失败"));
+}
+async function openHistory() {
+  try {
+    queryHistory.value = (await platformApi.queryHistory()).data.data || [];
+    historyVisible.value = true;
+  } catch {
+    ElMessage.error("查询历史加载失败");
+  }
 }
 async function showFields(table: string, database = activeDatabase.value) {
   selectedTable.value = table;
@@ -140,7 +140,8 @@ async function showFields(table: string, database = activeDatabase.value) {
         column.comment || "",
       ]);
     } catch {
-      /* local prototype fields remain available */
+      ElMessage.error("字段结构加载失败");
+      return;
     }
   }
   ElMessage.success(`${table} 字段已加载`);
@@ -152,39 +153,85 @@ async function runExplore() {
     return;
   }
   runMessage.value = "执行中...";
-  const start = editor.value?.selectionStart || 0;
-  const end = editor.value?.selectionEnd || 0;
+  const selection = monacoEditor?.getSelection();
+  const model = monacoEditor?.getModel();
+  const hasSelection = Boolean(selection && model && !selection.isEmpty());
+  const start = hasSelection && selection && model ? model.getOffsetAt(selection.getStartPosition()) : 0;
+  const end = hasSelection && selection && model ? model.getOffsetAt(selection.getEndPosition()) : 0;
   const sql = start !== end ? query.value.slice(start, end) : query.value;
   try {
-    const result = await platformApi.query(
+    const submitted = await platformApi.querySubmit(
       sql,
       start !== end,
       activeDataSourceId.value,
       activeDatabase.value,
     );
-    executionId.value = String(result.data.data?.executionId || "");
-    const resultData = result.data.data as Record<string, unknown> | undefined;
-    resultColumns.value = Array.isArray(resultData?.columns)
-      ? resultData.columns.map(String)
-      : [];
-    resultRows.value = Array.isArray(resultData?.rows)
-      ? (resultData.rows as Record<string, unknown>[])
-      : [];
-    runMessage.value = `执行${result.data.data?.status === "SUCCESS" ? "完成" : "结束"} · 返回 ${result.data.data?.rowCount || 0} 行`;
-    ElMessage.success("SQL 执行成功");
+    executionId.value = String(submitted.data.data?.executionId || "");
+    runMessage.value = "执行中...";
+    if (executionId.value) pollQuery(executionId.value);
   } catch {
     runMessage.value = "执行失败";
     ElMessage.error("SQL 执行失败");
   }
 }
+async function explainQuery() {
+  if (!activeDataSourceId.value) {
+    ElMessage.warning("数据探查仅允许使用 StarRocks 数据源");
+    return;
+  }
+  const sql = query.value.trim();
+  if (!sql) {
+    ElMessage.warning("请输入 SQL 后再生成执行计划");
+    return;
+  }
+  runMessage.value = "执行计划生成中...";
+  try {
+    const explainSql = /^explain\b/i.test(sql) ? sql : `EXPLAIN ${sql}`;
+    const submitted = await platformApi.querySubmit(
+      explainSql,
+      false,
+      activeDataSourceId.value,
+      activeDatabase.value,
+    );
+    executionId.value = String(submitted.data.data?.executionId || "");
+    if (executionId.value) pollQuery(executionId.value);
+  } catch {
+    runMessage.value = "执行计划生成失败";
+    ElMessage.error("执行计划生成失败");
+  }
+}
+function pollQuery(id: string) {
+  if (queryTimer) window.clearInterval(queryTimer);
+  queryTimer = window.setInterval(async () => {
+    try {
+      const result = await platformApi.queryStatus(id);
+      const data = result.data.data || {};
+      const status = String(data.status || "RUNNING");
+      if (status === "RUNNING") return;
+      resultColumns.value = Array.isArray(data.columns) ? data.columns.map(String) : [];
+      resultRows.value = Array.isArray(data.rows) ? (data.rows as Record<string, unknown>[]) : [];
+      runMessage.value = `执行${status === "SUCCESS" ? "完成" : status === "CANCELED" ? "已停止" : "失败"} · 返回 ${data.rowCount || 0} 行`;
+      window.clearInterval(queryTimer);
+      queryTimer = undefined;
+      if (status === "SUCCESS") ElMessage.success("SQL 执行成功");
+    } catch { window.clearInterval(queryTimer); queryTimer = undefined; runMessage.value = "查询状态获取失败"; }
+  }, 500);
+}
 async function stopExplore() {
-  if (executionId.value)
-    await platformApi.cancelQuery(executionId.value).catch(() => undefined);
+  if (!executionId.value) {
+    ElMessage.warning("当前没有运行中的查询");
+    return;
+  }
+  await platformApi.cancelQuery(executionId.value).catch(() => undefined);
+  executionId.value = "";
   runMessage.value = "查询已停止";
   ElMessage.info("查询已停止");
 }
 function newQueryTab() {
-  query.value = "-- 新建 StarRocks 查询\nSELECT *\nFROM ods.yzl_order\nLIMIT 100;";
+  query.value = activeDatabase.value && selectedTable.value
+    ? `SELECT *\nFROM ${activeDatabase.value}.${selectedTable.value}\nLIMIT 100;`
+    : "";
+  monacoEditor?.setValue(query.value);
   resultColumns.value = [];
   resultRows.value = [];
   runMessage.value = "新查询已创建";
@@ -202,6 +249,7 @@ function formatCode() {
       (_, key) => "\n" + key.toUpperCase() + " ",
     )
     .trim();
+  monacoEditor?.setValue(query.value);
   ElMessage.success("格式化完成");
 }
 function highlight(value: string) {
@@ -223,6 +271,12 @@ function highlight(value: string) {
       ) + "\n"
   );
 }
+onBeforeUnmount(() => {
+  if (queryTimer) window.clearInterval(queryTimer);
+  editorChangeDisposable?.dispose();
+  monacoEditor?.dispose();
+  monacoEditor = null;
+});
 </script>
 
 <template>
@@ -295,31 +349,16 @@ function highlight(value: string) {
             <button class="btn small" @click="formatCode">{ } 格式化</button
             ><button
               class="btn small"
-              @click="ElMessage.success('EXPLAIN 执行计划已生成')"
+              @click="explainQuery"
             >
               执行计划</button
+            ><button class="btn small" @click="openHistory">历史记录</button
             ><span class="toolbar-meta"
               >提示：选中 SQL 后点击“运行”可仅执行选中部分</span
             >
           </div>
           <div class="editor-shell">
-            <div class="code-area">
-              <div class="linenos">
-                {{
-                  Array.from(
-                    { length: Math.max(1, query.split("\n").length) },
-                    (_, i) => i + 1,
-                  ).join("\n")
-                }}
-              </div>
-              <pre class="highlight" v-html="highlight(query)"></pre>
-              <textarea
-                ref="editor"
-                v-model="query"
-                class="editor-textarea"
-                spellcheck="false"
-              ></textarea>
-            </div>
+            <div ref="editorContainer" class="code-area monaco-code-area explore-monaco"></div>
             <div class="result-panel" style="height: 235px">
               <div class="result-head">
                 <div class="result-tab">结果集 1</div>
@@ -358,8 +397,8 @@ function highlight(value: string) {
           <div class="field-sub">
             <template v-if="selectedTable"
               ><b>{{ activeDatabase }}.{{ selectedTable }}</b
-              ><br />字段 {{ fields.length }} 个 · 双击表已加载</template
-            ><template v-else>双击左侧表名查看字段及中文注释</template>
+              ><br />字段 {{ fields.length }} 个 · 已加载真实结构</template
+            ><template v-else>点击左侧表名查看字段及中文注释</template>
           </div>
           <div class="field-list">
             <template v-if="selectedTable"
@@ -385,8 +424,24 @@ function highlight(value: string) {
       </div>
     </div>
   </section>
+  <el-dialog v-model="historyVisible" title="查询历史记录" width="min(980px, 92vw)">
+    <div class="query-history">
+      <table class="data-table" v-if="queryHistory.length">
+        <thead><tr><th>执行时间</th><th>数据源</th><th>状态</th><th>耗时</th><th>SQL</th><th>错误</th></tr></thead>
+        <tbody><tr v-for="item in queryHistory" :key="String(item.queryId)">
+          <td>{{ item.startedAt || '-' }}</td><td>{{ item.databaseName || 'StarRocks' }}</td>
+          <td>{{ item.status }}</td><td>{{ item.elapsedMs || 0 }} ms</td>
+          <td class="history-sql">{{ item.sql }}</td><td class="history-error">{{ item.errorMessage || '-' }}</td>
+        </tr></tbody>
+      </table>
+      <div v-else class="empty-state">暂无持久化查询记录</div>
+    </div>
+  </el-dialog>
 </template>
 
 <style scoped>
 .tab-control { border: 0; cursor: pointer; }
+.query-history { max-height: 60vh; overflow: auto; }
+.history-sql { max-width: 360px; white-space: pre-wrap; word-break: break-word; font: 12px/1.5 Consolas, Monaco, monospace; }
+.history-error { max-width: 220px; color: #c45656; white-space: pre-wrap; word-break: break-word; }
 </style>

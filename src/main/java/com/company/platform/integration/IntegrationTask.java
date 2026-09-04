@@ -6,4 +6,10 @@ import java.util.Map;
 public record IntegrationTask(String name, String sourceType, String targetType, String syncMode,
                               IntegrationRequests.Endpoint source, IntegrationRequests.Endpoint target,
                               List<IntegrationRequests.FieldMapping> mappings,
-                              Map<String, Object> options) { }
+                              Map<String, Object> options, List<IntegrationRequests.TableRequest> tables) {
+    public IntegrationTask(String name, String sourceType, String targetType, String syncMode,
+                           IntegrationRequests.Endpoint source, IntegrationRequests.Endpoint target,
+                           List<IntegrationRequests.FieldMapping> mappings, Map<String, Object> options) {
+        this(name, sourceType, targetType, syncMode, source, target, mappings, options, null);
+    }
+}

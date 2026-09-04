@@ -59,6 +59,22 @@ cd frontend && npm run dev
 
 平台核心项目、文件、数据源和审计记录会在配置了 JDBC 数据库时同步到平台库；默认 H2 便于离线开发，切换到开发 MySQL 后由 Flyway 自动维护表结构。
 
+### 可选的平台登录认证
+
+开发环境默认关闭认证，便于直接访问 `http://localhost:5173`。正式环境可通过环境变量开启平台登录：
+
+```bash
+PLATFORM_AUTH_ENABLED=true
+PLATFORM_ADMIN_USERNAME=admin
+PLATFORM_ADMIN_PASSWORD_SHA256=管理员密码的SHA-256十六进制摘要
+```
+
+开启后，平台登录页会签发 Bearer 会话令牌，所有 `/api` 业务接口（健康检查和认证接口除外）都会校验令牌。密码不写入平台库；用户表已预留 `password_hash` 字段，后续可扩展为多用户密码管理。
+
+### 多表同步
+
+数据集成任务支持一张或多张源表分别映射到目标表。编辑任务时可通过“添加表”增加映射，在任务详情中删除单张表；删除后平台只重生成该任务的 SeaTunnel 配置，不会影响同任务中的其他表，历史单表任务也会自动兼容。
+
 最终联调前，将 `platform.scheduler.dolphinscheduler.real-enabled` 改为 `true`，确认 API Token 和服务地址后，再启动外部服务。
 
 ## 查看真实执行记录
@@ -72,6 +88,7 @@ DOLPHINSCHEDULER_PROJECT_CODE=22919517565792 \
 DOLPHINSCHEDULER_TENANT_CODE=bigdata \
 DOLPHINSCHEDULER_PASSWORD='请填写实际密码' \
 PLATFORM_SEATUNNEL_REAL_ENABLED=true \
+DATASOURCE_MASTER_KEY='请使用密钥管理系统注入的随机主密钥' \
 SPRING_DATASOURCE_URL='jdbc:mysql://81.69.15.136:3306/bigdata_platform?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true' \
 SPRING_DATASOURCE_USERNAME=root \
 SPRING_DATASOURCE_PASSWORD='请填写平台库密码' \

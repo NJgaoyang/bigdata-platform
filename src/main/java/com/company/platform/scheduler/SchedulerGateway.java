@@ -20,7 +20,11 @@ public interface SchedulerGateway {
     default String taskLog(String taskInstanceId) { return "暂无任务日志"; }
     default boolean isRealMode() { return false; }
 
-    record PublishRequest(String workflowCode, String name, int version, String definitionJson) { }
+    record PublishRequest(String workflowCode, String name, int version, String definitionJson, String existingProcessCode) {
+        public PublishRequest(String workflowCode, String name, int version, String definitionJson) {
+            this(workflowCode, name, version, definitionJson, null);
+        }
+    }
     record PublishResult(String processCode, int version, String status) { }
     record RunResult(String instanceId, String status) { }
     record InstanceStatus(String instanceId, String status, String log) { }

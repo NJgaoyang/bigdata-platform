@@ -9,6 +9,8 @@ public final class DevelopmentRequests {
     public record FolderUpdateRequest(@NotBlank String name) { }
     public record FileRequest(long projectId, Long folderId, @NotBlank String name,
                               @NotBlank String fileType, String content) { }
-    public record SaveFileRequest(@NotBlank String content) { }
+    public record SaveFileRequest(@NotBlank String content, String name) {
+        public SaveFileRequest(String content) { this(content, null); }
+    }
     public record VersionRequest(@NotBlank String content) { }
 }

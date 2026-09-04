@@ -37,7 +37,7 @@ public class SchedulerService {
         ScheduleConfigView current = get(workflowId);
         long id = current.id() == 0 ? store.nextId() : current.id();
         ScheduleConfigView saved = new ScheduleConfigView(id, workflowId, request.cronExpression(),
-                request.timezone(), request.enabled(), request.failureStrategy(), request.parallelism());
+                request.timezone(), request.enabled(), request.failureStrategy(), request.parallelism(), request.workerGroup(), request.alertGroup(), current.dsScheduleId());
         store.scheduleConfigs.put(id, saved);
         store.persistSchedule(saved);
         return saved;
@@ -49,11 +49,13 @@ public class SchedulerService {
         ScheduleConfigView current = get(workflowId);
         gateway.release(engineCode(workflow), true);
         ScheduleConfigView configured = new ScheduleConfigView(current.id() == 0 ? store.nextId() : current.id(), workflowId,
-                current.cronExpression(), current.timezone(), true, current.failureStrategy(), current.parallelism());
+                current.cronExpression(), current.timezone(), true, current.failureStrategy(), current.parallelism(), current.workerGroup(), current.alertGroup(), current.dsScheduleId());
         String scheduleId = gateway.upsertSchedule(engineCode(workflow), configured.cronExpression(), configured.timezone(),
                 true, configured.failureStrategy(), configured.parallelism());
         if (!scheduleId.isBlank()) gateway.scheduleState(scheduleId, true);
-        ScheduleConfigView online = configured;
+        ScheduleConfigView online = new ScheduleConfigView(configured.id(), configured.workflowId(), configured.cronExpression(), configured.timezone(),
+                true, configured.failureStrategy(), configured.parallelism(), configured.workerGroup(), configured.alertGroup(),
+                scheduleId.isBlank() ? configured.dsScheduleId() : scheduleId);
         store.scheduleConfigs.put(online.id(), online);
         store.persistSchedule(online);
         return online;
@@ -68,7 +70,7 @@ public class SchedulerService {
         if (!scheduleId.isBlank()) gateway.scheduleState(scheduleId, false);
         gateway.release(engineCode(workflow), false);
         ScheduleConfigView offline = new ScheduleConfigView(current.id(), workflowId, current.cronExpression(),
-                current.timezone(), false, current.failureStrategy(), current.parallelism());
+                current.timezone(), false, current.failureStrategy(), current.parallelism(), current.workerGroup(), current.alertGroup(), current.dsScheduleId());
         store.scheduleConfigs.put(offline.id(), offline);
         store.persistSchedule(offline);
         return offline;

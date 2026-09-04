@@ -19,6 +19,12 @@ platform:
   features:
     realtime-sync: false
 
+  security:
+    enabled: ${PLATFORM_AUTH_ENABLED:false}
+    admin-username: ${PLATFORM_ADMIN_USERNAME:admin}
+    admin-password-hash: ${PLATFORM_ADMIN_PASSWORD_SHA256:}
+    session-ttl-minutes: ${PLATFORM_SESSION_TTL_MINUTES:480}
+
   query:
     default-max-rows: 1000
     timeout-seconds: 300

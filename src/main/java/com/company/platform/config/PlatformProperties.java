@@ -9,12 +9,29 @@ public class PlatformProperties {
     private final Starrocks starrocks = new Starrocks();
     private final Seatunnel seatunnel = new Seatunnel();
     private final Scheduler scheduler = new Scheduler();
+    private final Security security = new Security();
 
     public Features getFeatures() { return features; }
     public Query getQuery() { return query; }
     public Starrocks getStarrocks() { return starrocks; }
     public Seatunnel getSeatunnel() { return seatunnel; }
     public Scheduler getScheduler() { return scheduler; }
+    public Security getSecurity() { return security; }
+
+    public static class Security {
+        private boolean enabled;
+        private String adminUsername = "admin";
+        private String adminPasswordHash;
+        private int sessionTtlMinutes = 480;
+        public boolean isEnabled() { return enabled; }
+        public void setEnabled(boolean enabled) { this.enabled = enabled; }
+        public String getAdminUsername() { return adminUsername; }
+        public void setAdminUsername(String adminUsername) { this.adminUsername = adminUsername; }
+        public String getAdminPasswordHash() { return adminPasswordHash; }
+        public void setAdminPasswordHash(String adminPasswordHash) { this.adminPasswordHash = adminPasswordHash; }
+        public int getSessionTtlMinutes() { return sessionTtlMinutes; }
+        public void setSessionTtlMinutes(int sessionTtlMinutes) { this.sessionTtlMinutes = sessionTtlMinutes; }
+    }
 
     public static class Features {
         private boolean realtimeSync;

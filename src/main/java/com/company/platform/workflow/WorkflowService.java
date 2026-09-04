@@ -18,7 +18,7 @@ public class WorkflowService {
     public List<WorkflowView> list() { return store.workflows.values().stream().toList(); }
     public WorkflowView create(WorkflowRequests.WorkflowRequest request) {
         long workflowId = store.nextId();
-        GraphDraft graph = buildGraph(request);
+        GraphDraft graph = buildGraph(request, null);
         DagValidator.ValidationResult validation = validator.validate(graph.nodes(), graph.edges());
         if (!validation.valid()) throw new BadRequestException(validation.message());
         WorkflowView view = new WorkflowView(workflowId, request.name(), "wf_" + UUID.randomUUID().toString().replace("-", ""),
@@ -29,10 +29,14 @@ public class WorkflowService {
     }
     public WorkflowView update(long id, WorkflowRequests.WorkflowRequest request) {
         WorkflowView current = get(id);
-        GraphDraft graph = buildGraph(request);
+        GraphDraft graph = buildGraph(request, current);
         DagValidator.ValidationResult validation = validator.validate(graph.nodes(), graph.edges());
         if (!validation.valid()) throw new BadRequestException(validation.message());
-        WorkflowView view = new WorkflowView(id, request.name(), current.workflowCode(), request.description(), "DRAFT", 0, graph.nodes(), graph.edges());
+        // Keep the published production mapping while a new draft is being edited.
+        // The next publish will advance the snapshot version instead of orphaning
+        // the existing DolphinScheduler process.
+        WorkflowView view = new WorkflowView(id, request.name(), current.workflowCode(), request.description(), "DRAFT",
+                current.publishedVersion(), graph.nodes(), graph.edges(), current.dsProcessCode());
         store.workflows.put(id, view);
         store.persistWorkflow(view);
         return view;
@@ -52,17 +56,20 @@ public class WorkflowService {
         WorkflowView view = get(id);
         return validator.validate(view.nodes(), view.edges());
     }
-    private GraphDraft buildGraph(WorkflowRequests.WorkflowRequest request) {
+    private GraphDraft buildGraph(WorkflowRequests.WorkflowRequest request, WorkflowView current) {
         Map<String, Long> nodeIds = new HashMap<>();
         List<WorkflowNodeView> nodes = request.nodes() == null ? List.of() : request.nodes().stream()
                 .map(node -> {
-                    long nodeId = store.nextId();
-                    if (node.nodeCode() != null && !node.nodeCode().isBlank()
-                            && nodeIds.putIfAbsent(node.nodeCode(), nodeId) != null) {
-                        throw new BadRequestException("工作流节点编码重复：" + node.nodeCode());
+                    String nodeCode = node.nodeCode() == null || node.nodeCode().isBlank()
+                            ? "node_" + UUID.randomUUID().toString().replace("-", "") : node.nodeCode();
+                    long nodeId = current == null ? store.nextId() : current.nodes().stream()
+                            .filter(existing -> nodeCode.equals(existing.nodeCode())).map(WorkflowNodeView::id)
+                            .findFirst().orElseGet(store::nextId);
+                    if (nodeIds.putIfAbsent(nodeCode, nodeId) != null) {
+                        throw new BadRequestException("工作流节点编码重复：" + nodeCode);
                     }
                     return new WorkflowNodeView(nodeId, node.name(), node.nodeType() == null ? NodeType.SQL : node.nodeType(),
-                            node.fileVersionId(), node.configJson(), node.x(), node.y());
+                            node.fileVersionId(), node.configJson(), node.x(), node.y(), nodeCode);
                 }).toList();
         List<WorkflowEdgeView> edges = request.edges() == null ? List.of() : request.edges().stream()
                 .map(edge -> new WorkflowEdgeView(store.nextId(), resolveNodeId(edge.sourceNodeId(), edge.sourceNodeCode(), nodeIds),

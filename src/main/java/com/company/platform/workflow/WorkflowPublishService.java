@@ -38,7 +38,7 @@ public class WorkflowPublishService {
                 snapshot = Base64.getEncoder().encodeToString(fileVersion.content().getBytes(StandardCharsets.UTF_8));
                 if (node.nodeType() == NodeType.SQL) {
                     lineageService.removeForFile(fileVersion.fileId());
-                    lineageService.parseAndStore(fileVersion.fileId(), fileVersion.content());
+                    lineageService.parseAndStore(fileVersion.fileId(), fileVersion.id(), fileVersion.content());
                 }
             }
             nodeDefinitions.add("{\"id\":" + node.id() + ",\"name\":\"" + escape(node.name()) + "\",\"type\":\"" + node.nodeType() + "\",\"configJson\":\"" +
@@ -53,7 +53,7 @@ public class WorkflowPublishService {
                 "\",\"description\":\"" + escape(workflow.description() == null ? "" : workflow.description()) + "\",\"version\":" + version +
                 ",\"nodes\":" + nodeDefinitions + ",\"edges\":" + edgeDefinitions + "}";
         SchedulerGateway.PublishResult result = schedulerGateway.publish(
-                new SchedulerGateway.PublishRequest(workflow.workflowCode(), workflow.name(), version, definition));
+                new SchedulerGateway.PublishRequest(workflow.workflowCode(), workflow.name(), version, definition, workflow.dsProcessCode()));
         store.workflows.put(workflowId, new WorkflowView(workflow.id(), workflow.name(), workflow.workflowCode(),
                 workflow.description(), "PUBLISHED", version, workflow.nodes(), workflow.edges(), result.processCode()));
         store.persistWorkflow(store.workflows.get(workflowId));

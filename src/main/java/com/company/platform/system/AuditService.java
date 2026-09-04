@@ -18,5 +18,5 @@ public class AuditService {
         store.persistAudit(log);
         return log;
     }
-    public List<AuditLogView> list() { return store.auditLogs.values().stream().toList(); }
+    public List<AuditLogView> list() { return store.auditLogs.values().stream().sorted(java.util.Comparator.comparing(AuditLogView::createdAt).reversed()).toList(); }
 }

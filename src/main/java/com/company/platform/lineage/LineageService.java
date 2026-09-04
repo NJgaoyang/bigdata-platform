@@ -11,10 +11,15 @@ public class LineageService {
     private final SqlLineageParser parser;
     public LineageService(PlatformStore store, SqlLineageParser parser) { this.store = store; this.parser = parser; }
     public List<LineageView> parseAndStore(long fileId, String sql) {
+        return parseAndStore(fileId, null, sql);
+    }
+    public List<LineageView> parseAndStore(long fileId, Long fileVersionId, String sql) {
         SqlLineageParser.ParseResult result = parser.parse(sql);
         for (String source : result.sources()) for (String target : result.targets()) {
             long id = store.nextId();
-            store.lineages.put(id, new LineageView(id, source, target, "SQL", fileId, null));
+            LineageView lineage = new LineageView(id, source, target, "SQL", fileId, fileVersionId);
+            store.lineages.put(id, lineage);
+            store.persistLineage(lineage);
         }
         return list();
     }
@@ -30,5 +35,8 @@ public class LineageService {
                 .filter(java.util.Objects::nonNull).map(version -> version.fileId()).collect(java.util.stream.Collectors.toSet());
         return store.lineages.values().stream().filter(item -> item.fileId() != null && fileIds.contains(item.fileId())).toList();
     }
-    public void removeForFile(long fileId) { store.lineages.values().removeIf(item -> item.fileId() != null && item.fileId() == fileId); }
+    public void removeForFile(long fileId) {
+        store.lineages.values().removeIf(item -> item.fileId() != null && item.fileId() == fileId);
+        store.deleteLineageForFile(fileId);
+    }
 }
