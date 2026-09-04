@@ -1,0 +1,105 @@
+CREATE TABLE IF NOT EXISTS data_source (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(128) NOT NULL,
+    type VARCHAR(32) NOT NULL,
+    host VARCHAR(255),
+    port INT,
+    database_name VARCHAR(255),
+    username VARCHAR(128),
+    password_ciphertext VARCHAR(2000),
+    status VARCHAR(32) NOT NULL DEFAULT 'ACTIVE',
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS dev_project (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(128) NOT NULL,
+    description VARCHAR(1000),
+    status VARCHAR(32) NOT NULL DEFAULT 'ACTIVE',
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS dev_folder (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    project_id BIGINT NOT NULL,
+    parent_id BIGINT,
+    name VARCHAR(128) NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS dev_file (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    project_id BIGINT NOT NULL,
+    folder_id BIGINT,
+    name VARCHAR(255) NOT NULL,
+    file_type VARCHAR(32) NOT NULL,
+    content TEXT NOT NULL,
+    status VARCHAR(32) NOT NULL DEFAULT 'DRAFT',
+    current_version INT NOT NULL DEFAULT 1,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS dev_file_version (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    file_id BIGINT NOT NULL,
+    version_no INT NOT NULL,
+    content TEXT NOT NULL,
+    checksum VARCHAR(64),
+    publish_flag BOOLEAN NOT NULL DEFAULT FALSE,
+    created_by BIGINT,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (file_id, version_no)
+);
+
+CREATE TABLE IF NOT EXISTS integration_task (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(128) NOT NULL,
+    source_type VARCHAR(32) NOT NULL,
+    target_type VARCHAR(32) NOT NULL,
+    source_config_json TEXT NOT NULL,
+    target_config_json TEXT NOT NULL,
+    transform_config_json TEXT,
+    seatunnel_config TEXT,
+    sync_mode VARCHAR(32) NOT NULL,
+    status VARCHAR(32) NOT NULL DEFAULT 'DRAFT',
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS workflow (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(128) NOT NULL,
+    workflow_code VARCHAR(128) NOT NULL UNIQUE,
+    description VARCHAR(1000),
+    status VARCHAR(32) NOT NULL DEFAULT 'DRAFT',
+    ds_process_code VARCHAR(128),
+    published_version INT,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS data_lineage (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    source_table_name VARCHAR(512) NOT NULL,
+    target_table_name VARCHAR(512) NOT NULL,
+    relation_type VARCHAR(32) NOT NULL,
+    dev_file_id BIGINT,
+    file_version_id BIGINT,
+    workflow_id BIGINT,
+    sql_hash VARCHAR(64),
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS operation_log (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    action VARCHAR(128) NOT NULL,
+    resource_type VARCHAR(64),
+    resource_id BIGINT,
+    detail TEXT,
+    operator_name VARCHAR(128),
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
