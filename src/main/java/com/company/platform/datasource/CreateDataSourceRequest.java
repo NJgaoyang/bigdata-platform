@@ -8,6 +8,6 @@ public record CreateDataSourceRequest(
         @NotNull DataSourceType type,
         @NotBlank String host,
         int port,
-        @NotBlank String databaseName,
+        String databaseName,
         @NotBlank String username,
         String password) { }

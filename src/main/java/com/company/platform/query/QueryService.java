@@ -50,14 +50,7 @@ public class QueryService {
         SqlSafetyChecker.CheckResult check = safetyChecker.check(sql);
         if (!check.safe()) throw new BadRequestException(check.message());
         if (dataSourceId != null) return executeJdbc(UUID.randomUUID().toString(), sql, selected, dataSourceId, databaseName);
-        String executionId = UUID.randomUUID().toString();
-        LocalDateTime startedAt = LocalDateTime.now();
-        executions.put(executionId, "SUCCESS");
-        QueryResult result = new QueryResult(executionId, "SUCCESS", List.of("order_date", "total_amount"),
-                List.of(Map.of("order_date", "2026-09-03", "total_amount", 12880.50)),
-                1, selected, LocalDateTime.now(), properties.getQuery().getDefaultMaxRows());
-        store.persistQueryExecution(executionId, null, null, sql, result.status(), startedAt, result.finishedAt(), 1, null);
-        return result;
+        throw new BadRequestException("请选择 StarRocks 数据源后执行 SQL");
     }
 
     public QueryHandle submit(String sql, boolean selected, Long dataSourceId, String databaseName) {
@@ -86,7 +79,7 @@ public class QueryService {
         if (result != null) return result;
         String status = executions.get(executionId);
         if (status == null) throw new BadRequestException("查询任务不存在：" + executionId);
-        return new QueryResult(executionId, status, List.of(), List.of(), 0, false, null, properties.getQuery().getDefaultMaxRows());
+        return new QueryResult(executionId, status, List.of(), List.of(), 0, false, null, properties.getQuery().getDefaultMaxRows(), null);
     }
 
     public List<QueryHistoryView> history() { return store.queryHistory(); }
@@ -121,7 +114,7 @@ public class QueryService {
             String status = "CANCELED".equals(executions.get(executionId)) ? "CANCELED" : "SUCCESS";
             executions.put(executionId, status);
             QueryResult result = new QueryResult(executionId, status, columns, rows, rows.size(), selected,
-                    LocalDateTime.now(), properties.getQuery().getDefaultMaxRows());
+                    LocalDateTime.now(), properties.getQuery().getDefaultMaxRows(), null);
             results.put(executionId, result);
             store.persistQueryExecution(executionId, dataSourceId, databaseName, sql, result.status(), startedAt, result.finishedAt(),
                     java.time.Duration.between(startedAt, result.finishedAt()).toMillis(), null);
@@ -130,7 +123,7 @@ public class QueryService {
             String status = "CANCELED".equals(executions.get(executionId)) ? "CANCELED" : "FAILED";
             executions.put(executionId, status);
             QueryResult terminal = new QueryResult(executionId, status, List.of(), List.of(), 0, selected,
-                    LocalDateTime.now(), properties.getQuery().getDefaultMaxRows());
+                    LocalDateTime.now(), properties.getQuery().getDefaultMaxRows(), ex.getMessage());
             results.put(executionId, terminal);
             store.persistQueryExecution(executionId, dataSourceId, databaseName, sql, status, startedAt, LocalDateTime.now(),
                     java.time.Duration.between(startedAt, LocalDateTime.now()).toMillis(), ex.getMessage());
@@ -149,5 +142,6 @@ public class QueryService {
     public void shutdown() { queryExecutor.shutdownNow(); }
     public record QueryHandle(String executionId, String status) { }
     public record QueryResult(String executionId, String status, List<String> columns, List<Map<String, Object>> rows,
-                              int rowCount, boolean selectedOnly, LocalDateTime finishedAt, int maxRows) { }
+                              int rowCount, boolean selectedOnly, LocalDateTime finishedAt, int maxRows,
+                              String errorMessage) { }
 }

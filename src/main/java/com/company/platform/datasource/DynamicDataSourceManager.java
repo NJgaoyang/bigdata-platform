@@ -20,9 +20,7 @@ public class DynamicDataSourceManager {
     }
 
     public Connection testConnection(String jdbcUrl, String username, String password) throws SQLException {
-        try (Connection connection = DriverManager.getConnection(jdbcUrl, username, password)) {
-            return connection;
-        }
+        return DriverManager.getConnection(jdbcUrl, username, password);
     }
 
     public void close(long sourceId) {

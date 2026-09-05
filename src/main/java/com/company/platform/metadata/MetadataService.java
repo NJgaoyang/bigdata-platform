@@ -69,9 +69,6 @@ public class MetadataService {
 
     private Connection connection(long dataSourceId) throws SQLException {
         DataSourceService.ConnectionInfo info = dataSources.connectionInfo(dataSourceId);
-        if (info.type() != DataSourceType.STARROCKS) {
-            throw new BadRequestException("数据探查仅允许使用 StarRocks 数据源");
-        }
         return connectionManager.getConnection(info.id(), info.jdbcUrl(), info.username(), info.password());
     }
     public record DatabaseView(String name, String comment) { }

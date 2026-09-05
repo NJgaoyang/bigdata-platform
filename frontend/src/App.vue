@@ -27,6 +27,8 @@ const searchVisible = ref(false);
 const helpVisible = ref(false);
 const noticeVisible = ref(false);
 const userVisible = ref(false);
+const passwordVisible = ref(false);
+const passwordForm = ref({ currentPassword: "", newPassword: "", confirmPassword: "" });
 const authenticated = ref(
   Boolean(localStorage.getItem("platform_access_token")),
 );
@@ -44,7 +46,13 @@ async function refreshSession() {
     const session = (await platformApi.me()).data.data;
     authenticated.value = Boolean(session.authenticated);
     username.value = session.username || username.value;
-    permissions.value = session.permissions || [];
+    // The built-in admin account is always a platform super administrator.
+    // Keep the shell usable if an older backend session has not returned the
+    // complete permission set yet; protected API calls still remain enforced
+    // by the backend.
+    permissions.value = String(session.username || username.value).trim().toLowerCase() === "admin"
+      ? navItems.map(item => item.permission)
+      : session.permissions || [];
   } catch {
     authenticated.value = false;
     permissions.value = [];
@@ -89,6 +97,29 @@ async function logout() {
   userVisible.value = false;
   await router.replace("/login");
 }
+function openPasswordDialog() {
+  passwordForm.value = { currentPassword: "", newPassword: "", confirmPassword: "" };
+  userVisible.value = false;
+  passwordVisible.value = true;
+}
+async function changePassword() {
+  if (passwordForm.value.newPassword.length < 6) {
+    ElMessage.warning("新密码至少需要 6 位");
+    return;
+  }
+  if (passwordForm.value.newPassword !== passwordForm.value.confirmPassword) {
+    ElMessage.warning("两次输入的新密码不一致");
+    return;
+  }
+  try {
+    await platformApi.changePassword(passwordForm.value);
+    ElMessage.success("密码修改成功，请使用新密码登录");
+    passwordVisible.value = false;
+    passwordForm.value = { currentPassword: "", newPassword: "", confirmPassword: "" };
+  } catch (error: any) {
+    ElMessage.error(error?.response?.data?.message || error?.message || "密码修改失败");
+  }
+}
 </script>
 
 <template>
@@ -119,7 +150,7 @@ async function logout() {
           <el-icon><Bell /></el-icon></button
         ><button class="user user-button" @click="userVisible = true">
           <div class="avatar">A</div>
-          <span>{{ username }}⌄</span>
+          <span>{{ username }}</span>
         </button>
       </div>
     </header>
@@ -165,12 +196,9 @@ async function logout() {
       </div>
       <button
         class="btn-default"
-        @click="
-          userVisible = false;
-          router.push('/settings');
-        "
+        @click="openPasswordDialog"
       >
-        打开系统配置
+        修改密码
       </button>
       <button
         v-if="authenticated"
@@ -180,6 +208,14 @@ async function logout() {
         退出登录
       </button></el-dialog
     >
+    <el-dialog v-model="passwordVisible" title="修改密码" width="min(420px, 90vw)">
+      <form class="password-form" @submit.prevent="changePassword">
+        <label>当前密码<input v-model="passwordForm.currentPassword" type="password" autocomplete="current-password" placeholder="请输入当前密码"></label>
+        <label>新密码<input v-model="passwordForm.newPassword" type="password" autocomplete="new-password" placeholder="至少 6 位"></label>
+        <label>确认新密码<input v-model="passwordForm.confirmPassword" type="password" autocomplete="new-password" placeholder="再次输入新密码"></label>
+        <div class="password-actions"><button type="button" class="btn-default" @click="passwordVisible = false">取消</button><button type="submit" class="btn-primary">保存</button></div>
+      </form>
+    </el-dialog>
   </div>
   <router-view v-else />
 </template>
@@ -197,6 +233,29 @@ async function logout() {
 }
 .logout-button {
   margin-left: 8px;
+}
+.password-form {
+  display: grid;
+  gap: 14px;
+}
+.password-form label {
+  display: grid;
+  gap: 6px;
+  color: #475467;
+  font-size: 13px;
+}
+.password-form input {
+  height: 36px;
+  border: 1px solid #d9e0e8;
+  border-radius: 6px;
+  padding: 0 10px;
+  outline: none;
+}
+.password-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
 }
 .global-search {
   display: flex;

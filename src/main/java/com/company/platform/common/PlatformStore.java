@@ -71,12 +71,12 @@ public class PlatformStore {
     public void loadPersistedCoreData() {
         if (jdbc == null) return;
         try {
-            jdbc.query("SELECT id,name,type,host,port,database_name,username,password_ciphertext,status FROM data_source", rs -> {
+            jdbc.query("SELECT id,name,type,host,port,database_name,username,password_ciphertext,status,metadata_visible FROM data_source", rs -> {
                 long id = rs.getLong("id");
                 dataSources.put(id, new DataSourceView(id, rs.getString("name"),
                         com.company.platform.datasource.DataSourceType.valueOf(rs.getString("type")),
                         rs.getString("host"), rs.getInt("port"), rs.getString("database_name"),
-                        rs.getString("username"), rs.getString("status")));
+                        rs.getString("username"), rs.getString("status"), rs.getBoolean("metadata_visible")));
                 String encrypted = rs.getString("password_ciphertext");
                 if (encrypted != null) encryptedDataSourcePasswords.put(id, encrypted);
                 advanceId(id);
@@ -228,10 +228,10 @@ public class PlatformStore {
 
     public void persistDataSource(DataSourceView view, String encryptedPassword) {
         if (jdbc == null) return;
-        int updated = jdbc.update("UPDATE data_source SET name=?,type=?,host=?,port=?,database_name=?,username=?,password_ciphertext=?,status=?,updated_at=CURRENT_TIMESTAMP WHERE id=?",
-                view.name(), view.type().name(), view.host(), view.port(), view.databaseName(), view.username(), encryptedPassword, view.status(), view.id());
-        if (updated == 0) jdbc.update("INSERT INTO data_source (id,name,type,host,port,database_name,username,password_ciphertext,status) VALUES (?,?,?,?,?,?,?,?,?)",
-                view.id(), view.name(), view.type().name(), view.host(), view.port(), view.databaseName(), view.username(), encryptedPassword, view.status());
+        int updated = jdbc.update("UPDATE data_source SET name=?,type=?,host=?,port=?,database_name=?,username=?,password_ciphertext=?,status=?,metadata_visible=?,updated_at=CURRENT_TIMESTAMP WHERE id=?",
+                view.name(), view.type().name(), view.host(), view.port(), view.databaseName(), view.username(), encryptedPassword, view.status(), view.metadataVisible(), view.id());
+        if (updated == 0) jdbc.update("INSERT INTO data_source (id,name,type,host,port,database_name,username,password_ciphertext,status,metadata_visible) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                view.id(), view.name(), view.type().name(), view.host(), view.port(), view.databaseName(), view.username(), encryptedPassword, view.status(), view.metadataVisible());
     }
     public void persistProject(DevProjectView view) {
         if (jdbc == null) return;
@@ -435,5 +435,7 @@ public class PlatformStore {
         files.put(fileId, new DevFileView(fileId, projectId, folderId, "daily_sales.sql", "SQL", content, "DRAFT", 1));
         long versionId = nextId();
         versions.put(versionId, new FileVersionView(versionId, fileId, 1, content, "seed", false));
+        long adminId = nextId();
+        users.put(adminId, new UserView(adminId, "admin", "平台管理员", "ADMIN", "ACTIVE", LocalDateTime.now(), null));
     }
 }

@@ -27,6 +27,14 @@ public class SeaTunnelGatewayImpl implements SeaTunnelGateway {
 
     @Override public ValidationResult validate(String config) {
         if (config == null || config.isBlank()) return new ValidationResult(false, "配置不能为空");
+        if (properties.getSeatunnel().isRealEnabled()) {
+            Path executable = Path.of(properties.getSeatunnel().getHome()).resolve("bin").resolve("seatunnel.sh");
+            if (!Files.isExecutable(executable)) return new ValidationResult(false, "SeaTunnel 启动脚本不可执行：" + executable);
+            if (!config.contains("env") || !config.contains("source") || !config.contains("sink")) {
+                return new ValidationResult(false, "SeaTunnel 配置必须包含 env、source 和 sink");
+            }
+            return new ValidationResult(true, "SeaTunnel 配置与真实运行环境检查通过");
+        }
         return fake.validate(config);
     }
 

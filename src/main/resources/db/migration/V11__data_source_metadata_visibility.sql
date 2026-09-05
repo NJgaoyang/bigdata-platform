@@ -1,0 +1,2 @@
+ALTER TABLE data_source
+    ADD COLUMN metadata_visible BOOLEAN NOT NULL DEFAULT TRUE;

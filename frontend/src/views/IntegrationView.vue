@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { ElMessage } from "element-plus";
 import { Connection, DocumentChecked, Grid, Setting } from "@element-plus/icons-vue";
 import { platformApi, type DataSource, type SeaTunnelCluster } from "../api";
@@ -27,6 +27,7 @@ type IntegrationTable = {
 };
 const search = ref("");
 const show = ref(false);
+const wizardRef = ref<HTMLElement>();
 const wizardStep = ref<1 | 2 | 3>(1);
 const taskDescription = ref("");
 const targetStrategy = ref("AUTO_CREATE");
@@ -50,22 +51,22 @@ const editingId = ref<number>();
 const importInput = ref<HTMLInputElement>();
 const polling = new Map<string, number>();
 const form = ref({
-  name: "ods_to_dw_customer",
+  name: "",
   sourceType: "MYSQL",
   targetType: "STARROCKS",
   syncMode: "FULL",
-  sourceHost: "81.69.15.136",
+  sourceHost: "",
   sourcePort: 3306,
-  sourceDatabase: "yzl_prd",
-  sourceUsername: "root",
+  sourceDatabase: "",
+  sourceUsername: "",
   sourcePassword: "",
-  sourceTable: "yzl_order",
-  targetHost: "81.69.15.136",
+  sourceTable: "",
+  targetHost: "",
   targetPort: 9030,
-  targetDatabase: "ods",
-  targetUsername: "dev_0904",
+  targetDatabase: "",
+  targetUsername: "",
   targetPassword: "",
-  targetTable: "yzl_order",
+  targetTable: "",
   where: "",
   parallelism: 1,
   batchSize: 1000,
@@ -102,6 +103,9 @@ const filteredSourceTables = computed(() => sourceTables.value.filter(item => !t
 const selectedTableNames = computed(() => new Set(form.value.tables.map(item => item.sourceTable)));
 const allTablesSelected = computed(() => filteredSourceTables.value.length > 0 && filteredSourceTables.value.every(item => selectedTableNames.value.has(item.name)));
 const selectedCluster = computed(() => clusters.value.find(item => item.id === selectedClusterId.value));
+watch(executionEngine, (engine) => {
+  if (engine === "SEATUNNEL_ZETA") deploymentMode.value = "CLUSTER";
+});
 function displayStatus(value: unknown) {
   const status = String(value || "DRAFT").toUpperCase();
   if (["RUNNING", "RUNNING_EXECUTION"].includes(status)) return "运行中";
@@ -153,41 +157,22 @@ async function loadWizardReferences() {
     sourceDataSources.value = dataSources.filter(item => item.type === "MYSQL");
     targetDataSources.value = dataSources.filter(item => item.type === "STARROCKS");
     clusters.value = clustersResult.data.data || [];
-    if (!sourceDataSourceId.value && sourceDataSources.value.length) await selectSourceDataSource(sourceDataSources.value[0].id);
-    if (!targetDataSourceId.value && targetDataSources.value.length) selectTargetDataSource(targetDataSources.value[0].id);
     if (!selectedClusterId.value && clusters.value.length) selectedClusterId.value = clusters.value[0].id;
   } catch (error: any) {
     ElMessage.error(error?.response?.data?.message || "加载数据源或集群配置失败");
   }
 }
 async function selectSourceDataSource(id?: number) {
+  const sourceChanged = sourceDataSourceId.value !== undefined && sourceDataSourceId.value !== id;
   sourceDataSourceId.value = id;
   const source = sourceDataSources.value.find(item => item.id === id);
   if (!source) return;
   Object.assign(form.value, { sourceType: source.type, sourceHost: source.host, sourcePort: source.port, sourceDatabase: source.databaseName, sourceUsername: source.username });
-  Object.assign(form.value, {
-    name: "",
-    sourceType: "MYSQL",
-    targetType: "STARROCKS",
-    syncMode: "FULL",
-    sourceHost: "",
-    sourcePort: 3306,
-    sourceDatabase: "",
-    sourceUsername: "",
-    sourcePassword: "",
-    sourceTable: "",
-    targetHost: "",
-    targetPort: 9030,
-    targetDatabase: "",
-    targetUsername: "",
-    targetPassword: "",
-    targetTable: "",
-    where: "",
-    parallelism: 1,
-    batchSize: 1000,
-    mappings: "",
-    tables: [],
-  });
+  if (sourceChanged) {
+    form.value.sourcePassword = "";
+    form.value.sourceTable = "";
+    form.value.tables = [];
+  }
   try {
     sourceTables.value = (await platformApi.integrationSourceTables(source.id)).data.data || [];
   } catch (error: any) {
@@ -221,6 +206,12 @@ function toggleAllSourceTables() {
 async function nextFromBasic() {
   if (!form.value.name.trim()) { ElMessage.warning("请填写同步任务名称"); return; }
   if (!sourceDataSourceId.value || !targetDataSourceId.value) { ElMessage.warning("请选择 MySQL 源和 StarRocks 目标数据源"); return; }
+  if (!form.value.sourceDatabase || !form.value.targetDatabase) { ElMessage.warning("请选择源数据库和目标数据库"); return; }
+  if (executionEngine.value === "SEATUNNEL_ZETA" && deploymentMode.value !== "CLUSTER") {
+    deploymentMode.value = "CLUSTER";
+    ElMessage.warning("SeaTunnel Zeta 只能使用 Cluster 集群模式");
+    return;
+  }
   if (deploymentMode.value === "CLUSTER" && !selectedClusterId.value) { ElMessage.warning("请选择目标集群节点"); return; }
   await selectSourceDataSource(sourceDataSourceId.value);
   wizardStep.value = 2;
@@ -385,7 +376,10 @@ async function editTask(task: Task) {
     await loadWizardReferences();
     sourceDataSourceId.value = sourceDataSources.value.find(item => item.host === form.value.sourceHost && item.port === form.value.sourcePort && item.databaseName === form.value.sourceDatabase)?.id;
     targetDataSourceId.value = targetDataSources.value.find(item => item.host === form.value.targetHost && item.port === form.value.targetPort && item.databaseName === form.value.targetDatabase)?.id;
+    if (sourceDataSourceId.value) await selectSourceDataSource(sourceDataSourceId.value);
+    if (targetDataSourceId.value) selectTargetDataSource(targetDataSourceId.value);
     show.value = true;
+    resetWizardScroll();
   } catch {
     ElMessage.error("同步任务配置加载失败");
   }
@@ -508,9 +502,35 @@ function openCreate() {
   selectedClusterId.value = undefined;
   sourceTables.value = [];
   tableKeyword.value = "";
-  form.value.tables = [];
+  Object.assign(form.value, {
+    name: "",
+    sourceType: "MYSQL",
+    targetType: "STARROCKS",
+    syncMode: "FULL",
+    sourceHost: "",
+    sourcePort: 3306,
+    sourceDatabase: "",
+    sourceUsername: "",
+    sourcePassword: "",
+    sourceTable: "",
+    targetHost: "",
+    targetPort: 9030,
+    targetDatabase: "",
+    targetUsername: "",
+    targetPassword: "",
+    targetTable: "",
+    where: "",
+    parallelism: 1,
+    batchSize: 1000,
+    mappings: "",
+    tables: [],
+  });
   void loadWizardReferences();
   show.value = true;
+  resetWizardScroll();
+}
+function resetWizardScroll() {
+  void nextTick(() => wizardRef.value?.scrollTo({ top: 0, left: 0, behavior: "auto" }));
 }
 function openTask(task: Task) {
   selectedTask.value = task;
@@ -600,6 +620,7 @@ async function importTask(event: Event) {
     wizardStep.value = 1;
     void loadWizardReferences();
     show.value = true;
+    resetWizardScroll();
     ElMessage.success("任务配置已导入，请确认后保存");
   } catch {
     ElMessage.error("导入失败，请选择正确的 JSON 任务配置");
@@ -740,19 +761,18 @@ async function importTask(event: Event) {
         </table>
       </div>
     </div>
-    <section v-if="show" class="integration-wizard page-body">
-      <div class="wizard-titlebar"><div><h1>{{ editingId ? "编辑同步任务" : "创建同步任务" }}</h1><p>配置 MySQL 到 StarRocks 的数据同步任务</p></div><button class="btn-default" @click="show = false">返回任务列表</button></div>
+    <section v-if="show" ref="wizardRef" class="integration-wizard page-body">
       <div class="wizard-steps"><button v-for="step in [1, 2, 3]" :key="step" type="button" class="wizard-step" :class="{ active: wizardStep === step, done: wizardStep > step }" :disabled="step > wizardStep" @click="goWizardStep(step)"><span>{{ wizardStep > step ? '✓' : step }}</span>{{ step === 1 ? '基本配置' : step === 2 ? '选择表' : '预览确认' }}</button></div>
       <div v-if="wizardStep === 1" class="wizard-card">
         <div class="wizard-card-title"><span class="wizard-icon"><el-icon><Setting /></el-icon></span><h2>基本配置</h2></div>
         <div class="wizard-two-columns"><div class="wizard-field"><label>任务名称</label><input v-model="form.name" placeholder="输入同步任务名称"></div><div class="wizard-field"><label>描述</label><input v-model="taskDescription" placeholder="任务描述"></div></div>
         <div class="wizard-field inline"><label>同步类型</label><label class="radio-label"><input v-model="form.syncMode" type="radio" value="FULL">批量同步 (BATCH)</label><label class="radio-label"><input v-model="form.syncMode" type="radio" value="INCREMENTAL">实时同步 (CDC)</label></div>
         <div class="wizard-field inline-wide"><label>增量条件</label><input v-model="form.where" placeholder="为空则全量同步，例如：create_time >= DATE_SUB(NOW(), INTERVAL 1 DAY)"></div>
-        <div class="wizard-field inline-wide"><label>目标策略</label><select v-model="targetStrategy"><option value="AUTO_CREATE">自动建表/补字段，保留已有数据</option><option value="TRUNCATE">清空目标表后全量写入</option><option value="APPEND">仅追加写入已有表</option></select></div>
-        <div class="wizard-field inline-wide"><label>目标集群</label><select v-model="selectedClusterId"><option :value="undefined">选择集群节点</option><option v-for="cluster in clusters" :key="cluster.id" :value="cluster.id">{{ cluster.name }} · {{ cluster.host }}:{{ cluster.port }}</option></select></div>
+        <div class="wizard-field inline-wide compact-wide-field"><label>目标策略</label><select v-model="targetStrategy"><option value="AUTO_CREATE">自动建表/补字段，保留已有数据</option><option value="TRUNCATE">清空目标表后全量写入</option><option value="APPEND">仅追加写入已有表</option></select></div>
+        <div class="wizard-field inline-wide compact-wide-field"><label>目标集群</label><select v-model="selectedClusterId"><option :value="undefined">选择集群节点</option><option v-for="cluster in clusters" :key="cluster.id" :value="cluster.id">{{ cluster.name }} · {{ cluster.host }}:{{ cluster.port }}</option></select></div>
         <div class="wizard-field inline"><label>执行引擎</label><label class="radio-label"><input v-model="executionEngine" type="radio" value="SEATUNNEL_ZETA">SeaTunnel Zeta</label><label class="radio-label"><input v-model="executionEngine" type="radio" value="FLINK">Flink</label><label class="radio-label"><input v-model="executionEngine" type="radio" value="SPARK">Spark</label></div>
-        <div class="wizard-field inline"><label>部署模式</label><label class="radio-label"><input v-model="deploymentMode" type="radio" value="CLIENT">Client 本地</label><label class="radio-label"><input v-model="deploymentMode" type="radio" value="CLUSTER">Cluster 集群</label></div>
-        <div class="wizard-endpoints"><div class="endpoint-card source"><h3>源数据库</h3><div class="wizard-field"><label>MySQL 源</label><select :value="sourceDataSourceId" @change="selectSourceDataSourceByEvent"><option value="">选择 MySQL 源</option><option v-for="source in sourceDataSources" :key="source.id" :value="source.id">{{ source.name }} · {{ source.databaseName }}</option></select></div><div class="endpoint-meta">{{ form.sourceHost || '—' }} · {{ form.sourceDatabase || '—' }}</div></div><div class="endpoint-arrow">→</div><div class="endpoint-card target"><h3>目标数据库</h3><div class="wizard-field"><label>StarRocks 目标</label><select :value="targetDataSourceId" @change="selectTargetDataSourceByEvent"><option value="">选择 StarRocks 目标</option><option v-for="target in targetDataSources" :key="target.id" :value="target.id">{{ target.name }} · {{ target.databaseName }}</option></select></div><div class="endpoint-meta">{{ form.targetHost || '—' }} · {{ form.targetDatabase || '—' }}</div></div></div>
+        <div class="wizard-field inline"><label>部署模式</label><label class="radio-label" :class="{ disabled: executionEngine === 'SEATUNNEL_ZETA' }"><input v-model="deploymentMode" type="radio" value="CLIENT" :disabled="executionEngine === 'SEATUNNEL_ZETA'">Client 本地</label><label class="radio-label"><input v-model="deploymentMode" type="radio" value="CLUSTER">Cluster 集群</label></div>
+        <div class="wizard-endpoints"><div class="endpoint-card source"><h3>源数据库</h3><div class="wizard-field"><label>MySQL 源</label><select :value="sourceDataSourceId" @change="selectSourceDataSourceByEvent"><option value="">选择 MySQL 源</option><option v-for="source in sourceDataSources" :key="source.id" :value="source.id">{{ source.name }} · {{ source.databaseName }}</option></select></div><div class="wizard-field endpoint-database-field"><select v-model="form.sourceDatabase" :disabled="!sourceDataSourceId"><option value="">源数据库</option><option v-if="form.sourceDatabase" :value="form.sourceDatabase">{{ form.sourceDatabase }}</option></select></div></div><div class="endpoint-arrow">→</div><div class="endpoint-card target"><h3>目标数据库</h3><div class="wizard-field"><label>StarRocks 目标</label><select :value="targetDataSourceId" @change="selectTargetDataSourceByEvent"><option value="">选择 StarRocks 目标</option><option v-for="target in targetDataSources" :key="target.id" :value="target.id">{{ target.name }} · {{ target.databaseName }}</option></select></div><div class="wizard-field endpoint-database-field"><select v-model="form.targetDatabase" :disabled="!targetDataSourceId"><option value="">目标数据库</option><option v-if="form.targetDatabase" :value="form.targetDatabase">{{ form.targetDatabase }}</option></select></div></div></div>
         <div class="wizard-footer"><button class="btn-default" @click="show = false">取消</button><button class="btn-primary" @click="nextFromBasic">下一步：选择表 →</button></div>
       </div>
       <div v-else-if="wizardStep === 2" class="wizard-card table-selector-card"><div class="wizard-card-title"><span class="wizard-icon"><el-icon><Grid /></el-icon></span><h2>选择同步表</h2><span class="selection-count">{{ form.tables.length }} / {{ sourceTables.length }}</span></div><div class="table-selector-tools"><label class="check-label"><input :checked="allTablesSelected" type="checkbox" @change="toggleAllSourceTables">全选</label><input v-model="tableKeyword" class="table-search" placeholder="搜索表名"></div><div class="source-table-list"><label v-for="table in filteredSourceTables" :key="table.name" class="source-table-row"><input :checked="selectedTableNames.has(table.name)" type="checkbox" @change="toggleSourceTable(table)"><el-icon><Grid /></el-icon><code>{{ table.name }}</code><span>{{ table.comment || '—' }}</span></label><div v-if="!sourceTables.length" class="empty-state">当前 MySQL 数据源未返回可同步表，请检查数据源连接。</div></div><div class="wizard-footer"><button class="btn-default" @click="wizardStep = 1">← 上一步</button><button class="btn-primary" @click="nextFromTables">下一步：预览确认 →</button></div></div>
@@ -1075,5 +1095,359 @@ async function importTask(event: Event) {
   color: #8b95a5;
   font-size: 12px;
 }
+
+/* Keep the task wizard aligned with the compact application shell.  The
+   wizard used to introduce a large, gradient canvas and oversized controls,
+   which made the first screen scroll out of view on normal laptop heights. */
+.integration-wizard {
+  width: calc(100% - 48px);
+  max-width: 1440px;
+  min-height: 0;
+  margin: 0 auto;
+  background: transparent;
+  color: var(--text);
+}
+.wizard-titlebar {
+  padding: 0 0 12px;
+}
+.wizard-titlebar h1 {
+  color: var(--text);
+  font-size: 20px;
+  line-height: 28px;
+  letter-spacing: 0;
+}
+.wizard-titlebar p {
+  margin: 3px 0 0;
+  color: var(--sub);
+  font-size: 13px;
+  line-height: 20px;
+}
+.wizard-steps {
+  gap: 6px;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--card);
+  box-shadow: none;
+}
+.wizard-step {
+  height: 42px;
+  border-radius: 6px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+}
+.wizard-step span {
+  width: 24px;
+  height: 24px;
+  margin-right: 7px;
+  background: #a8b3c2;
+  font-size: 12px;
+}
+.wizard-step.active {
+  background: var(--primary);
+  box-shadow: none;
+}
+.wizard-step.done {
+  background: #eaf8f1;
+  color: #158f55;
+}
+.wizard-step.done span {
+  background: #b9e8d0;
+  color: #158f55;
+}
+.wizard-card {
+  margin-top: 12px;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--card);
+  box-shadow: none;
+}
+.wizard-card-title {
+  gap: 9px;
+  margin-bottom: 16px;
+}
+.wizard-card-title h2 {
+  color: var(--text);
+  font-size: 16px;
+  line-height: 22px;
+}
+.wizard-icon {
+  width: 30px;
+  height: 30px;
+  border-radius: 6px;
+  background: var(--primary-weak);
+  font-size: 16px;
+}
+.wizard-two-columns {
+  gap: 14px;
+}
+.wizard-field label {
+  margin-bottom: 6px;
+  color: var(--sub);
+  font-size: 12px;
+  line-height: 18px;
+}
+.wizard-field input,
+.wizard-field select,
+.table-search {
+  height: 32px;
+  border-radius: 6px;
+  padding: 0 9px;
+  background: #fff;
+  font-size: 13px;
+}
+.wizard-field.inline,
+.wizard-field.inline-wide {
+  gap: 16px;
+  margin-top: 16px;
+}
+.wizard-field.inline > label,
+.wizard-field.inline-wide > label {
+  width: 68px;
+  flex-basis: 68px;
+}
+.radio-label {
+  gap: 6px;
+  font-size: 13px !important;
+}
+.radio-label input {
+  width: 15px;
+  height: 15px;
+}
+.radio-label input[type="radio"] {
+  appearance: auto;
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  box-shadow: none;
+  outline: none;
+}
+.radio-label input[type="radio"]:focus {
+  border: 0;
+  box-shadow: none;
+  outline: none;
+}
+.radio-label.disabled {
+  color: var(--muted) !important;
+  cursor: not-allowed;
+}
+.wizard-endpoints {
+  grid-template-columns: 1fr 36px 1fr;
+  gap: 14px;
+  margin-top: 20px;
+}
+.endpoint-card {
+  padding: 14px;
+  border-radius: 7px;
+  background: #fff;
+}
+.endpoint-card h3 {
+  margin: 0 0 12px;
+  font-size: 14px;
+  line-height: 20px;
+}
+.endpoint-meta {
+  margin-top: 8px;
+  font-size: 12px;
+}
+.endpoint-arrow {
+  font-size: 22px;
+}
+.wizard-footer {
+  margin-top: 18px;
+}
+.wizard-footer .btn-default,
+.wizard-footer .btn-primary {
+  min-width: 108px;
+  height: 32px;
+  border-radius: 6px;
+  font-size: 13px;
+}
+.table-selector-card {
+  min-height: 0;
+}
+.selection-count {
+  padding: 4px 9px;
+  border-radius: 12px;
+  background: var(--primary-weak);
+  font-size: 12px;
+}
+.table-selector-tools {
+  margin-bottom: 12px;
+}
+.check-label {
+  gap: 7px;
+  font-size: 13px;
+}
+.check-label input,
+.source-table-row input {
+  width: 16px;
+  height: 16px;
+}
+.table-search {
+  width: 240px;
+}
+.source-table-list {
+  min-height: 160px;
+  max-height: 360px;
+  padding: 4px;
+  border-radius: 7px;
+  background: #fff;
+}
+.source-table-row {
+  grid-template-columns: 20px 20px minmax(160px, 1fr) minmax(140px, .8fr);
+  gap: 8px;
+  min-height: 42px;
+  padding: 0 9px;
+  font-size: 13px;
+}
+.source-table-row .el-icon {
+  font-size: 16px;
+}
+.source-table-row code {
+  font-size: 13px;
+}
+.preview-grid {
+  gap: 10px;
+}
+.preview-grid div {
+  min-height: 62px;
+  padding: 11px;
+  border-radius: 7px;
+  gap: 4px;
+}
+.preview-grid span {
+  font-size: 12px;
+}
+.preview-grid b {
+  font-size: 13px;
+}
+.table-total {
+  margin-top: 14px;
+  font-size: 13px;
+}
+.config-preview pre {
+  max-height: 250px;
+  padding: 14px;
+  border-radius: 7px;
+  font-size: 12px;
+  line-height: 1.6;
+}
+/* The first wizard screen is deliberately compact enough for a 768px-high
+   viewport. Keep the radio groups on one line instead of giving each option
+   the fixed width used by the field label. */
+.integration-wizard {
+  overflow-y: auto;
+}
+.wizard-titlebar {
+  padding-bottom: 8px;
+}
+.wizard-steps {
+  height: 46px;
+  padding: 5px;
+}
+.wizard-step {
+  height: 34px;
+}
+.wizard-card {
+  margin-top: 8px;
+  padding: 14px;
+}
+.wizard-card-title {
+  margin-bottom: 10px;
+}
+.wizard-icon {
+  width: 26px;
+  height: 26px;
+  font-size: 14px;
+}
+.wizard-card-title h2 {
+  font-size: 15px;
+  line-height: 20px;
+}
+.wizard-two-columns {
+  gap: 10px;
+}
+.wizard-field input,
+.wizard-field select,
+.table-search {
+  height: 30px;
+}
+.wizard-field.inline,
+.wizard-field.inline-wide {
+  gap: 12px;
+  margin-top: 9px;
+}
+.wizard-field.inline > label:not(.radio-label),
+.wizard-field.inline-wide > label:not(.radio-label) {
+  width: 68px;
+  flex: 0 0 68px;
+  white-space: nowrap;
+}
+.wizard-field.inline > .radio-label {
+  width: auto;
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+.wizard-field.inline-wide input,
+.wizard-field.inline-wide select {
+  min-width: 0;
+}
+.compact-wide-field {
+  max-width: 800px;
+}
+.compact-wide-field select {
+  flex: 0 1 720px !important;
+  width: min(720px, calc(100% - 80px));
+}
+.wizard-endpoints {
+  grid-template-columns: minmax(0, 1fr) 30px minmax(0, 1fr);
+  gap: 10px;
+  margin-top: 12px;
+}
+.endpoint-card {
+  padding: 10px;
+}
+.endpoint-card h3 {
+  margin-bottom: 7px;
+  font-size: 13px;
+  line-height: 18px;
+}
+.endpoint-meta {
+  margin-top: 5px;
+  font-size: 11px;
+  line-height: 16px;
+}
+.endpoint-database-field {
+  margin-top: 10px;
+}
+.wizard-footer {
+  margin-top: 10px;
+}
 @media (max-width: 900px) { .integration-wizard { padding:14px; }.wizard-titlebar { align-items:flex-start; gap:14px; }.wizard-titlebar h1 { font-size:24px; }.wizard-steps { gap:6px; padding:7px; }.wizard-step { height:54px; font-size:13px; }.wizard-step span { width:25px; height:25px; margin-right:5px; }.wizard-two-columns,.wizard-endpoints,.preview-grid { grid-template-columns:1fr; }.endpoint-arrow { display:none; }.wizard-field.inline,.wizard-field.inline-wide { align-items:flex-start; flex-wrap:wrap; gap:13px; }.wizard-field.inline > label,.wizard-field.inline-wide > label { width:100%; flex-basis:100%; }.table-search { width:52%; }.source-table-row { grid-template-columns:22px 22px minmax(130px,1fr); }.source-table-row span { display:none; }.wizard-card { padding:20px; }.table-selector-card { min-height:0; }.source-table-list { min-height:280px; }.wizard-footer .btn-default,.wizard-footer .btn-primary { min-width:110px; } }
+@media (max-width: 900px) {
+  .integration-wizard { width:calc(100% - 28px); padding:14px; }
+  .wizard-titlebar h1 { font-size: 20px; }
+  .wizard-card { padding: 16px; }
+  .source-table-list { min-height: 160px; }
+}
+@media (max-width: 900px) {
+  .wizard-field.inline > label:not(.radio-label),
+  .wizard-field.inline-wide > label:not(.radio-label) {
+    width: 100%;
+    flex-basis: 100%;
+  }
+  .wizard-field.inline > .radio-label {
+    width: auto;
+    flex-basis: auto;
+  }
+  .compact-wide-field { max-width:none; }
+  .compact-wide-field select { flex:1 1 100% !important; width:100%; }
+}
 </style>

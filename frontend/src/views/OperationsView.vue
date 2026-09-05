@@ -19,7 +19,7 @@ const panelVisible = ref(false)
 const panelMode = ref<'alerts' | 'search'>('alerts')
 const logKeyword = ref('')
 const searchedTasks = computed(() => taskInstances.value.filter(item => !logKeyword.value || String(item.name || '').toLowerCase().includes(logKeyword.value.toLowerCase())))
-onMounted(async () => {
+async function loadInstances() {
   try {
     const [healthResponse, response, taskResponse, failedResponse] = await Promise.all([
       platformApi.health(), platformApi.operationInstances(), platformApi.operationTasks(), platformApi.failedOperations()
@@ -40,8 +40,9 @@ onMounted(async () => {
       const firstTask = firstTaskByProcess.get(processInstanceId)
       return { id: String(item.id || item.name || ''), taskId: String(firstTask?.id || ''), processInstanceId, name: String(item.name || '未命名实例'), type: '工作流', start: String(item.startTime || '—'), duration: '—', status: normalized, cls: normalized === '成功' ? 'ok' : normalized === '失败' ? 'bad' : 'run' }
     })
-  } catch { health.value = { status: 'DOWN' } }
-})
+  } catch (error) { health.value = { status: 'DOWN' }; ElMessage.error(error instanceof Error ? error.message : '运维数据加载失败'); }
+}
+onMounted(loadInstances)
 const successCount = computed(() => instances.value.filter(item => item.status === '成功').length)
 const runningCount = computed(() => instances.value.filter(item => item.status === '运行中').length)
 const failedCount = computed(() => failedInstances.value.length || instances.value.filter(item => item.status === '失败').length)
@@ -53,6 +54,7 @@ const filteredInstances = computed(() => instances.value.filter(item =>
 function action(message: string) { ElMessage.success(message) }
 function applyFilters() {
   search.value = search.value.trim()
+  void loadInstances()
 }
 function openPanel(mode: 'alerts' | 'search') { panelMode.value = mode; panelVisible.value = true }
 async function openLog(item: Operation) {
@@ -67,10 +69,10 @@ async function openLog(item: Operation) {
   finally { logLoading.value = false }
 }
 async function rerun(item: Operation) {
-  try { await platformApi.rerunOperation(item.id); action('实例已重新提交') } catch { ElMessage.error('实例重跑失败') }
+  try { await platformApi.rerunOperation(item.id); action('实例已重新提交'); await loadInstances() } catch (error) { ElMessage.error(error instanceof Error ? error.message : '实例重跑失败') }
 }
 async function stop(item: Operation) {
-  try { await platformApi.stopOperation(item.id); item.status = '已停止'; item.cls = 'bad'; action('实例已停止') } catch { ElMessage.error('实例停止失败') }
+  try { await platformApi.stopOperation(item.id); action('停止请求已提交'); await loadInstances() } catch (error) { ElMessage.error(error instanceof Error ? error.message : '实例停止失败') }
 }
 function openTaskLog(task: Record<string, unknown>) {
   openLog({ id: String(task.id || ''), taskId: String(task.id || ''), processInstanceId: String(task.processInstanceId || ''), name: String(task.name || '任务'), type: '任务', start: '', duration: '', status: String(task.status || ''), cls: 'ok' })

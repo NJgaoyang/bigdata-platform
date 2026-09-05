@@ -13,7 +13,7 @@ const alertCount = ref(0)
 const activities = ref<{ color: string; title: string; detail: string }[]>([])
 const serviceLabel = computed(() => {
   if (health.value?.status !== 'UP') return '后端连接异常'
-  return health.value?.mode === 'real' ? '真实服务已连接' : '开发 Mock Gateway'
+  return health.value?.mode === 'real' ? '真实模式（外部服务以实际请求结果为准）' : '开发 Mock Gateway'
 })
 onMounted(async () => {
   const [healthResult, projectsResult, integrationsResult, workflowsResult, instancesResult, failedResult] = await Promise.allSettled([

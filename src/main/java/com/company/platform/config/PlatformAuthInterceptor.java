@@ -18,19 +18,21 @@ public class PlatformAuthInterceptor implements HandlerInterceptor {
         String path = request.getRequestURI();
         if (path.equals("/api/health") || path.startsWith("/api/auth/") || request.getMethod().equalsIgnoreCase("OPTIONS")) return true;
         if (!auth.enabled()) {
+            request.setAttribute("platform.operator", "admin");
             audit.record("API_REQUEST", "HTTP", null, request.getMethod() + " " + path, "admin");
             return true;
         }
         String header = request.getHeader("Authorization");
         String token = header != null && header.startsWith("Bearer ") ? header.substring(7).trim() : "";
         if (auth.authenticate(token)) {
-            if (!auth.hasPermission(token, path)) {
+            if (!auth.hasPermission(token, request.getMethod(), path)) {
                 response.setStatus(HttpServletResponse.SC_FORBIDDEN);
                 response.setContentType("application/json;charset=UTF-8");
                 response.getWriter().write("{\"success\":false,\"data\":null,\"message\":\"当前用户没有该模块权限\"}");
                 audit.record("ACCESS_DENIED", "HTTP", null, request.getMethod() + " " + path, auth.currentUsername(token));
                 return false;
             }
+            request.setAttribute("platform.operator", auth.currentUsername(token));
             audit.record("API_REQUEST", "HTTP", null, request.getMethod() + " " + path, auth.currentUsername(token));
             return true;
         }

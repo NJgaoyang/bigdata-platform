@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { ElMessage } from "element-plus";
 import { Graph } from "@antv/x6";
-import { platformApi } from "../api";
+import { platformApi, type DevFile } from "../api";
 
 const search = ref("");
 const scheduleOpen = ref(false);
@@ -41,7 +41,41 @@ const backfill = ref({
 });
 const dagCanvas = ref<HTMLElement>();
 const workflowId = ref<number>();
-const defaultFileVersionId = ref<number>();
+const nodeOpen = ref(false);
+const nodeId = ref("");
+const nodeName = ref("");
+const nodeConfig = ref("{}");
+const nodeVersion = ref<number>();
+const availableFiles = ref<DevFile[]>([]);
+const versions = ref<{ id: number; label: string }[]>([]);
+async function editNode(id: string) {
+  const node = graph?.getCellById(id);
+  if (!node) return;
+  nodeId.value = id;
+  nodeName.value = String(node.getAttrByPath("label/text") || id);
+  nodeConfig.value = node.getData()?.configJson || "{}";
+  nodeVersion.value = node.getData()?.fileVersionId || undefined;
+  versions.value = [];
+  nodeOpen.value = true;
+  try {
+    const projects = (await platformApi.projects()).data.data;
+    availableFiles.value = (await Promise.all(projects.map(p => platformApi.files(p.id)))).flatMap(r => r.data.data);
+    const matching = availableFiles.value.filter(f => f.fileType === node.getData()?.nodeType);
+    const results = await Promise.all(matching.map(async f => ({ file: f, versions: (await platformApi.fileVersions(f.id)).data.data })));
+    versions.value = results.flatMap(r => r.versions.map(v => ({ id: Number(v.id), label: `${r.file.name} · v${v.versionNo}` })));
+  } catch { ElMessage.error("文件版本加载失败，请重试"); }
+}
+function saveNode() {
+  try {
+    const config = JSON.parse(nodeConfig.value);
+    if (!config || Array.isArray(config) || typeof config !== "object") throw new Error();
+    if (!nodeName.value.trim()) { ElMessage.warning("请输入节点名称"); return; }
+    const node = graph?.getCellById(nodeId.value);
+    node?.attr("label/text", nodeName.value.trim());
+    node?.setData({ ...node.getData(), fileVersionId: nodeVersion.value ?? null, configJson: JSON.stringify(config) });
+    nodeOpen.value = false;
+  } catch { ElMessage.error("节点参数必须是有效的 JSON 对象"); }
+}
 let graph: Graph | undefined;
 type WorkflowRow = {
   id?: number;
@@ -68,7 +102,7 @@ const filteredWorkflows = computed(() =>
   ),
 );
 const runningWorkflows = computed(
-  () => workflows.value.filter((item) => item.status === "运行中").length,
+  () => workflows.value.filter((item) => item.status === "已上线").length,
 );
 const successWorkflows = computed(
   () =>
@@ -77,7 +111,7 @@ const successWorkflows = computed(
     ).length,
 );
 const failedWorkflows = computed(
-  () => workflows.value.filter((item) => item.status === "失败").length,
+  () => workflows.value.filter((item) => item.status === "草稿").length,
 );
 const scheduleCron = computed(() => {
   if (scheduleUnit.value === "minute")
@@ -217,6 +251,7 @@ function addGraphNode(node: {
   name: string;
   nodeType: string;
   fileVersionId?: number | null;
+  configJson?: string;
   x: number;
   y: number;
 }) {
@@ -231,6 +266,14 @@ function addGraphNode(node: {
     data: {
       nodeType: node.nodeType,
       fileVersionId: node.fileVersionId ?? null,
+      configJson: node.configJson || "{}",
+    },
+    ports: {
+      groups: {
+        in: { position: "top", attrs: { circle: { r: 5, magnet: "passive", stroke: "#2864eb", fill: "#fff" } } },
+        out: { position: "bottom", attrs: { circle: { r: 5, magnet: true, stroke: "#2864eb", fill: "#fff" } } },
+      },
+      items: [{ id: "in", group: "in" }, { id: "out", group: "out" }],
     },
     attrs: nodeStyle(node.nodeType),
   });
@@ -252,6 +295,7 @@ async function loadWorkflowGraph(id: number) {
       id: String(item.nodeCode || item.id || `node-${index}`),
       name: String(item.name || "未命名任务"),
       nodeType,
+      configJson: String(item.configJson || "{}"),
       fileVersionId:
         typeof item.fileVersionId === "number" ? item.fileVersionId : null,
       x: Number(item.x || 60 + (index % 4) * 230),
@@ -304,7 +348,7 @@ function addNode(nodeType: "SQL" | "SHELL" | "PYTHON" | "SEATUNNEL") {
     id: `task-${Date.now()}-${index}`,
     name: labels[nodeType],
     nodeType,
-    fileVersionId: nodeType === "SEATUNNEL" ? null : defaultFileVersionId.value,
+    fileVersionId: null,
     x: 60 + (index % 4) * 230,
     y: 220 + Math.floor(index / 4) * 100,
   });
@@ -344,12 +388,13 @@ async function publishWorkflow(item: WorkflowRow) {
     return;
   }
   try {
+    if (workflowId.value === item.id && !(await saveGraph())) return;
     await platformApi.publishWorkflow(item.id);
     item.status = "已发布";
     item.statusClass = "ok";
     action("工作流已发布");
-  } catch {
-    ElMessage.error("工作流发布失败，请先完成节点配置和版本绑定");
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : "工作流发布失败");
   }
 }
 async function deleteWorkflow(item: WorkflowRow) {
@@ -392,8 +437,8 @@ async function onlineWorkflow(item: WorkflowRow) {
     item.status = "已上线";
     item.statusClass = "ok";
     action("调度已上线");
-  } catch {
-    ElMessage.error("调度上线失败，请先发布并保存 Cron");
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : "调度上线失败");
   }
 }
 async function offlineWorkflow(item: WorkflowRow) {
@@ -432,7 +477,7 @@ async function saveSchedule() {
   ElMessage.warning("请先选择一个真实工作流");
 }
 async function openSchedule(item: WorkflowRow) {
-  selectWorkflow(item);
+  await selectWorkflow(item);
   if (workflowId.value) {
     const result = await platformApi
       .schedule(workflowId.value)
@@ -491,11 +536,12 @@ async function saveGraph() {
           const fileVersionId =
             nodeType === "SEATUNNEL"
               ? null
-              : (node.getData()?.fileVersionId ?? defaultFileVersionId.value);
+              : (node.getData()?.fileVersionId ?? null);
           return {
             name: label,
             nodeType,
             fileVersionId,
+            configJson: node.getData()?.configJson || "{}",
             x: node.position().x,
             y: node.position().y,
             nodeCode: node.id,
@@ -521,10 +567,10 @@ async function saveGraph() {
         current.updated = "刚刚";
       }
       action("画布已保存到平台数据库");
-      return;
+      return true;
     } catch {
       ElMessage.error("画布保存失败，请检查节点版本和连线");
-      return;
+      return false;
     }
   }
   ElMessage.warning("请先选择一个真实工作流");
@@ -545,55 +591,32 @@ onMounted(() => {
       connector: "rounded",
     },
   });
-  // 画布只展示后端返回的节点，不再注入示例 DAG。
-  platformApi
-    .projects()
-    .then(async (result) => {
-      const existingProject = result.data.data?.[0];
-      const project =
-        existingProject ||
-        (
-          await platformApi
-            .createProject({
-              name: "数仓开发项目",
-              description: "平台默认开发项目",
-            })
-            .catch(() => null)
-        )?.data.data;
-      if (!project) return;
-      const file = (await platformApi.files(project.id).catch(() => null))?.data
-        .data?.[0];
-      if (file) {
-        const versions = await platformApi
-          .fileVersions(file.id)
-          .catch(() => null);
-        const latest = versions?.data.data?.[0];
-        if (latest && typeof latest.id === "number")
-          defaultFileVersionId.value = latest.id;
-      }
-    })
-    .catch(() => undefined);
+  graph.on("node:dblclick", ({ node }) => { void editNode(node.id); });
+  graph.on("edge:dblclick", ({ edge }) => {
+    if (window.confirm("删除这条连线？保存画布后生效。")) graph?.removeCell(edge);
+  });
   platformApi
     .workflows()
     .then(async (result) => {
       const actual = result.data.data || [];
-      workflows.value = actual.map((item) => {
+      workflows.value = await Promise.all(actual.map(async (item) => {
           const state = workflowStatus(item.status);
+          const config = (await platformApi.schedule(Number(item.id))).data.data;
           return {
             id: Number(item.id),
             name: String(item.name || "未命名工作流"),
-            project: "平台项目",
-            schedule: "未配置",
-            status: state.status,
+            project: "—",
+            schedule: config.id ? String(config.cronExpression) : "未配置",
+            status: config.enabled ? "已上线" : state.status,
             statusClass: state.statusClass,
-            owner: "admin",
-            updated: "刚刚",
+            owner: "—",
+            updated: "—",
           };
-        });
+        }));
         const id = actual[0]?.id;
         if (typeof id === "number") await selectWorkflow(workflows.value[0]);
     })
-    .catch(() => undefined);
+    .catch(() => ElMessage.error("工作流或调度配置加载失败，请检查后端连接"));
 });
 onBeforeUnmount(() => graph?.dispose());
 </script>
@@ -623,21 +646,21 @@ onBeforeUnmount(() => graph?.dispose());
         <div class="metric">
           <div class="metric-icon green">◷</div>
           <div>
-            <div class="metric-label">运行中</div>
+            <div class="metric-label">已上线</div>
             <div class="metric-value">{{ runningWorkflows }}</div>
           </div>
         </div>
         <div class="metric">
           <div class="metric-icon purple">▶</div>
           <div>
-            <div class="metric-label">今日成功</div>
+            <div class="metric-label">已发布 / 已上线</div>
             <div class="metric-value">{{ successWorkflows }}</div>
           </div>
         </div>
         <div class="metric">
           <div class="metric-icon orange">!</div>
           <div>
-            <div class="metric-label">失败</div>
+            <div class="metric-label">草稿</div>
             <div class="metric-value">{{ failedWorkflows }}</div>
           </div>
         </div>
@@ -647,7 +670,7 @@ onBeforeUnmount(() => graph?.dispose());
         <div class="card-head">
           <span>工作流 DAG 设计</span>
           <div class="dag-tools">
-            <span class="muted">拖拽节点 · 连线 · Ctrl + 滚轮缩放</span
+            <span class="muted">双击配置节点 · 从底部圆点连线 · 双击删除连线</span
             ><button class="btn-default" :disabled="!workflowId" @click="addNode('SQL')">＋SQL</button
             ><button class="btn-default" :disabled="!workflowId" @click="addNode('SHELL')">
               ＋Shell</button
@@ -663,6 +686,14 @@ onBeforeUnmount(() => graph?.dispose());
           </div>
         </div>
         <div ref="dagCanvas" class="dag-canvas"></div>
+        <el-dialog v-model="nodeOpen" title="节点配置（保存后需保存画布）" width="640px">
+          <el-form label-width="100px">
+            <el-form-item label="节点名称"><el-input v-model="nodeName" /></el-form-item>
+            <el-form-item label="开发文件版本"><el-select v-model="nodeVersion" clearable placeholder="选择与节点类型一致的文件版本" style="width:100%"><el-option v-for="v in versions" :key="v.id" :value="v.id" :label="v.label" /></el-select></el-form-item>
+            <el-form-item label="执行参数 JSON"><el-input v-model="nodeConfig" type="textarea" :rows="8" placeholder='SQL 节点需配置 DolphinScheduler 数据源；SeaTunnel 节点配置启动参数' /></el-form-item>
+          </el-form>
+          <template #footer><el-button type="danger" @click="graph?.removeCell(nodeId); nodeOpen = false">删除节点</el-button><el-button @click="nodeOpen = false">取消</el-button><el-button type="primary" @click="saveNode">保存节点</el-button></template>
+        </el-dialog>
       </div>
 
       <div class="card">

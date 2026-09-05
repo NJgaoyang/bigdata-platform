@@ -28,14 +28,24 @@ public class DataSourceController {
         return Result.ok(service.update(id, request), "数据源已更新");
     }
 
+    @PutMapping("/{id}/metadata-visibility")
+    public Result<DataSourceView> setMetadataVisibility(@PathVariable long id,
+                                                        @RequestBody MetadataVisibilityRequest request) {
+        return Result.ok(service.setMetadataVisible(id, request.visible()),
+                request.visible() ? "已在元数据中展示" : "已从元数据中隐藏");
+    }
+
     @DeleteMapping("/{id}")
     public Result<Void> delete(@PathVariable long id) {
         service.delete(id);
         return Result.ok(null, "数据源已删除");
     }
 
-    @PostMapping("/{id}/test")
+    @RequestMapping(value = "/{id}/test", method = {RequestMethod.GET, RequestMethod.POST})
     public Result<DataSourceService.ConnectionTestResult> test(@PathVariable long id) {
         return Result.ok(service.test(id));
     }
+
+
+    public record MetadataVisibilityRequest(boolean visible) { }
 }

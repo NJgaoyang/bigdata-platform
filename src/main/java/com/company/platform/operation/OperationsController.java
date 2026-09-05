@@ -15,23 +15,19 @@ public class OperationsController {
     @GetMapping("/process-instances")
     public Result<List<Map<String, Object>>> processes() {
         List<Map<String, Object>> actual = gateway.listProcessInstances();
-        return Result.ok(actual.isEmpty() && !gateway.isRealMode()
-                ? List.of(instance("sales_daily_20260903", "SUCCESS"), instance("customer_dim_20260903", "WARNING"))
-                : actual);
+        return Result.ok(actual);
     }
     @GetMapping("/task-instances")
     public Result<List<Map<String, Object>>> tasks() {
         List<Map<String, Object>> actual = gateway.listTaskInstances();
-        return Result.ok(actual.isEmpty() && !gateway.isRealMode()
-                ? List.of(instance("customer_dim_20260903", "SUCCESS")) : actual);
+        return Result.ok(actual);
     }
     @GetMapping("/failed-tasks")
     public Result<List<Map<String, Object>>> failed() {
         List<Map<String, Object>> actual = gateway.listTaskInstances().stream()
                 .filter(item -> String.valueOf(item.getOrDefault("status", "")).contains("FAIL"))
                 .toList();
-        return Result.ok(actual.isEmpty() && !gateway.isRealMode()
-                ? List.of(instance("customer_dim_20260903", "WARNING")) : actual);
+        return Result.ok(actual);
     }
     @GetMapping("/task-instances/{id}/log")
     public Result<String> log(@PathVariable String id) { return Result.ok(gateway.taskLog(id)); }

@@ -4,6 +4,7 @@ import com.company.platform.common.BadRequestException;
 import com.company.platform.common.NotFoundException;
 import com.company.platform.common.PlatformStore;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Autowired;
 
 import java.util.HashSet;
 import java.util.List;
@@ -17,7 +18,10 @@ import java.time.LocalDateTime;
 public class AccessService {
     private final PlatformStore store;
     private final AuditService audit;
+    private AuthService auth;
     public AccessService(PlatformStore store, AuditService audit) { this.store = store; this.audit = audit; }
+    @Autowired
+    public void setAuthService(AuthService auth) { this.auth = auth; }
 
     public static final Set<String> MODULE_PERMISSIONS = Set.of(
             "DATA_INTEGRATION", "DATA_DEVELOPMENT", "DATA_EXPLORE", "DATA_LINEAGE",
@@ -42,6 +46,9 @@ public class AccessService {
     public UserView updateUser(long id, AccessRequests.UserUpdateRequest request) {
         UserView current = store.users.get(id);
         if (current == null) throw new NotFoundException("用户不存在：" + id);
+        if (isBuiltInAdmin(current) && (!"ADMIN".equalsIgnoreCase(request.roleCode()) || "DISABLED".equalsIgnoreCase(request.status()))) {
+            throw new BadRequestException("内置 admin 账号不能降级或禁用");
+        }
         boolean duplicate = store.users.values().stream().anyMatch(user -> user.id() != id && user.username().equalsIgnoreCase(request.username()));
         if (duplicate) throw new BadRequestException("用户名已存在");
         String passwordHash = request.password() == null || request.password().isBlank() ? current.passwordHash() : hash(request.password());
@@ -55,18 +62,25 @@ public class AccessService {
         return updated;
     }
     public void deleteUser(long id) {
-        UserView current = store.users.remove(id);
+        UserView current = store.users.get(id);
         if (current == null) throw new NotFoundException("用户不存在：" + id);
+        if (isBuiltInAdmin(current)) throw new BadRequestException("内置 admin 账号不能删除");
         store.deleteUser(id);
+        store.users.remove(id);
+        if (auth != null) auth.invalidateUser(current.username());
         audit.record("DELETE_USER", "USER", id, current.username(), "admin");
     }
     public UserView setUserStatus(long id, String status) {
         UserView current = store.users.get(id);
         if (current == null) throw new NotFoundException("用户不存在：" + id);
+        if (isBuiltInAdmin(current) && "DISABLED".equalsIgnoreCase(status)) {
+            throw new BadRequestException("内置 admin 账号不能禁用");
+        }
         UserView updated = new UserView(id, current.username(), current.displayName(), current.roleCode(),
                 normalizeStatus(status), current.createdAt(), current.passwordHash());
         store.users.put(id, updated);
         store.persistUser(updated);
+        if ("DISABLED".equals(updated.status()) && auth != null) auth.invalidateUser(updated.username());
         audit.record("UPDATE_USER_STATUS", "USER", id, updated.status(), "admin");
         return updated;
     }
@@ -123,6 +137,9 @@ public class AccessService {
         } catch (Exception ex) {
             throw new IllegalStateException("无法生成用户密码摘要", ex);
         }
+    }
+    private boolean isBuiltInAdmin(UserView user) {
+        return user != null && "admin".equalsIgnoreCase(user.username().trim());
     }
     public String grantProjectPermission(long projectId, AccessRequests.PermissionBindingRequest request) {
         if (!store.projects.containsKey(projectId)) throw new NotFoundException("项目不存在：" + projectId);

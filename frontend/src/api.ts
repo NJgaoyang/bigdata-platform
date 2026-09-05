@@ -9,6 +9,14 @@ http.interceptors.request.use((config) => {
 http.interceptors.response.use(
   (response) => response,
   (error) => {
+    if (error.response?.data?.message) error.message = error.response.data.message;
+    if (error.response?.status === 403 && !error.response?.data?.message) {
+      error.message = "请求被访问入口拦截（HTTP 403），请检查代理是否允许当前请求方法";
+    } else if (!error.response && error.code === "ECONNABORTED") {
+      error.message = "请求超时，请检查后端服务或数据库连接";
+    } else if (!error.response) {
+      error.message = "无法连接平台后端，请检查服务地址和网络";
+    }
     if (
       error.response?.status === 401 &&
       window.location.pathname !== "/login"
@@ -58,6 +66,7 @@ export interface DataSource {
   databaseName: string;
   username: string;
   status: string;
+  metadataVisible: boolean;
 }
 
 export interface SeaTunnelCluster {
@@ -79,8 +88,10 @@ export const platformApi = {
     http.post<
       ApiResult<{ token: string; username: string; expiresAt: string }>
     >("/auth/login", { username, password }),
+  changePassword: (request: { currentPassword: string; newPassword: string; confirmPassword: string }) =>
+    http.post<ApiResult<void>>("/auth/password", request),
   logout: () => http.post<ApiResult<void>>("/auth/logout"),
-  me: () => http.get<ApiResult<{ username: string; authenticated: boolean; permissions: string[] }>>("/auth/me"),
+  me: () => http.get<ApiResult<{ username: string; authenticated: boolean; permissions: string[]; roleCode: string; superAdmin: boolean }>>("/auth/me"),
   projects: () => http.get<ApiResult<Project[]>>("/development/projects"),
   createProject: (request: Record<string, unknown>) =>
     http.post<ApiResult<Project>>("/development/projects", request),
@@ -154,9 +165,11 @@ export const platformApi = {
   deleteDataSource: (id: number) =>
     http.delete<ApiResult<void>>(`/data-sources/${id}`),
   testDataSource: (id: number) =>
-    http.post<ApiResult<{ success: boolean; message: string }>>(
+    http.get<ApiResult<{ success: boolean; message: string }>>(
       `/data-sources/${id}/test`,
     ),
+  setDataSourceMetadataVisibility: (id: number, visible: boolean) =>
+    http.put<ApiResult<DataSource>>(`/data-sources/${id}/metadata-visibility`, { visible }),
   metadataDatabases: (dataSourceId: number, type: string) =>
     http.get<ApiResult<{ name: string; comment: string }[]>>(
       "/metadata/databases",
@@ -294,6 +307,8 @@ export const platformApi = {
       ApiResult<{ executionId: string; status: string; message: string }>
     >(`/integration/tasks/executions/${executionId}`),
   lineage: () => http.get<ApiResult<Record<string, unknown>[]>>("/lineage"),
+  lineageByTable: (name: string) =>
+    http.get<ApiResult<Record<string, unknown>[]>>("/lineage/table", { params: { name } }),
   operationInstances: () =>
     http.get<ApiResult<Record<string, unknown>[]>>(
       "/operations/process-instances",

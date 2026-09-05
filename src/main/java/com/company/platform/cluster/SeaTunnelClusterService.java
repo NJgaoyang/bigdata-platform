@@ -37,9 +37,9 @@ public class SeaTunnelClusterService {
                 request.port(), blankToNull(request.sshUsername()), normalizeSshPort(request.sshPort()), request.seatunnelHome().trim(),
                 blankToNull(request.description()), "UNKNOWN", LocalDateTime.now());
         String encryptedPassword = cipher.encrypt(request.sshPassword());
+        store.persistSeaTunnelCluster(cluster, encryptedPassword);
         store.seaTunnelClusters.put(cluster.id(), cluster);
         store.encryptedClusterPasswords.put(cluster.id(), encryptedPassword);
-        store.persistSeaTunnelCluster(cluster, encryptedPassword);
         audit.record("CREATE_CLUSTER", "SEATUNNEL_CLUSTER", cluster.id(), cluster.name(), "admin");
         return cluster;
     }
@@ -54,18 +54,18 @@ public class SeaTunnelClusterService {
                 blankToNull(request.description()), current.healthStatus(), current.createdAt());
         String encryptedPassword = request.sshPassword() == null || request.sshPassword().isBlank()
                 ? store.encryptedClusterPasswords.getOrDefault(id, "") : cipher.encrypt(request.sshPassword());
+        store.persistSeaTunnelCluster(updated, encryptedPassword);
         store.seaTunnelClusters.put(id, updated);
         store.encryptedClusterPasswords.put(id, encryptedPassword);
-        store.persistSeaTunnelCluster(updated, encryptedPassword);
         audit.record("UPDATE_CLUSTER", "SEATUNNEL_CLUSTER", id, updated.name(), "admin");
         return updated;
     }
 
     public void delete(long id) {
-        SeaTunnelClusterView cluster = store.seaTunnelClusters.remove(id);
-        if (cluster == null) throw new NotFoundException("集群不存在");
-        store.encryptedClusterPasswords.remove(id);
+        SeaTunnelClusterView cluster = get(id);
         store.deleteSeaTunnelCluster(id);
+        store.seaTunnelClusters.remove(id);
+        store.encryptedClusterPasswords.remove(id);
         audit.record("DELETE_CLUSTER", "SEATUNNEL_CLUSTER", id, cluster.name(), "admin");
     }
 
@@ -80,8 +80,8 @@ public class SeaTunnelClusterService {
         }
         SeaTunnelClusterView updated = new SeaTunnelClusterView(current.id(), current.name(), current.host(), current.port(),
                 current.sshUsername(), current.sshPort(), current.seatunnelHome(), current.description(), status, current.createdAt());
-        store.seaTunnelClusters.put(id, updated);
         store.persistSeaTunnelCluster(updated, store.encryptedClusterPasswords.getOrDefault(id, ""));
+        store.seaTunnelClusters.put(id, updated);
         audit.record("CHECK_CLUSTER", "SEATUNNEL_CLUSTER", id, status, "admin");
         return updated;
     }

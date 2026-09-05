@@ -20,7 +20,7 @@ const currentType = ref<ResourceType>("sql");
 const currentCode = ref("");
 const search = ref("");
 const showModal = ref(false);
-const createType = ref<ResourceType>("project");
+const createType = ref<ResourceType>("folder");
 const createName = ref("");
 const runMessage = ref("就绪");
 const executionId = ref("");
@@ -217,6 +217,13 @@ function nodeClass(type: ResourceType) {
           : "db";
 }
 function treeNodes(parent: string | null): DevNode[] {
+  if (parent === null) {
+    // Projects remain an internal backend root for compatibility, but the
+    // product organizes resources by folders rather than project partitions.
+    return visibleNodes.value.filter(
+      (n) => n.type !== "project" && n.parent?.startsWith("project-"),
+    );
+  }
   return visibleNodes.value.filter((n) => n.parent === parent);
 }
 function editorLanguage(type: ResourceType) {
@@ -299,6 +306,7 @@ function closeEditor() {
   monacoEditor?.setValue("");
 }
 function openCreateModal() {
+  createType.value = "folder";
   createName.value = "";
   showModal.value = true;
 }
@@ -314,13 +322,11 @@ async function createNode() {
   if (createType.value === "shell" && !name.endsWith(".sh")) name += ".sh";
   const selected = selectedNode.value;
   const parent =
-    createType.value === "project"
-      ? null
-      : selected && ["project", "folder"].includes(selected.type)
-        ? selected
-        : selected?.parent
-          ? devNodes.value.find((node) => node.id === selected.parent)
-          : undefined;
+    selected && ["project", "folder"].includes(selected.type)
+      ? selected
+      : selected?.parent
+        ? devNodes.value.find((node) => node.id === selected.parent)
+        : undefined;
   const project =
     parent?.type === "project"
       ? parent
@@ -330,22 +336,13 @@ async function createNode() {
           ? selected
           : devNodes.value.find((node) => node.type === "project");
   const projectId = project?.backendId || currentProjectId.value;
-  if (!projectId && createType.value !== "project") {
-    ElMessage.warning("请先选中项目或文件夹");
+  if (!projectId) {
+    ElMessage.warning("请先选中文件夹或资源目录");
     return;
   }
   try {
     let node: DevNode;
-    if (createType.value === "project") {
-      const result = await platformApi.createProject({ name, description: "" });
-      node = {
-        id: `project-${result.data.data.id}`,
-        parent: null,
-        type: "project",
-        name,
-        backendId: result.data.data.id,
-      };
-    } else if (createType.value === "folder") {
+    if (createType.value === "folder") {
       const result = await platformApi.createFolder({
         projectId,
         parentId: parent?.type === "folder" ? parent.backendId : null,
@@ -565,17 +562,7 @@ onBeforeUnmount(() => {
       <div class="module-title">数据开发</div>
       <span class="crumb">/ 开发工作台</span>
       <div class="module-actions">
-        <span style="color: #8b95a5; font-size: 12px">当前项目：</span
-        ><select v-model="currentProjectId" class="btn" @change="switchProject">
-          <option
-            v-for="project in backendProjects"
-            :key="project.id"
-            :value="project.id"
-          >
-            {{ project.name }}
-          </option>
-          <option v-if="!backendProjects.length">数仓开发项目</option></select
-        ><span style="color: #8b95a5; font-size: 12px">数据源：</span
+        <span style="color: #8b95a5; font-size: 12px">数据源：</span
         ><select v-model="activeDataSourceId" class="btn">
           <option
             v-for="source in dataSources"
@@ -591,11 +578,11 @@ onBeforeUnmount(() => {
     <div class="split">
       <aside class="left-panel">
         <div class="panel-head">
-          <div class="panel-title">项目资源</div>
+          <div class="panel-title">资源目录</div>
           <div class="panel-actions">
             <button
               class="btn small icononly"
-              title="新建"
+              title="新建文件夹或文件"
               @click="openCreateModal"
             >
               ＋</button
@@ -618,10 +605,10 @@ onBeforeUnmount(() => {
           <input
             v-model="search"
             class="search"
-            placeholder="搜索项目 / 文件夹 / 文件"
+            placeholder="搜索文件夹 / 文件"
           />
         </div>
-        <div class="tree">
+        <div class="workspace-resource-tree">
           <template v-for="node in treeNodes(null)" :key="node.id"
             ><div
               class="tree-row"
@@ -709,7 +696,7 @@ onBeforeUnmount(() => {
           <button
             class="tab tab-action"
             style="min-width: 38px"
-            title="新建资源"
+            title="新建文件夹或文件"
             @click="openCreateModal"
           >
             ＋
@@ -777,12 +764,11 @@ onBeforeUnmount(() => {
     </div>
     <div v-if="showModal" class="modal-mask" @click.self="showModal = false">
       <div class="modal">
-        <div class="modal-hd">新建资源</div>
+        <div class="modal-hd">新建文件夹或文件</div>
         <div class="modal-bd">
           <div class="form-item">
             <label>资源类型</label
             ><select v-model="createType">
-              <option value="project">项目</option>
               <option value="folder">文件夹</option>
               <option value="sql">SQL 文件</option>
               <option value="shell">Shell 脚本</option>
@@ -798,7 +784,7 @@ onBeforeUnmount(() => {
             />
           </div>
           <div style="font-size: 12px; color: #8b95a5">
-            文件会创建在当前选中的项目或文件夹下。
+            文件会创建在当前选中的文件夹下，未选中文件夹时创建在根目录。
           </div>
         </div>
         <div class="modal-ft">
