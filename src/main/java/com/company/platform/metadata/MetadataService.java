@@ -10,6 +10,7 @@ import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 
 @Service
@@ -23,6 +24,13 @@ public class MetadataService {
     }
 
     public List<DatabaseView> databases(long dataSourceId, DataSourceType type) {
+        if (type != DataSourceType.STARROCKS) {
+            throw new BadRequestException("数据库元数据仅允许查看 StarRocks 数据源");
+        }
+        DataSourceService.ConnectionInfo info = dataSources.connectionInfo(dataSourceId);
+        if (info.type() != DataSourceType.STARROCKS) {
+            throw new BadRequestException("该数据源不是 StarRocks 数据源");
+        }
         try (Connection connection = connection(dataSourceId)) {
             List<DatabaseView> result = new ArrayList<>();
             try (ResultSet catalogs = connection.getMetaData().getCatalogs()) {
@@ -31,7 +39,9 @@ public class MetadataService {
                     if (name != null && !name.isBlank()) result.add(new DatabaseView(name, ""));
                 }
             }
-            return result;
+            return result.stream()
+                    .sorted(Comparator.comparing(DatabaseView::name, String.CASE_INSENSITIVE_ORDER))
+                    .toList();
         } catch (SQLException ex) {
             throw new BadRequestException("读取数据库元数据失败：" + ex.getMessage());
         }

@@ -81,6 +81,19 @@ export interface SeaTunnelCluster {
   healthStatus: string;
   createdAt?: string;
 }
+export interface DolphinSchedulerCluster {
+  id: number;
+  name: string;
+  host: string;
+  port: number;
+  basePath: string;
+  version: string;
+  username?: string;
+  installDir?: string;
+  description?: string;
+  healthStatus: string;
+  createdAt?: string;
+}
 
 export const platformApi = {
   health: () => http.get<ApiResult<Record<string, unknown>>>("/health"),
@@ -258,6 +271,12 @@ export const platformApi = {
   deleteCluster: (id: number) => http.delete<ApiResult<void>>(`/system/clusters/${id}`),
   checkCluster: (id: number) => http.post<ApiResult<SeaTunnelCluster>>(`/system/clusters/${id}/check`),
   checkAllClusters: () => http.post<ApiResult<SeaTunnelCluster[]>>("/system/clusters/check-all"),
+  dolphinSchedulerClusters: () => http.get<ApiResult<DolphinSchedulerCluster[]>>("/system/dolphinscheduler-clusters"),
+  createDolphinSchedulerCluster: (request: Record<string, unknown>) => http.post<ApiResult<DolphinSchedulerCluster>>("/system/dolphinscheduler-clusters", request),
+  updateDolphinSchedulerCluster: (id: number, request: Record<string, unknown>) => http.put<ApiResult<DolphinSchedulerCluster>>(`/system/dolphinscheduler-clusters/${id}`, request),
+  deleteDolphinSchedulerCluster: (id: number) => http.delete<ApiResult<void>>(`/system/dolphinscheduler-clusters/${id}`),
+  checkDolphinSchedulerCluster: (id: number) => http.post<ApiResult<DolphinSchedulerCluster>>(`/system/dolphinscheduler-clusters/${id}/check`),
+  checkAllDolphinSchedulerClusters: () => http.post<ApiResult<DolphinSchedulerCluster[]>>("/system/dolphinscheduler-clusters/check-all"),
   systemAlertChannels: () =>
     http.get<ApiResult<Record<string, unknown>[]>>("/system/alert-channels"),
   systemFeatures: () =>
@@ -266,8 +285,10 @@ export const platformApi = {
     http.get<ApiResult<string[]>>("/system/operation-logs"),
   integrations: () =>
     http.get<ApiResult<Record<string, unknown>[]>>("/integration/tasks"),
-  integrationSourceTables: (dataSourceId: number) =>
-    http.get<ApiResult<{ name: string; comment?: string }[]>>("/integration/tasks/source-tables", { params: { dataSourceId } }),
+  integrationSourceDatabases: (dataSourceId: number) =>
+    http.get<ApiResult<{ name: string; comment?: string }[]>>("/integration/tasks/source-databases", { params: { dataSourceId } }),
+  integrationSourceTables: (dataSourceId: number, database?: string) =>
+    http.get<ApiResult<{ name: string; comment?: string }[]>>("/integration/tasks/source-tables", { params: { dataSourceId, database } }),
   createIntegration: (request: IntegrationRequest) =>
     http.post<ApiResult<Record<string, unknown>>>(
       "/integration/tasks",

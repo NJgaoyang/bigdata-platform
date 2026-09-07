@@ -25,6 +25,10 @@ type IntegrationTable = {
   targetTable: string;
   partitionColumn?: string;
 };
+type MetadataDatabase = {
+  name: string;
+  comment?: string;
+};
 const search = ref("");
 const show = ref(false);
 const wizardRef = ref<HTMLElement>();
@@ -37,6 +41,10 @@ const sourceDataSourceId = ref<number>();
 const targetDataSourceId = ref<number>();
 const sourceDataSources = ref<DataSource[]>([]);
 const targetDataSources = ref<DataSource[]>([]);
+const sourceDatabases = ref<MetadataDatabase[]>([]);
+const sourceDatabasesLoading = ref(false);
+const targetDatabases = ref<MetadataDatabase[]>([]);
+const targetDatabasesLoading = ref(false);
 const clusters = ref<SeaTunnelCluster[]>([]);
 const selectedClusterId = ref<number>();
 const sourceTables = ref<{ name: string; comment?: string }[]>([]);
@@ -166,33 +174,89 @@ async function selectSourceDataSource(id?: number) {
   const sourceChanged = sourceDataSourceId.value !== undefined && sourceDataSourceId.value !== id;
   sourceDataSourceId.value = id;
   const source = sourceDataSources.value.find(item => item.id === id);
-  if (!source) return;
-  Object.assign(form.value, { sourceType: source.type, sourceHost: source.host, sourcePort: source.port, sourceDatabase: source.databaseName, sourceUsername: source.username });
+  if (!source) {
+    sourceDatabases.value = [];
+    sourceTables.value = [];
+    form.value.sourceDatabase = "";
+    return;
+  }
+  Object.assign(form.value, { sourceType: source.type, sourceHost: source.host, sourcePort: source.port, sourceUsername: source.username });
+  if (sourceChanged || !form.value.sourceDatabase) form.value.sourceDatabase = source.databaseName;
   if (sourceChanged) {
     form.value.sourcePassword = "";
     form.value.sourceTable = "";
     form.value.tables = [];
   }
+  sourceDatabasesLoading.value = true;
   try {
-    sourceTables.value = (await platformApi.integrationSourceTables(source.id)).data.data || [];
+    sourceDatabases.value = (await platformApi.integrationSourceDatabases(source.id)).data.data || [];
+    const configuredDatabase = source.databaseName?.trim();
+    if (!form.value.sourceDatabase && configuredDatabase && sourceDatabases.value.some(item => item.name === configuredDatabase)) {
+      form.value.sourceDatabase = configuredDatabase;
+    } else if (form.value.sourceDatabase && !sourceDatabases.value.some(item => item.name === form.value.sourceDatabase)) {
+      form.value.sourceDatabase = "";
+    }
+  } catch (error: any) {
+    sourceDatabases.value = [];
+    form.value.sourceDatabase = "";
+    ElMessage.error(error?.response?.data?.message || "读取 MySQL 源数据库失败");
+  } finally {
+    sourceDatabasesLoading.value = false;
+  }
+  await loadSourceTables();
+}
+async function loadSourceTables() {
+  if (!sourceDataSourceId.value || !form.value.sourceDatabase) {
+    sourceTables.value = [];
+    return;
+  }
+  try {
+    sourceTables.value = (await platformApi.integrationSourceTables(sourceDataSourceId.value, form.value.sourceDatabase)).data.data || [];
   } catch (error: any) {
     sourceTables.value = [];
     ElMessage.error(error?.response?.data?.message || "读取可同步表失败");
   }
 }
+async function changeSourceDatabase() {
+  form.value.tables = [];
+  await loadSourceTables();
+}
 function selectSourceDataSourceByEvent(event: Event) {
   const value = Number((event.target as HTMLSelectElement).value);
   void selectSourceDataSource(Number.isFinite(value) && value > 0 ? value : undefined);
 }
-function selectTargetDataSource(id?: number) {
+async function selectTargetDataSource(id?: number) {
+  const targetChanged = targetDataSourceId.value !== undefined && targetDataSourceId.value !== id;
   targetDataSourceId.value = id;
   const target = targetDataSources.value.find(item => item.id === id);
-  if (!target) return;
-  Object.assign(form.value, { targetType: target.type, targetHost: target.host, targetPort: target.port, targetDatabase: target.databaseName, targetUsername: target.username });
+  if (!target) {
+    targetDatabases.value = [];
+    form.value.targetDatabase = "";
+    return;
+  }
+  Object.assign(form.value, { targetType: target.type, targetHost: target.host, targetPort: target.port, targetUsername: target.username });
+  if (targetChanged) form.value.targetDatabase = "";
+  targetDatabasesLoading.value = true;
+  try {
+    const result = await platformApi.metadataDatabases(target.id, "STARROCKS");
+    targetDatabases.value = result.data.data || [];
+    const configuredDatabase = target.databaseName?.trim();
+    if (!form.value.targetDatabase && configuredDatabase && targetDatabases.value.some(item => item.name === configuredDatabase)) {
+      form.value.targetDatabase = configuredDatabase;
+    } else if (form.value.targetDatabase && !targetDatabases.value.some(item => item.name === form.value.targetDatabase)) {
+      form.value.targetDatabase = "";
+    }
+  } catch (error: any) {
+    targetDatabases.value = [];
+    form.value.targetDatabase = "";
+    ElMessage.error(error?.response?.data?.message || "读取 StarRocks 目标数据库失败");
+  } finally {
+    targetDatabasesLoading.value = false;
+  }
 }
 function selectTargetDataSourceByEvent(event: Event) {
   const value = Number((event.target as HTMLSelectElement).value);
-  selectTargetDataSource(Number.isFinite(value) && value > 0 ? value : undefined);
+  void selectTargetDataSource(Number.isFinite(value) && value > 0 ? value : undefined);
 }
 function toggleSourceTable(table: { name: string }) {
   const index = form.value.tables.findIndex(item => item.sourceTable === table.name);
@@ -213,7 +277,7 @@ async function nextFromBasic() {
     return;
   }
   if (deploymentMode.value === "CLUSTER" && !selectedClusterId.value) { ElMessage.warning("请选择目标集群节点"); return; }
-  await selectSourceDataSource(sourceDataSourceId.value);
+  await loadSourceTables();
   wizardStep.value = 2;
 }
 function nextFromTables() {
@@ -373,11 +437,11 @@ async function editTask(task: Task) {
     editingId.value = Number(task.id);
     detailVisible.value = false;
     wizardStep.value = 1;
-    await loadWizardReferences();
-    sourceDataSourceId.value = sourceDataSources.value.find(item => item.host === form.value.sourceHost && item.port === form.value.sourcePort && item.databaseName === form.value.sourceDatabase)?.id;
-    targetDataSourceId.value = targetDataSources.value.find(item => item.host === form.value.targetHost && item.port === form.value.targetPort && item.databaseName === form.value.targetDatabase)?.id;
+  await loadWizardReferences();
+    sourceDataSourceId.value = sourceDataSources.value.find(item => item.host === form.value.sourceHost && item.port === form.value.sourcePort)?.id;
+    targetDataSourceId.value = targetDataSources.value.find(item => item.host === form.value.targetHost && item.port === form.value.targetPort)?.id;
     if (sourceDataSourceId.value) await selectSourceDataSource(sourceDataSourceId.value);
-    if (targetDataSourceId.value) selectTargetDataSource(targetDataSourceId.value);
+    if (targetDataSourceId.value) await selectTargetDataSource(targetDataSourceId.value);
     show.value = true;
     resetWizardScroll();
   } catch {
@@ -500,7 +564,11 @@ function openCreate() {
   sourceDataSourceId.value = undefined;
   targetDataSourceId.value = undefined;
   selectedClusterId.value = undefined;
+  sourceDatabases.value = [];
+  sourceDatabasesLoading.value = false;
   sourceTables.value = [];
+  targetDatabases.value = [];
+  targetDatabasesLoading.value = false;
   tableKeyword.value = "";
   Object.assign(form.value, {
     name: "",
@@ -772,7 +840,7 @@ async function importTask(event: Event) {
         <div class="wizard-field inline-wide compact-wide-field"><label>目标集群</label><select v-model="selectedClusterId"><option :value="undefined">选择集群节点</option><option v-for="cluster in clusters" :key="cluster.id" :value="cluster.id">{{ cluster.name }} · {{ cluster.host }}:{{ cluster.port }}</option></select></div>
         <div class="wizard-field inline"><label>执行引擎</label><label class="radio-label"><input v-model="executionEngine" type="radio" value="SEATUNNEL_ZETA">SeaTunnel Zeta</label><label class="radio-label"><input v-model="executionEngine" type="radio" value="FLINK">Flink</label><label class="radio-label"><input v-model="executionEngine" type="radio" value="SPARK">Spark</label></div>
         <div class="wizard-field inline"><label>部署模式</label><label class="radio-label" :class="{ disabled: executionEngine === 'SEATUNNEL_ZETA' }"><input v-model="deploymentMode" type="radio" value="CLIENT" :disabled="executionEngine === 'SEATUNNEL_ZETA'">Client 本地</label><label class="radio-label"><input v-model="deploymentMode" type="radio" value="CLUSTER">Cluster 集群</label></div>
-        <div class="wizard-endpoints"><div class="endpoint-card source"><h3>源数据库</h3><div class="wizard-field"><label>MySQL 源</label><select :value="sourceDataSourceId" @change="selectSourceDataSourceByEvent"><option value="">选择 MySQL 源</option><option v-for="source in sourceDataSources" :key="source.id" :value="source.id">{{ source.name }} · {{ source.databaseName }}</option></select></div><div class="wizard-field endpoint-database-field"><select v-model="form.sourceDatabase" :disabled="!sourceDataSourceId"><option value="">源数据库</option><option v-if="form.sourceDatabase" :value="form.sourceDatabase">{{ form.sourceDatabase }}</option></select></div></div><div class="endpoint-arrow">→</div><div class="endpoint-card target"><h3>目标数据库</h3><div class="wizard-field"><label>StarRocks 目标</label><select :value="targetDataSourceId" @change="selectTargetDataSourceByEvent"><option value="">选择 StarRocks 目标</option><option v-for="target in targetDataSources" :key="target.id" :value="target.id">{{ target.name }} · {{ target.databaseName }}</option></select></div><div class="wizard-field endpoint-database-field"><select v-model="form.targetDatabase" :disabled="!targetDataSourceId"><option value="">目标数据库</option><option v-if="form.targetDatabase" :value="form.targetDatabase">{{ form.targetDatabase }}</option></select></div></div></div>
+        <div class="wizard-endpoints"><div class="endpoint-card source"><h3>源数据库</h3><div class="wizard-field"><select :value="sourceDataSourceId" @change="selectSourceDataSourceByEvent" :disabled="sourceDatabasesLoading"><option value="" hidden>{{ sourceDatabasesLoading ? '正在读取...' : '' }}</option><option v-for="source in sourceDataSources" :key="source.id" :value="source.id">{{ source.name }}</option></select></div><div class="wizard-field endpoint-database-field"><select v-model="form.sourceDatabase" :disabled="!sourceDataSourceId || sourceDatabasesLoading" @change="changeSourceDatabase"><option value="" hidden>{{ sourceDatabasesLoading ? '正在读取...' : '' }}</option><option v-for="database in sourceDatabases" :key="database.name" :value="database.name">{{ database.name }}</option></select></div></div><div class="endpoint-arrow">→</div><div class="endpoint-card target"><h3>目标数据库</h3><div class="wizard-field"><select :value="targetDataSourceId" @change="selectTargetDataSourceByEvent"><option value="" hidden>{{ targetDatabasesLoading ? '正在读取...' : '' }}</option><option v-for="target in targetDataSources" :key="target.id" :value="target.id">{{ target.name }}</option></select></div><div class="wizard-field endpoint-database-field"><select v-model="form.targetDatabase" :disabled="!targetDataSourceId || targetDatabasesLoading"><option value="" hidden>{{ targetDatabasesLoading ? '正在读取...' : '' }}</option><option v-for="database in targetDatabases" :key="database.name" :value="database.name">{{ database.name }}</option></select></div></div></div>
         <div class="wizard-footer"><button class="btn-default" @click="show = false">取消</button><button class="btn-primary" @click="nextFromBasic">下一步：选择表 →</button></div>
       </div>
       <div v-else-if="wizardStep === 2" class="wizard-card table-selector-card"><div class="wizard-card-title"><span class="wizard-icon"><el-icon><Grid /></el-icon></span><h2>选择同步表</h2><span class="selection-count">{{ form.tables.length }} / {{ sourceTables.length }}</span></div><div class="table-selector-tools"><label class="check-label"><input :checked="allTablesSelected" type="checkbox" @change="toggleAllSourceTables">全选</label><input v-model="tableKeyword" class="table-search" placeholder="搜索表名"></div><div class="source-table-list"><label v-for="table in filteredSourceTables" :key="table.name" class="source-table-row"><input :checked="selectedTableNames.has(table.name)" type="checkbox" @change="toggleSourceTable(table)"><el-icon><Grid /></el-icon><code>{{ table.name }}</code><span>{{ table.comment || '—' }}</span></label><div v-if="!sourceTables.length" class="empty-state">当前 MySQL 数据源未返回可同步表，请检查数据源连接。</div></div><div class="wizard-footer"><button class="btn-default" @click="wizardStep = 1">← 上一步</button><button class="btn-primary" @click="nextFromTables">下一步：预览确认 →</button></div></div>

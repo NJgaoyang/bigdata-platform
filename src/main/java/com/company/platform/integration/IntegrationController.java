@@ -16,8 +16,12 @@ public class IntegrationController {
         this.metadataService = metadataService;
     }
     @GetMapping public Result<List<IntegrationTaskView>> list() { return Result.ok(service.list()); }
-    @GetMapping("/source-tables") public Result<List<IntegrationMetadataService.TableOption>> sourceTables(@RequestParam long dataSourceId) {
-        return Result.ok(metadataService.mysqlTables(dataSourceId));
+    @GetMapping("/source-databases") public Result<List<IntegrationMetadataService.DatabaseOption>> sourceDatabases(@RequestParam long dataSourceId) {
+        return Result.ok(metadataService.mysqlDatabases(dataSourceId));
+    }
+    @GetMapping("/source-tables") public Result<List<IntegrationMetadataService.TableOption>> sourceTables(@RequestParam long dataSourceId,
+                                                                                                                @RequestParam(required = false) String database) {
+        return Result.ok(metadataService.mysqlTables(dataSourceId, database));
     }
     @PostMapping public Result<IntegrationTaskView> create(@Valid @RequestBody IntegrationRequests.TaskRequest request) { return Result.ok(service.create(request)); }
     @PutMapping("/{id}") public Result<IntegrationTaskView> update(@PathVariable long id, @Valid @RequestBody IntegrationRequests.TaskRequest request) { return Result.ok(service.update(id, request), "同步任务已更新"); }

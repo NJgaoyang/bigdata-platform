@@ -2,6 +2,7 @@ package com.company.platform.common;
 
 import com.company.platform.datasource.DataSourceView;
 import com.company.platform.cluster.SeaTunnelClusterView;
+import com.company.platform.cluster.DolphinSchedulerClusterView;
 import com.company.platform.development.DevFileView;
 import com.company.platform.development.DevFolderView;
 import com.company.platform.development.DevProjectView;
@@ -43,6 +44,8 @@ public class PlatformStore {
     public final Map<Long, String> encryptedDataSourcePasswords = new ConcurrentHashMap<>();
     public final Map<Long, SeaTunnelClusterView> seaTunnelClusters = new ConcurrentHashMap<>();
     public final Map<Long, String> encryptedClusterPasswords = new ConcurrentHashMap<>();
+    public final Map<Long, DolphinSchedulerClusterView> dolphinSchedulerClusters = new ConcurrentHashMap<>();
+    public final Map<Long, String> encryptedDolphinSchedulerPasswords = new ConcurrentHashMap<>();
     public final Map<Long, DevProjectView> projects = new ConcurrentHashMap<>();
     public final Map<Long, DevFolderView> folders = new ConcurrentHashMap<>();
     public final Map<Long, DevFileView> files = new ConcurrentHashMap<>();
@@ -167,6 +170,15 @@ public class PlatformStore {
                         rs.getString("ssh_username"), rs.getInt("ssh_port"), rs.getString("seatunnel_home"), rs.getString("description"),
                         rs.getString("health_status"), createdAt == null ? LocalDateTime.now() : createdAt.toLocalDateTime()));
                 encryptedClusterPasswords.put(id, rs.getString("ssh_password_encrypted"));
+                advanceId(id);
+            });
+            jdbc.query("SELECT id,name,host,port,base_path,version,username,password_encrypted,install_dir,description,health_status,created_at FROM dolphinscheduler_cluster", rs -> {
+                long id = rs.getLong("id");
+                var createdAt = rs.getTimestamp("created_at");
+                dolphinSchedulerClusters.put(id, new DolphinSchedulerClusterView(id, rs.getString("name"), rs.getString("host"), rs.getInt("port"),
+                        rs.getString("base_path"), rs.getString("version"), rs.getString("username"), rs.getString("install_dir"),
+                        rs.getString("description"), rs.getString("health_status"), createdAt == null ? LocalDateTime.now() : createdAt.toLocalDateTime()));
+                encryptedDolphinSchedulerPasswords.put(id, rs.getString("password_encrypted"));
                 advanceId(id);
             });
             jdbc.query("SELECT user_id,permission_code FROM user_permission", (org.springframework.jdbc.core.RowCallbackHandler) rs ->
@@ -338,6 +350,18 @@ public class PlatformStore {
     }
     public void deleteSeaTunnelCluster(long id) {
         if (jdbc != null) jdbc.update("DELETE FROM seatunnel_cluster WHERE id=?", id);
+    }
+    public void persistDolphinSchedulerCluster(DolphinSchedulerClusterView cluster, String encryptedPassword) {
+        if (jdbc == null) return;
+        int updated = jdbc.update("UPDATE dolphinscheduler_cluster SET name=?,host=?,port=?,base_path=?,version=?,username=?,password_encrypted=?,install_dir=?,description=?,health_status=? WHERE id=?",
+                cluster.name(), cluster.host(), cluster.port(), cluster.basePath(), cluster.version(), cluster.username(), encryptedPassword,
+                cluster.installDir(), cluster.description(), cluster.healthStatus(), cluster.id());
+        if (updated == 0) jdbc.update("INSERT INTO dolphinscheduler_cluster (id,name,host,port,base_path,version,username,password_encrypted,install_dir,description,health_status,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                cluster.id(), cluster.name(), cluster.host(), cluster.port(), cluster.basePath(), cluster.version(), cluster.username(), encryptedPassword,
+                cluster.installDir(), cluster.description(), cluster.healthStatus(), cluster.createdAt());
+    }
+    public void deleteDolphinSchedulerCluster(long id) {
+        if (jdbc != null) jdbc.update("DELETE FROM dolphinscheduler_cluster WHERE id=?", id);
     }
     public void persistUserPermissions(long userId, Set<String> permissions) {
         userPermissions.put(userId, ConcurrentHashMap.newKeySet());
