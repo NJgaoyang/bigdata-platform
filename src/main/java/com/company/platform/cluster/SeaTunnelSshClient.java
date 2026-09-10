@@ -87,8 +87,8 @@ public class SeaTunnelSshClient {
 
             ChannelExec channel = (ChannelExec) session.openChannel("exec");
             String script = runtime.seatunnelHome() + "/bin/seatunnel.sh";
-            String command = "trap 'rm -f " + shellQuote(remoteConfig) + "' EXIT; "
-                    + shellQuote(script) + " --config " + shellQuote(remoteConfig) + " --master cluster 2>&1";
+            String command = shellQuote(script) + " --config " + shellQuote(remoteConfig)
+                    + " --master cluster 2>&1; rc=$?; rm -f " + shellQuote(remoteConfig) + "; exit $rc";
             channel.setCommand(command);
             channel.setInputStream(null);
             InputStream output = channel.getInputStream();
