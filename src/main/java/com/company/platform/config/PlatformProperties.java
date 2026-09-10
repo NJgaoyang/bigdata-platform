@@ -79,6 +79,9 @@ public class PlatformProperties {
         private String password;
         private String token;
         private boolean realEnabled;
+        private int failRetryTimes = 3;
+        private int failRetryInterval = 1;
+        private String workerGroup = "default";
         public String getBaseUrl() { return baseUrl; }
         public void setBaseUrl(String baseUrl) { this.baseUrl = baseUrl; }
         public String getVersion() { return version; }
@@ -97,5 +100,11 @@ public class PlatformProperties {
         public void setToken(String token) { this.token = token; }
         public boolean isRealEnabled() { return realEnabled; }
         public void setRealEnabled(boolean realEnabled) { this.realEnabled = realEnabled; }
+        public int getFailRetryTimes() { return failRetryTimes; }
+        public void setFailRetryTimes(int failRetryTimes) { this.failRetryTimes = failRetryTimes; }
+        public int getFailRetryInterval() { return failRetryInterval; }
+        public void setFailRetryInterval(int failRetryInterval) { this.failRetryInterval = failRetryInterval; }
+        public String getWorkerGroup() { return workerGroup; }
+        public void setWorkerGroup(String workerGroup) { this.workerGroup = workerGroup; }
     }
 }
