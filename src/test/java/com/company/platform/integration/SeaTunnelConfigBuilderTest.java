@@ -15,7 +15,9 @@ class SeaTunnelConfigBuilderTest {
         IntegrationRequests.Endpoint target = new IntegrationRequests.Endpoint("starrocks", 9030, "dw", "root", "secret", "orders");
         String config = new SeaTunnelConfigBuilder(new ObjectMapper()).build(new IntegrationTask("orders", "MYSQL", "STARROCKS", "FULL", source, target, List.of(), null));
         assertTrue(config.contains("Jdbc"));
-        assertTrue(config.contains("StarRocks"));
+        assertTrue(config.contains("compatible_mode = \"starrocks\""));
+        assertTrue(config.contains("dialect = \"starrocks\""));
+        assertTrue(config.contains("generate_sink_sql = true"));
         assertTrue(config.contains("orders"));
     }
 
