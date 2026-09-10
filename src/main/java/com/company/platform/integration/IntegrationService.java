@@ -9,12 +9,14 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -27,15 +29,25 @@ public class IntegrationService {
     private final ObjectMapper mapper;
     private final PasswordCipher passwordCipher;
     private final DataSourceService dataSourceService;
+    private final StarRocksSchemaService schemaService;
 
+    /** Retained for existing focused unit tests. */
     public IntegrationService(PlatformStore store, SeaTunnelConfigBuilder builder, SeaTunnelGateway gateway,
                               ObjectMapper mapper, PasswordCipher passwordCipher, DataSourceService dataSourceService) {
+        this(store, builder, gateway, mapper, passwordCipher, dataSourceService, null);
+    }
+
+    @Autowired
+    public IntegrationService(PlatformStore store, SeaTunnelConfigBuilder builder, SeaTunnelGateway gateway,
+                              ObjectMapper mapper, PasswordCipher passwordCipher, DataSourceService dataSourceService,
+                              StarRocksSchemaService schemaService) {
         this.store = store;
         this.builder = builder;
         this.gateway = gateway;
         this.mapper = mapper;
         this.passwordCipher = passwordCipher;
         this.dataSourceService = dataSourceService;
+        this.schemaService = schemaService;
     }
 
     public List<IntegrationTaskView> list() {
@@ -51,7 +63,6 @@ public class IntegrationService {
         IntegrationRequests.Endpoint target = resolveDataSource(request.targetDataSourceId(), request.target());
         IntegrationTask task = new IntegrationTask(request.name(), request.sourceType(), request.targetType(),
                 request.syncMode(), source, target, request.mappings(), request.options(), tables);
-        // Fail early before writing an invalid task to the platform database.
         builder.build(task);
         long id = store.nextId();
         IntegrationTaskView view = new IntegrationTaskView(id, request.name(), request.sourceType(), request.targetType(),
@@ -111,6 +122,16 @@ public class IntegrationService {
         return gateway.validate(builder.build(runtimeTask), runtimeClusterId(runtimeTask));
     }
 
+    public List<StarRocksSchemaService.SchemaResult> syncSchema(long id, boolean recreate) {
+        if (schemaService == null) throw new BadRequestException("StarRocks 表结构同步组件不可用");
+        IntegrationTask runtimeTask = task(id);
+        if (!recreate) return schemaService.prepare(runtimeTask);
+        Map<String, Object> options = new HashMap<>(runtimeTask.options() == null ? Map.of() : runtimeTask.options());
+        options.put("schemaSaveMode", "RECREATE_SCHEMA");
+        return schemaService.prepare(new IntegrationTask(runtimeTask.name(), runtimeTask.sourceType(), runtimeTask.targetType(),
+                runtimeTask.syncMode(), runtimeTask.source(), runtimeTask.target(), runtimeTask.mappings(), options, runtimeTask.tables()));
+    }
+
     @Transactional
     public SeaTunnelGateway.SubmitResult execute(long id) {
         IntegrationTaskView view = raw(id);
@@ -119,6 +140,7 @@ public class IntegrationService {
         Long clusterId = runtimeTask == null ? null : runtimeClusterId(runtimeTask);
         SeaTunnelGateway.ValidationResult validation = gateway.validate(config, clusterId);
         if (!validation.valid()) throw new BadRequestException(validation.message());
+        if (runtimeTask != null && schemaService != null) schemaService.prepare(runtimeTask);
         SeaTunnelGateway.SubmitResult result = gateway.submit(config, clusterId);
         long instanceId = store.nextId();
         IntegrationInstanceView instance = new IntegrationInstanceView(instanceId, id, result.executionId(), result.status(), LocalDateTime.now(),
@@ -172,8 +194,6 @@ public class IntegrationService {
         IntegrationInstanceView persisted = findInstance(executionId);
         SeaTunnelGateway.JobStatus status = gateway.status(executionId);
         if ("NOT_FOUND".equalsIgnoreCase(status.status()) && persisted != null) {
-            // A JVM restart loses local Process/JSch handles. Keep an already terminal
-            // database result intact; running handles become LOST rather than a fake failure.
             if (terminal(persisted.status())) return new SeaTunnelGateway.JobStatus(executionId, persisted.status(), persisted.message());
             IntegrationInstanceView lost = new IntegrationInstanceView(persisted.id(), persisted.taskId(), persisted.executionId(),
                     "LOST", persisted.startedAt(), LocalDateTime.now(), "应用重启或执行句柄已丢失，无法继续确认 SeaTunnel 进程状态");
