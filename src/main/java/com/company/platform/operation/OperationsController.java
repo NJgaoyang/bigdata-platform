@@ -5,6 +5,7 @@ import com.company.platform.scheduler.SchedulerGateway;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 @RestController
@@ -25,7 +26,7 @@ public class OperationsController {
     @GetMapping("/failed-tasks")
     public Result<List<Map<String, Object>>> failed() {
         List<Map<String, Object>> actual = gateway.listTaskInstances().stream()
-                .filter(item -> String.valueOf(item.getOrDefault("status", "")).contains("FAIL"))
+                .filter(item -> isFailureState(item.get("status")))
                 .toList();
         return Result.ok(actual);
     }
@@ -35,4 +36,9 @@ public class OperationsController {
     public Result<Void> stop(@PathVariable String id) { gateway.stop(id); return Result.ok(null, "实例已停止"); }
     @PostMapping("/process-instances/{id}/rerun")
     public Result<SchedulerGateway.RunResult> rerun(@PathVariable String id) { return Result.ok(gateway.rerun(id)); }
+
+    private boolean isFailureState(Object value) {
+        String status = String.valueOf(value == null ? "" : value).trim().toUpperCase(Locale.ROOT);
+        return status.contains("FAIL") || status.contains("ERROR") || status.contains("KILL") || status.contains("STOP");
+    }
 }
