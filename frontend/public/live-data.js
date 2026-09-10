@@ -24,6 +24,9 @@
     liveState.isAdmin = !!isAdmin;
     window.platformAuth = window.platformAuth || {};
     window.platformAuth.isAdmin = liveState.isAdmin;
+    // 集群新增入口由 Monaco bundle 中的设置增强模块创建；认证信息是
+    // 异步加载的，认证完成后主动刷新一次可见性，避免入口一直被隐藏。
+    if (window.settingsClusterFixSync) window.settingsClusterFixSync();
     var settingsNav = document.querySelector('.nav button[data-page="settings"]');
     if (settingsNav) settingsNav.style.display = liveState.isAdmin ? '' : 'none';
     document.querySelectorAll('[data-a="系统设置"], [data-a="数据源管理"]').forEach(function (node) {
@@ -643,6 +646,18 @@
     return safe;
   }
 
+  // 后端返回的 updatedAt 才是文件真实修改时间；没有持久化文件时不显示
+  // “刚刚”等模拟时间，避免把草稿状态误导成已保存的文件。
+  function formatDevelopmentUpdatedAt(value) {
+    if (!value) return '—';
+    var date = value instanceof Date ? value : new Date(value);
+    if (Number.isNaN(date.getTime())) return '—';
+    return new Intl.DateTimeFormat('zh-CN', {
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
+    }).format(date).replace(/\//g, '-');
+  }
+
   function renderDevelopmentVersionState(file) {
     var development = page('page-development');
     if (!development) return;
@@ -659,7 +674,7 @@
     if (devVersion) devVersion.textContent = file && file.id && Number(file.currentVersion) > 0 ? 'V' + file.currentVersion : '未保存';
     if (onlineVersion) onlineVersion.textContent = '—';
     if (owner) owner.textContent = '负责人：' + ((project && project.ownerName) || liveState.currentUsername || '—');
-    if (updated) updated.textContent = '最近修改：' + (file && file.id ? '刚刚' : '—');
+    if (updated) updated.textContent = '最近修改：' + (file && file.id ? formatDevelopmentUpdatedAt(file.updatedAt) : '—');
     if (warning) warning.hidden = true;
     if (publishedBanner) publishedBanner.hidden = true;
     if (savedBanner) savedBanner.hidden = !(liveState.developmentSavedNotice && Date.now() - liveState.developmentSavedNotice < 3500);
@@ -706,7 +721,7 @@
     if (tableSummary) {
       tableSummary.hidden = false;
       var project = liveState.projects.find(function (item) { return String(item.id) === String(liveState.selectedFile && liveState.selectedFile.projectId); });
-      tableSummary.innerHTML = '<h3><i class="ri-table-2-line ico-blue"></i> ' + escapeHtml(database + '.' + table) + '</h3><p class="muted">内部表</p><div class="kvgrid"><span>所属项目</span><b>' + escapeHtml((project && project.name) || '数仓') + '</b><span>负责人</span><b>' + escapeHtml((project && project.ownerName) || liveState.currentUsername || '—') + '</b><span>更新时间</span><span>刚刚</span></div>';
+      tableSummary.innerHTML = '<h3><i class="ri-table-2-line ico-blue"></i> ' + escapeHtml(database + '.' + table) + '</h3><p class="muted">内部表</p><div class="kvgrid"><span>所属项目</span><b>' + escapeHtml((project && project.name) || '—') + '</b><span>负责人</span><b>' + escapeHtml((project && project.ownerName) || liveState.currentUsername || '—') + '</b><span>更新时间</span><span>' + escapeHtml(formatDevelopmentUpdatedAt(liveState.selectedFile && liveState.selectedFile.updatedAt)) + '</span></div>';
     }
     var rows = columns || [];
     fieldInfo.innerHTML = '<h4>字段信息</h4><p class="muted dev-table-caption">' + escapeHtml((database ? database + '.' : '') + table) + ' · ' + escapeHtml(source.name || '') + '</p>' + (rows.length
@@ -848,8 +863,8 @@
     } else {
       liveState.selectedProjectId = null;
     }
-    var projectRoot = scope === 'all' && active ? '<div class="dev-project-root"><i class="ri-folder-3-fill"></i>' + escapeHtml(active.name || '数仓') + '</div>' : '';
-    list.innerHTML = active ? '<div class="dev-scope-note"><strong>' + scopeTitle + '</strong>' + scopeNote + '</div>' + projectRoot + '<div class="dev-files" data-project-files="' + active.id + '"></div>' : '<div class="dev-scope-note"><strong>' + scopeTitle + '</strong>' + scopeNote + '</div><div class="dev-empty">暂无文件夹，请点击左上角“+”创建</div>';
+    // 项目空间与我的开发保持同一层级，直接展示项目下的文件夹和文件，不再额外渲染项目根节点。
+    list.innerHTML = active ? '<div class="dev-scope-note"><strong>' + scopeTitle + '</strong>' + scopeNote + '</div><div class="dev-files" data-project-files="' + active.id + '"></div>' : '<div class="dev-scope-note"><strong>' + scopeTitle + '</strong>' + scopeNote + '</div><div class="dev-empty">暂无文件夹，请点击左上角“+”创建</div>';
     if (active) loadDevelopmentFiles(active.id, liveState.selectedFile && liveState.selectedFile.id, scope).catch(function (error) { notify(error.message, true); });
     else if (!liveState.openFiles.length) createDevelopmentDraft('SQL', null, null);
     else renderDevelopmentEditor(liveState.openFiles[0]);
@@ -1644,7 +1659,7 @@
     var nextLabel = nextSchedule.toLocaleString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }).replace(/\//g, '-');
     var task = liveState.selectedWorkflow && liveState.selectedWorkflow.name ? liveState.selectedWorkflow.name : '未绑定工作流';
     var schedule = task === '未绑定工作流' ? '未设置' : '每天 02:00';
-    host.innerHTML = '<section class="dev-publish-card" role="dialog" aria-modal="true" aria-labelledby="dev-publish-title"><div class="dev-publish-head"><div><h3 id="dev-publish-title">发布上线</h3><p>将项目开发版本切换为线上正式运行版本</p></div><button type="button" class="dev-publish-close" aria-label="关闭">×</button></div><div class="dev-publish-body"><div class="dev-publish-file-name">' + escapeHtml(file.name || '未命名文件') + '</div><div class="dev-publish-version-flow"><div><small>当前线上版本</small><strong>' + escapeHtml(onlineLabel || '—') + '</strong></div><i class="ri-arrow-right-line"></i><div class="next"><small>待发布开发版本</small><strong>' + escapeHtml(devLabel) + '</strong></div></div><div class="dev-publish-detail-grid"><span>负责人</span><b>' + escapeHtml((project && project.ownerName) || liveState.currentUsername || '—') + '</b><span>最近修改</span><b>刚刚</b><span>绑定工作流</span><b>' + escapeHtml(task) + '</b><span>调度周期</span><b>' + escapeHtml(schedule) + '</b><span>下次调度</span><b>' + escapeHtml(nextLabel) + '</b></div><div class="dev-publish-warning"><i class="ri-error-warning-fill"></i><span>发布后，后续线上调度将执行 ' + escapeHtml(devLabel) + '，当前正在运行的实例不受影响。</span></div><label class="dev-publish-note">发布备注（可选）<textarea placeholder="例如：修复订单金额统计逻辑"></textarea></label></div><div class="dev-publish-foot"><button type="button" class="dev-publish-cancel">取消</button><button type="button" class="primary dev-publish-confirm">确认发布上线</button></div></section>';
+    host.innerHTML = '<section class="dev-publish-card" role="dialog" aria-modal="true" aria-labelledby="dev-publish-title"><div class="dev-publish-head"><div><h3 id="dev-publish-title">发布上线</h3><p>将项目开发版本切换为线上正式运行版本</p></div><button type="button" class="dev-publish-close" aria-label="关闭">×</button></div><div class="dev-publish-body"><div class="dev-publish-file-name">' + escapeHtml(file.name || '未命名文件') + '</div><div class="dev-publish-version-flow"><div><small>当前线上版本</small><strong>' + escapeHtml(onlineLabel || '—') + '</strong></div><i class="ri-arrow-right-line"></i><div class="next"><small>待发布开发版本</small><strong>' + escapeHtml(devLabel) + '</strong></div></div><div class="dev-publish-detail-grid"><span>负责人</span><b>' + escapeHtml((project && project.ownerName) || liveState.currentUsername || '—') + '</b><span>最近修改</span><b>' + escapeHtml(formatDevelopmentUpdatedAt(file.updatedAt)) + '</b><span>绑定工作流</span><b>' + escapeHtml(task) + '</b><span>调度周期</span><b>' + escapeHtml(schedule) + '</b><span>下次调度</span><b>' + escapeHtml(nextLabel) + '</b></div><div class="dev-publish-warning"><i class="ri-error-warning-fill"></i><span>发布后，后续线上调度将执行 ' + escapeHtml(devLabel) + '，当前正在运行的实例不受影响。</span></div><label class="dev-publish-note">发布备注（可选）<textarea placeholder="例如：修复订单金额统计逻辑"></textarea></label></div><div class="dev-publish-foot"><button type="button" class="dev-publish-cancel">取消</button><button type="button" class="primary dev-publish-confirm">确认发布上线</button></div></section>';
     var close = function () { host.classList.remove('open'); host.setAttribute('aria-hidden', 'true'); };
     host.querySelector('.dev-publish-close').onclick = close;
     host.querySelector('.dev-publish-cancel').onclick = close;

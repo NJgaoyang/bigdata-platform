@@ -111,12 +111,14 @@ public class PlatformStore {
                         createdAt == null ? LocalDateTime.now() : createdAt.toLocalDateTime()));
                 advanceId(id);
             });
-            jdbc.query("SELECT id,project_id,folder_id,name,file_type,content,description,status,current_version FROM dev_file", rs -> {
+            jdbc.query("SELECT id,project_id,folder_id,name,file_type,content,description,status,current_version,updated_at FROM dev_file", rs -> {
                 long id = rs.getLong("id");
                 Long folder = rs.getObject("folder_id", Long.class);
+                var updatedAt = rs.getTimestamp("updated_at");
                 files.put(id, new DevFileView(id, rs.getLong("project_id"), folder, rs.getString("name"),
                         rs.getString("file_type"), rs.getString("content"), rs.getString("description"),
-                        rs.getString("status"), rs.getInt("current_version")));
+                        rs.getString("status"), rs.getInt("current_version"),
+                        updatedAt == null ? null : updatedAt.toLocalDateTime()));
                 advanceId(id);
             });
             jdbc.query("SELECT id,file_id,version_no,content,checksum,publish_flag FROM dev_file_version", rs -> {

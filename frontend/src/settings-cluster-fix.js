@@ -288,6 +288,11 @@ function syncCreateButton() {
   }
 }
 
+// live-data.js updates the authenticated admin state asynchronously. Expose a
+// small refresh hook so the create entry is shown immediately after identity
+// loading, rather than remaining hidden from the initial unauthenticated boot.
+window.settingsClusterFixSync = syncCreateButton;
+
 function installInteractions() {
   document.addEventListener('click', (event) => {
     const create = event.target.closest('#' + CREATE_BUTTON_ID);

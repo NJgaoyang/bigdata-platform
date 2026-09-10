@@ -11,6 +11,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
@@ -154,7 +155,8 @@ public class DevelopmentService {
         validateParentFolder(request.projectId(), request.folderId(), null);
         long id = store.nextId();
         DevFileView view = new DevFileView(id, request.projectId(), request.folderId(), request.name(), request.fileType().toUpperCase(),
-                request.content() == null ? "" : request.content(), request.description() == null ? "" : request.description().trim(), "DRAFT", 1);
+                request.content() == null ? "" : request.content(), request.description() == null ? "" : request.description().trim(), "DRAFT", 1,
+                LocalDateTime.now());
         // File must exist before version because dev_file_version has an FK to dev_file.
         store.persistFile(view);
         FileVersionView version = newVersion(view);
@@ -194,7 +196,8 @@ public class DevelopmentService {
         Long folderId = Boolean.TRUE.equals(request.moveToRoot()) ? null : request.folderId() == null ? current.folderId() : request.folderId();
         validateParentFolder(current.projectId(), folderId, null);
         DevFileView updated = new DevFileView(current.id(), current.projectId(), folderId, name, current.fileType(), request.content(),
-                request.description() == null ? current.description() : request.description().trim(), "DRAFT", current.currentVersion() + 1);
+                request.description() == null ? current.description() : request.description().trim(), "DRAFT", current.currentVersion() + 1,
+                LocalDateTime.now());
         FileVersionView version = newVersion(updated);
         store.persistVersion(version);
         store.persistFile(updated);
@@ -215,7 +218,7 @@ public class DevelopmentService {
     public FileVersionView createVersion(long fileId, DevelopmentRequests.VersionRequest request) {
         DevFileView current = requireFile(fileId);
         DevFileView updated = new DevFileView(current.id(), current.projectId(), current.folderId(), current.name(), current.fileType(), request.content(),
-                current.description(), "DRAFT", current.currentVersion() + 1);
+                current.description(), "DRAFT", current.currentVersion() + 1, LocalDateTime.now());
         FileVersionView version = newVersion(updated);
         store.persistVersion(version);
         store.persistFile(updated);
@@ -241,7 +244,7 @@ public class DevelopmentService {
         }
         updates.forEach(store::persistVersion);
         DevFileView published = new DevFileView(current.id(), current.projectId(), current.folderId(), current.name(), current.fileType(), current.content(),
-                current.description(), "PUBLISHED", current.currentVersion());
+                current.description(), "PUBLISHED", current.currentVersion(), LocalDateTime.now());
         store.persistFile(published);
         updates.forEach(version -> store.versions.put(version.id(), version));
         store.files.put(fileId, published);
