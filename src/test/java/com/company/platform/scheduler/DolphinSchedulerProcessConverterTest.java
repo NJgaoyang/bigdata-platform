@@ -29,8 +29,27 @@ class DolphinSchedulerProcessConverterTest {
         assertEquals("SEATUNNEL", tasks.get(0).get("taskType").asText());
         assertEquals("env { job.mode = \\\"BATCH\\\" }", tasks.get(0).get("taskParams").get("rawScript").asText());
         assertEquals("SHELL", tasks.get(1).get("taskType").asText());
+        assertEquals(3, tasks.get(0).get("failRetryTimes").asInt());
+        assertEquals(1, tasks.get(0).get("failRetryInterval").asInt());
         assertEquals(2, relations.size());
         assertTrue(relations.toString().contains("\"preTaskCode\":0"));
         assertTrue(payload.locations().contains("\"x\":120"));
+    }
+
+    @Test
+    void supportsPerNodeRetryOverride() throws Exception {
+        String snapshot = "{\"workflowCode\":\"wf_retry\",\"name\":\"重试任务\",\"version\":1," +
+                "\"nodes\":[{\"id\":1,\"name\":\"sql\",\"type\":\"SQL\"," +
+                "\"configJson\":\"{\\\"failRetryTimes\\\":5,\\\"failRetryInterval\\\":2,\\\"workerGroup\\\":\\\"etl\\\",\\\"datasourceId\\\":8}\"," +
+                "\"contentBase64\":\"U0VMRUNUIDE=\"}],\"edges\":[]}";
+
+        var payload = new DolphinSchedulerProcessConverter(mapper, 2, 1, "default")
+                .convert(snapshot, 22919517565792L, "bigdata", "admin");
+        JsonNode task = mapper.readTree(payload.taskDefinitions()).get(0);
+
+        assertEquals(5, task.get("failRetryTimes").asInt());
+        assertEquals(2, task.get("failRetryInterval").asInt());
+        assertEquals("etl", task.get("workerGroup").asText());
+        assertEquals(8, task.get("taskParams").get("datasource").asInt());
     }
 }
