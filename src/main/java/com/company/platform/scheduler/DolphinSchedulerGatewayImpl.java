@@ -46,7 +46,9 @@ public class DolphinSchedulerGatewayImpl implements DolphinSchedulerGateway {
     public DolphinSchedulerGatewayImpl(PlatformProperties properties, ObjectMapper mapper) {
         this.properties = properties;
         this.mapper = mapper;
-        this.processConverter = new DolphinSchedulerProcessConverter(mapper);
+        PlatformProperties.Dolphinscheduler ds = properties.getScheduler().getDolphinscheduler();
+        this.processConverter = new DolphinSchedulerProcessConverter(mapper, ds.getFailRetryTimes(),
+                ds.getFailRetryInterval(), ds.getWorkerGroup());
     }
 
     @Override public PublishResult publish(PublishRequest request) {
@@ -88,7 +90,7 @@ public class DolphinSchedulerGatewayImpl implements DolphinSchedulerGateway {
         form.put("execType", "START_PROCESS");
         form.put("runMode", "RUN_MODE_PARALLEL");
         form.put("complementDependentMode", "ALL_DEPENDENT");
-        form.put("workerGroup", "default");
+        form.put("workerGroup", properties.getScheduler().getDolphinscheduler().getWorkerGroup());
         form.put("warningGroupId", "0");
         form.put("environmentCode", "-1");
         form.put("dryRun", "0");
@@ -122,285 +124,210 @@ public class DolphinSchedulerGatewayImpl implements DolphinSchedulerGateway {
         Map<String, String> form = baseForm();
         form.put("processInstanceId", instanceId);
         form.put("executeType", "REPEAT_RUNNING");
-        String response = sendForm("POST", path("/executors/execute"), form);
-        return new RunResult(extractId(response, instanceId), "RUNNING");
+        sendForm("POST", path("/executors/execute"), form);
+        return new RunResult(instanceId, "RUNNING");
     }
 
     @Override public RunResult backfill(String processCode, String start, String end, int parallelism) {
         requireRealMode();
+        String dsProcessCode = processCodes.getOrDefault(processCode, processCode);
         Map<String, String> form = baseForm();
-        form.put("processDefinitionCode", processCodes.getOrDefault(processCode, processCode));
+        form.put("processDefinitionCode", dsProcessCode);
         form.put("failureStrategy", "END");
         form.put("processInstancePriority", "MEDIUM");
         form.put("warningType", "NONE");
-        form.put("scheduleTime", "{\"complementStartDate\":\"" + jsonEscape(start)
-                + "\",\"complementEndDate\":\"" + jsonEscape(end) + "\"}");
+        form.put("scheduleTime", start + "," + end);
         form.put("execType", "COMPLEMENT_DATA");
-        form.put("runMode", "RUN_MODE_PARALLEL");
-        form.put("expectedParallelismNumber", String.valueOf(parallelism));
+        form.put("runMode", parallelism > 1 ? "RUN_MODE_PARALLEL" : "RUN_MODE_SERIAL");
+        form.put("expectedParallelismNumber", Integer.toString(Math.max(1, parallelism)));
+        form.put("workerGroup", properties.getScheduler().getDolphinscheduler().getWorkerGroup());
         form.put("warningGroupId", "0");
         form.put("environmentCode", "-1");
         form.put("dryRun", "0");
-        String response = sendForm("POST", path("/executors/start-process-instance"), form);
-        return new RunResult(extractId(response, "ds-backfill-" + UUID.randomUUID()), "RUNNING");
+        sendForm("POST", path("/executors/start-process-instance"), form);
+        return new RunResult("ds-backfill-" + UUID.randomUUID(), "SUBMITTED");
+    }
+
+    @Override public ScheduleResult upsertSchedule(ScheduleRequest request) {
+        requireRealMode();
+        String processCode = processCodes.getOrDefault(request.processCode(), request.processCode());
+        Map<String, String> form = baseForm();
+        form.put("processDefinitionCode", processCode);
+        form.put("schedule", scheduleJson(request));
+        form.put("failureStrategy", request.failureStrategy());
+        form.put("warningType", "NONE");
+        form.put("warningGroupId", "0");
+        form.put("processInstancePriority", "MEDIUM");
+        form.put("workerGroup", request.workerGroup());
+        form.put("environmentCode", "-1");
+        String response = request.scheduleId() == null || request.scheduleId().isBlank()
+                ? sendForm("POST", path("/schedules"), form)
+                : sendForm("PUT", path("/schedules/" + encode(request.scheduleId())), form);
+        return new ScheduleResult(extractId(response, request.scheduleId() == null ? "" : request.scheduleId()), "SAVED");
+    }
+
+    @Override public void scheduleState(String scheduleId, boolean online) {
+        requireRealMode();
+        if (scheduleId == null || scheduleId.isBlank()) throw new IllegalStateException("DolphinScheduler scheduleId 不能为空");
+        Map<String, String> form = baseForm();
+        form.put("id", scheduleId);
+        form.put("releaseState", online ? "ONLINE" : "OFFLINE");
+        sendForm("POST", path("/schedules/" + encode(scheduleId)), form);
     }
 
     @Override public void release(String processCode, boolean online) {
         requireRealMode();
         String dsProcessCode = processCodes.getOrDefault(processCode, processCode);
-        sendForm("POST", path("/process-definition/" + encode(dsProcessCode) + "/release"),
-                Map.of("releaseState", online ? "ONLINE" : "OFFLINE"));
+        Map<String, String> form = baseForm();
+        form.put("name", "");
+        form.put("releaseState", online ? "ONLINE" : "OFFLINE");
+        sendForm("POST", path("/process-definition/" + encode(dsProcessCode) + "/release"), form);
     }
 
-    @Override public String upsertSchedule(String processCode, String cronExpression, String timezone, boolean enabled,
-                                           String failureStrategy, int parallelism) {
-        requireRealMode();
-        String project = encode(properties.getScheduler().getDolphinscheduler().getProjectCode());
-        String query = "/schedules?processDefinitionCode=" + encode(processCode) + "&pageNo=1&pageSize=100";
-        String existing = findScheduleId(sendForm("GET", path(query), Map.of()));
-        Map<String, String> form = new LinkedHashMap<>();
-        form.put("processDefinitionCode", processCode);
-        form.put("schedule", scheduleJson(cronExpression, timezone));
-        form.put("warningType", "NONE");
-        form.put("warningGroupId", "1");
-        form.put("failureStrategy", failureStrategy == null || failureStrategy.isBlank() ? "END" : failureStrategy);
-        form.put("processInstancePriority", "MEDIUM");
-        form.put("workerGroup", "default");
-        form.put("environmentCode", "-1");
-        String response;
-        if (existing.isBlank()) {
-            response = sendForm("POST", basePath("/dolphinscheduler/projects/" + project + "/schedules"), form);
-            existing = extractId(response, "");
-        } else {
-            response = sendForm("PUT", basePath("/dolphinscheduler/projects/" + project + "/schedules/" + encode(existing)), form);
-        }
-        return existing;
-    }
-
-    @Override public void scheduleState(String scheduleId, boolean online) {
-        requireRealMode();
-        if (scheduleId == null || scheduleId.isBlank()) return;
-        sendForm("POST", basePath("/dolphinscheduler/projects/" + encode(properties.getScheduler().getDolphinscheduler().getProjectCode())
-                + "/schedules/" + encode(scheduleId) + (online ? "/online" : "/offline")), Map.of());
-    }
-
-    @Override public List<Map<String, Object>> listProcessInstances() {
-        requireRealMode();
-        String body = sendForm("GET", path("/process-instances?pageNo=1&pageSize=100"), Map.of());
-        return parseInstanceList(body, "process");
-    }
-
-    @Override public boolean isRealMode() { return realEnabled(); }
-
-    @Override public List<Map<String, Object>> listTaskInstances() {
-        requireRealMode();
-        String body = sendForm("GET", path("/task-instances?pageNo=1&pageSize=100&taskExecuteType=BATCH"), Map.of());
-        return parseInstanceList(body, "task");
-    }
-
-    @Override public String taskLog(String taskInstanceId) {
-        requireRealMode();
-        if (taskInstanceId == null || !taskInstanceId.matches("\\d+")) {
-            return "DolphinScheduler 任务实例尚未生成可查询的编号";
-        }
-        String body = sendForm("GET", basePath("/dolphinscheduler/log/" + encode(properties.getScheduler().getDolphinscheduler().getProjectCode())
-                + "/detail?taskInstanceId=" + encode(taskInstanceId) + "&skipLineNum=0&limit=1000"), Map.of());
+    private String scheduleJson(ScheduleRequest request) {
         try {
-            var data = mapper.readTree(body).path("data");
-            for (String key : List.of("log", "content", "text")) {
-                if (data.hasNonNull(key)) return data.path(key).asText();
-            }
-            return data.isTextual() ? data.asText() : data.toString();
-        } catch (IOException ex) {
-            return body;
+            Map<String, Object> json = new LinkedHashMap<>();
+            json.put("startTime", "2020-01-01 00:00:00");
+            json.put("endTime", "2120-01-01 00:00:00");
+            json.put("crontab", request.cronExpression());
+            json.put("timezoneId", request.timezone());
+            return mapper.writeValueAsString(json);
+        } catch (Exception ex) {
+            throw new IllegalStateException("DolphinScheduler 调度配置序列化失败", ex);
         }
     }
 
-    private boolean realEnabled() {
-        var config = properties.getScheduler().getDolphinscheduler();
-        if (!config.isRealEnabled()) return false;
-        if ((config.getPassword() == null || config.getPassword().isBlank())
-                && (config.getToken() == null || config.getToken().isBlank())) {
-            throw new IllegalStateException("DolphinScheduler 已开启真实模式，但未配置密码或 sessionId Token");
+    private String awaitProcessInstance(String processCode) {
+        try {
+            Thread.sleep(150L);
+            String response = sendForm("GET", path("/process-instances"), Map.of(
+                    "processDefinitionCode", processCode,
+                    "pageNo", "1",
+                    "pageSize", "10"));
+            Matcher matcher = PROCESS_INSTANCE_ID.matcher(response);
+            return matcher.find() ? matcher.group(1) : null;
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            return null;
+        } catch (RuntimeException ex) {
+            return null;
         }
-        return true;
+    }
+
+    private String extractStatus(String response) {
+        for (String status : List.of("SUCCESS", "FAILURE", "RUNNING_EXECUTION", "READY_STOP", "STOP", "PAUSE", "SUBMITTED_SUCCESS")) {
+            if (response.contains(status)) return status;
+        }
+        return "UNKNOWN";
+    }
+
+    private String extractId(String response, String fallback) {
+        Matcher dataMatcher = DATA_CODE.matcher(response);
+        if (dataMatcher.find()) return dataMatcher.group(1);
+        Matcher codeMatcher = RESULT_CODE.matcher(response);
+        if (codeMatcher.find() && !"0".equals(codeMatcher.group(1))) return codeMatcher.group(1);
+        if (fallback != null && !fallback.isBlank()) return fallback;
+        throw new IllegalStateException("DolphinScheduler 返回中未找到资源 code: " + response);
+    }
+
+    private long projectCode() {
+        String value = properties.getScheduler().getDolphinscheduler().getProjectCode();
+        if (value == null || value.isBlank()) throw new IllegalStateException("DOLPHINSCHEDULER_PROJECT_CODE 未配置");
+        try {
+            return Long.parseLong(value.trim());
+        } catch (NumberFormatException ex) {
+            throw new IllegalStateException("DOLPHINSCHEDULER_PROJECT_CODE 必须是 DolphinScheduler project code 数字值", ex);
+        }
     }
 
     private void requireRealMode() {
-        if (!realEnabled()) throw new IllegalStateException("DolphinScheduler 真实执行未启用，禁止创建模拟任务");
+        PlatformProperties.Dolphinscheduler ds = properties.getScheduler().getDolphinscheduler();
+        if (!ds.isRealEnabled()) throw new IllegalStateException("DolphinScheduler 真实调用未开启，请设置 DOLPHINSCHEDULER_REAL_ENABLED=true");
+        if ((ds.getToken() == null || ds.getToken().isBlank()) && (ds.getPassword() == null || ds.getPassword().isBlank())) {
+            throw new IllegalStateException("DolphinScheduler 凭证未配置，请设置 DOLPHINSCHEDULER_TOKEN 或 DOLPHINSCHEDULER_PASSWORD");
+        }
+    }
+
+    private String path(String suffix) {
+        return properties.getScheduler().getDolphinscheduler().getBaseUrl().replaceAll("/$", "")
+                + "/dolphinscheduler/projects/" + projectCode() + suffix;
     }
 
     private Map<String, String> baseForm() {
         Map<String, String> form = new LinkedHashMap<>();
-        form.put("projectCode", properties.getScheduler().getDolphinscheduler().getProjectCode());
-        form.put("tenantCode", properties.getScheduler().getDolphinscheduler().getTenantCode());
+        String token = properties.getScheduler().getDolphinscheduler().getToken();
+        if (token != null && !token.isBlank()) form.put("token", token);
         return form;
     }
 
-    private String path(String suffix) {
-        return basePath("/dolphinscheduler/projects/" + encode(properties.getScheduler().getDolphinscheduler().getProjectCode()) + suffix);
-    }
-
-    private String basePath(String suffix) {
-        String base = properties.getScheduler().getDolphinscheduler().getBaseUrl().replaceAll("/+$", "");
-        return base + suffix;
-    }
-
-    private long projectCode() {
-        String code = properties.getScheduler().getDolphinscheduler().getProjectCode();
+    private String sendForm(String method, String url, Map<String, String> form) {
         try {
-            return Long.parseLong(code);
-        } catch (NumberFormatException ex) {
-            throw new IllegalStateException("真实 DolphinScheduler 模式要求 project-code 使用数字编码：" + code);
-        }
-    }
-
-    private String sendForm(String method, String url, Map<String, String> values) {
-        try {
-            HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(url)).timeout(Duration.ofSeconds(20))
+            ensureSession();
+            String encoded = encodeForm(form);
+            String targetUrl = "GET".equals(method) && !encoded.isBlank() ? url + (url.contains("?") ? "&" : "?") + encoded : url;
+            HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(targetUrl))
+                    .timeout(Duration.ofSeconds(30))
                     .header("Accept", "application/json");
-            String currentSession = ensureSession();
-            if (currentSession != null && !currentSession.isBlank()) builder.header("sessionId", currentSession);
-            HttpRequest request;
-            if ("GET".equals(method)) request = builder.GET().build();
-            else {
-                builder = builder.header("Content-Type", "application/x-www-form-urlencoded");
-                var body = HttpRequest.BodyPublishers.ofString(formEncode(values), StandardCharsets.UTF_8);
-                request = switch (method) {
-                    case "PUT" -> builder.PUT(body).build();
-                    case "DELETE" -> builder.method("DELETE", body).build();
-                    default -> builder.POST(body).build();
-                };
+            if (sessionId != null && !sessionId.isBlank()) builder.header("sessionId", sessionId);
+            String token = properties.getScheduler().getDolphinscheduler().getToken();
+            if (token != null && !token.isBlank()) builder.header("token", token);
+            if ("GET".equals(method)) builder.GET();
+            else builder.header("Content-Type", "application/x-www-form-urlencoded;charset=UTF-8")
+                    .method(method, HttpRequest.BodyPublishers.ofString(encoded));
+            HttpResponse<String> response = client.send(builder.build(), HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            if (response.statusCode() / 100 != 2) {
+                throw new IllegalStateException("DolphinScheduler HTTP " + response.statusCode() + ": " + response.body());
             }
-            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
-            if (response.statusCode() < 200 || response.statusCode() >= 300) throw new IllegalStateException("DolphinScheduler API 返回 " + response.statusCode());
-            String body = response.body();
-            Matcher code = RESULT_CODE.matcher(body == null ? "" : body);
-            if (code.find() && Integer.parseInt(code.group(1)) != 0) throw new IllegalStateException("DolphinScheduler API 返回错误：" + body);
-            return body;
+            if (response.body() != null && response.body().contains("\"success\":false")) {
+                throw new IllegalStateException("DolphinScheduler 调用失败: " + response.body());
+            }
+            return response.body() == null ? "" : response.body();
+        } catch (IOException ex) {
+            throw new IllegalStateException("DolphinScheduler 网络调用失败: " + ex.getMessage(), ex);
         } catch (InterruptedException ex) {
             Thread.currentThread().interrupt();
-            throw new IllegalStateException("DolphinScheduler API 调用中断", ex);
-        } catch (IOException ex) {
-            throw new IllegalStateException("DolphinScheduler API 调用失败：" + ex.getMessage(), ex);
+            throw new IllegalStateException("DolphinScheduler 调用被中断", ex);
         }
     }
 
-    private String ensureSession() {
-        var config = properties.getScheduler().getDolphinscheduler();
-        if (config.getToken() != null && !config.getToken().isBlank()) return config.getToken();
-        if (sessionId != null && !sessionId.isBlank()) return sessionId;
+    private void ensureSession() throws IOException, InterruptedException {
+        PlatformProperties.Dolphinscheduler ds = properties.getScheduler().getDolphinscheduler();
+        if (ds.getToken() != null && !ds.getToken().isBlank()) return;
+        if (sessionId != null && !sessionId.isBlank()) return;
         Map<String, String> login = new LinkedHashMap<>();
-        login.put("userName", config.getUsername());
-        login.put("userPassword", config.getPassword());
-        String response = sendLogin(login);
-        Matcher matcher = SESSION_ID.matcher(response == null ? "" : response);
-        if (!matcher.find()) throw new IllegalStateException("DolphinScheduler 登录未返回 sessionId");
+        login.put("userName", ds.getUsername());
+        login.put("userPassword", ds.getPassword());
+        String loginUrl = ds.getBaseUrl().replaceAll("/$", "") + "/dolphinscheduler/login";
+        HttpRequest request = HttpRequest.newBuilder(URI.create(loginUrl))
+                .timeout(Duration.ofSeconds(30))
+                .header("Content-Type", "application/x-www-form-urlencoded;charset=UTF-8")
+                .POST(HttpRequest.BodyPublishers.ofString(encodeForm(login)))
+                .build();
+        HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+        if (response.statusCode() / 100 != 2) throw new IllegalStateException("DolphinScheduler 登录失败: HTTP " + response.statusCode());
+        Matcher matcher = SESSION_ID.matcher(response.body());
+        if (!matcher.find()) throw new IllegalStateException("DolphinScheduler 登录响应未返回 sessionId");
         sessionId = matcher.group(1);
-        return sessionId;
     }
 
-    private String sendLogin(Map<String, String> values) {
-        try {
-            String base = properties.getScheduler().getDolphinscheduler().getBaseUrl().replaceAll("/+$", "");
-            HttpRequest request = HttpRequest.newBuilder(URI.create(base + "/dolphinscheduler/login"))
-                    .timeout(Duration.ofSeconds(20)).header("Content-Type", "application/x-www-form-urlencoded")
-                    .POST(HttpRequest.BodyPublishers.ofString(formEncode(values), StandardCharsets.UTF_8)).build();
-            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
-            if (response.statusCode() < 200 || response.statusCode() >= 300) throw new IllegalStateException("DolphinScheduler 登录返回 " + response.statusCode());
-            Matcher code = RESULT_CODE.matcher(response.body());
-            if (code.find() && Integer.parseInt(code.group(1)) != 0) throw new IllegalStateException("DolphinScheduler 登录失败");
-            return response.body();
-        } catch (InterruptedException ex) {
-            Thread.currentThread().interrupt();
-            throw new IllegalStateException("DolphinScheduler 登录中断", ex);
-        } catch (IOException ex) {
-            throw new IllegalStateException("DolphinScheduler 登录失败：" + ex.getMessage(), ex);
+    private String encodeForm(Map<String, String> form) {
+        List<String> parts = new ArrayList<>();
+        for (Map.Entry<String, String> entry : form.entrySet()) {
+            if (entry.getValue() == null) continue;
+            parts.add(encode(entry.getKey()) + "=" + encode(entry.getValue()));
         }
+        return String.join("&", parts);
     }
 
-    private String formEncode(Map<String, String> values) {
-        return values.entrySet().stream().map(entry -> encode(entry.getKey()) + "=" + encode(entry.getValue() == null ? "" : entry.getValue()))
-                .reduce((left, right) -> left + "&" + right).orElse("");
+    private String encode(String value) {
+        return URLEncoder.encode(value == null ? "" : value, StandardCharsets.UTF_8);
     }
-    private String extractId(String body, String fallback) {
-        try {
-            var data = mapper.readTree(body == null ? "" : body).path("data");
-            if (data.isNumber() || data.isTextual()) return data.asText();
-            for (String field : List.of("id", "processInstanceId", "processCode", "code")) {
-                var value = data.path(field);
-                if (value.isNumber() || value.isTextual()) return value.asText();
-            }
-        } catch (IOException ignored) { }
-        Matcher instance = PROCESS_INSTANCE_ID.matcher(body == null ? "" : body);
-        if (instance.find()) return instance.group(1);
-        Matcher data = DATA_CODE.matcher(body == null ? "" : body);
-        if (data.find()) return data.group(1);
-        return fallback;
-    }
-    private String extractStatus(String body) {
-        Matcher matcher = Pattern.compile("\\\"state\\\"\\s*:\\s*\\\"([^\\\"]+)").matcher(body == null ? "" : body);
-        return matcher.find() ? matcher.group(1) : "UNKNOWN";
-    }
-    private String findScheduleId(String body) {
-        try {
-            var list = mapper.readTree(body).path("data").path("totalList");
-            if (list.isArray() && !list.isEmpty()) return list.get(0).path("id").asText("");
-        } catch (IOException ignored) { }
-        return "";
-    }
-    private String scheduleJson(String cronExpression, String timezone) {
-        return "{\"startTime\":\"2000-01-01 00:00:00\",\"endTime\":\"2099-12-31 23:59:59\",\"crontab\":\""
-                + jsonEscape(cronExpression) + "\",\"timezoneId\":\"" + jsonEscape(timezone) + "\"}";
-    }
-    private List<Map<String, Object>> parseInstanceList(String body, String kind) {
-        try {
-            var list = mapper.readTree(body).path("data").path("totalList");
-            List<Map<String, Object>> result = new ArrayList<>();
-            if (!list.isArray()) return result;
-            for (var item : list) {
-                Map<String, Object> row = new LinkedHashMap<>();
-                row.put("id", item.path("id").asText());
-                row.put("name", item.path("name").asText());
-                row.put("status", item.path("state").asText("UNKNOWN"));
-                row.put("engine", "DolphinScheduler " + version());
-                row.put("processInstanceId", "process".equals(kind)
-                        ? item.path("id").asText() : item.path("processInstanceId").asText());
-                row.put("processDefinitionCode", item.path("processDefinitionCode").asText());
-                row.put("taskType", item.path("taskType").asText());
-                row.put("startTime", item.path("startTime").asText());
-                row.put("endTime", item.path("endTime").asText());
-                result.add(row);
-            }
-            return result;
-        } catch (IOException ex) {
-            throw new IllegalStateException("DolphinScheduler 实例列表解析失败", ex);
-        }
-    }
-    private String awaitProcessInstance(String processDefinitionCode) {
-        for (int attempt = 0; attempt < 5; attempt++) {
-            try {
-                Thread.sleep(400);
-                for (Map<String, Object> instance : listProcessInstances()) {
-                    if (processDefinitionCode.equals(String.valueOf(instance.get("processDefinitionCode")))) {
-                        return String.valueOf(instance.get("id"));
-                    }
-                }
-            } catch (InterruptedException ex) {
-                Thread.currentThread().interrupt();
-                return null;
-            }
-        }
-        return null;
-    }
+
+    private String version() { return properties.getScheduler().getDolphinscheduler().getVersion(); }
+
     private void requireNumericInstanceId(String instanceId) {
         if (instanceId == null || !instanceId.matches("\\d+")) {
-            throw new IllegalArgumentException("DolphinScheduler 实例尚未生成可操作的实例编号：" + instanceId);
+            throw new IllegalStateException("DolphinScheduler 尚未返回可操作的数字实例 ID: " + instanceId);
         }
     }
-    private String jsonEscape(String value) {
-        return value == null ? "" : value.replace("\\", "\\\\").replace("\"", "\\\"");
-    }
-    private String version() { return properties.getScheduler().getDolphinscheduler().getVersion(); }
-    private String encode(String value) { return URLEncoder.encode(value == null ? "" : value, StandardCharsets.UTF_8); }
 }
