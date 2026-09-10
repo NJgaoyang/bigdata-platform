@@ -1,6 +1,7 @@
 package com.company.platform.dashboard;
 
 import com.company.platform.common.Result;
+import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -14,8 +15,8 @@ public class DashboardController {
 
     public DashboardController(DashboardService service) { this.service = service; }
 
-    @GetMapping("/overview") public Result<DashboardService.OverviewView> overview() {
-        return Result.ok(service.overview());
+    @GetMapping("/overview") public Result<DashboardService.OverviewView> overview(HttpServletRequest request) {
+        return Result.ok(service.overview(operator(request)));
     }
 
     @GetMapping("/sources") public Result<DashboardService.SourceDashboardView> sources() {
@@ -33,5 +34,10 @@ public class DashboardController {
 
     @GetMapping("/assets") public Result<DashboardService.AssetDashboardView> assets() {
         return Result.ok(service.assets());
+    }
+
+    private String operator(HttpServletRequest request) {
+        Object value = request.getAttribute("platform.operator");
+        return value == null || String.valueOf(value).isBlank() ? "admin" : String.valueOf(value);
     }
 }
