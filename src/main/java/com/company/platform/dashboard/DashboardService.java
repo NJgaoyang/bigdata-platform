@@ -2,6 +2,8 @@ package com.company.platform.dashboard;
 
 import com.company.platform.common.PlatformStore;
 import com.company.platform.datasource.DataSourceView;
+import com.company.platform.development.DevFileView;
+import com.company.platform.development.DevProjectView;
 import com.company.platform.integration.IntegrationInstanceView;
 import com.company.platform.integration.IntegrationTableView;
 import com.company.platform.integration.IntegrationTaskView;
@@ -25,19 +27,22 @@ import java.util.stream.Collectors;
 public class DashboardService {
     private static final DateTimeFormatter DAY = DateTimeFormatter.ofPattern("MM/dd");
     private static final DateTimeFormatter HOUR = DateTimeFormatter.ofPattern("HH:mm");
+    private static final String FAVORITES_PROJECT_NAME = "我的收藏";
     private final PlatformStore store;
     private final SchedulerGateway scheduler;
 
     public DashboardService(PlatformStore store, SchedulerGateway scheduler) { this.store = store; this.scheduler = scheduler; }
 
-    public OverviewView overview() {
+    public OverviewView overview() { return overview("admin"); }
+
+    public OverviewView overview(String username) {
         SourceDashboardView sources = sources();
         List<RecentTask> recent = recentTasks();
         TaskSummary tasks = taskSummary(recent);
         boolean schedulerOnline = schedulerAvailable();
         return new OverviewView(new PlatformStatus(schedulerOnline ? "UP" : "DOWN", scheduler.isRealMode() ? "real" : "unavailable",
                 sources.healthy(), sources.total(), schedulerOnline), tasks, sources, recent.stream().limit(12).toList(),
-                List.of(), trend(recent), generatedAt());
+                favorites(username), trend(recent), generatedAt());
     }
 
     public SourceDashboardView sources() {
@@ -96,6 +101,23 @@ public class DashboardService {
         List<AssetItem> assets = items.values().stream().sorted(Comparator.comparing(AssetItem::name, String.CASE_INSENSITIVE_ORDER)).toList();
         return new AssetDashboardView(assets.size(), assets.size(), store.dataSources.values().stream().filter(DataSourceView::metadataVisible).count(),
                 governed.size(), store.lineages.size(), assets, generatedAt());
+    }
+
+    private List<FavoriteItem> favorites(String username) {
+        String owner = username == null || username.isBlank() ? "admin" : username.trim();
+        Set<Long> favoriteProjectIds = store.projects.values().stream()
+                .filter(project -> FAVORITES_PROJECT_NAME.equalsIgnoreCase(normalize(project.name())))
+                .filter(project -> owner.equalsIgnoreCase(normalize(project.ownerName())))
+                .map(DevProjectView::id)
+                .collect(Collectors.toSet());
+        if (favoriteProjectIds.isEmpty()) return List.of();
+        return store.files.values().stream()
+                .filter(file -> favoriteProjectIds.contains(file.projectId()))
+                .sorted(Comparator.comparing(DevFileView::name, String.CASE_INSENSITIVE_ORDER))
+                .map(file -> new FavoriteItem("development-file-" + file.id(), file.name(),
+                        file.fileType() == null || file.fileType().isBlank() ? "FILE" : file.fileType(),
+                        file.description() == null || file.description().isBlank() ? "开发文件" : file.description()))
+                .toList();
     }
 
     private String putAsset(Map<String, AssetItem> items, String database, String table, String origin, String status) {
@@ -227,7 +249,7 @@ public class DashboardService {
     private boolean isRunning(String status) { String value = normalize(status); return value.contains("RUNNING") || value.contains("SUBMITTED") || value.contains("运行中"); }
     private boolean isSuccess(String status) { String value = normalize(status); return value.contains("SUCCESS") || value.contains("FINISHED") || value.contains("成功"); }
     private boolean isFailed(String status) { String value = normalize(status); return value.contains("FAIL") || value.contains("ERROR") || value.contains("失败"); }
-    private String normalize(String status) { return status == null ? "" : status.toUpperCase(Locale.ROOT); }
+    private String normalize(String status) { return status == null ? "" : status.trim(); }
     private LocalDateTime asDateTime(Object value) {
         if (value instanceof LocalDateTime date) return date;
         if (value == null) return null;
