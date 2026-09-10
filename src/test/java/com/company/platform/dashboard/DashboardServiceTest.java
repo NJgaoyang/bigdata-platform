@@ -3,6 +3,8 @@ package com.company.platform.dashboard;
 import com.company.platform.common.PlatformStore;
 import com.company.platform.datasource.DataSourceType;
 import com.company.platform.datasource.DataSourceView;
+import com.company.platform.development.DevFileView;
+import com.company.platform.development.DevProjectView;
 import com.company.platform.integration.IntegrationInstanceView;
 import com.company.platform.integration.IntegrationTableView;
 import com.company.platform.integration.IntegrationTaskView;
@@ -51,6 +53,35 @@ class DashboardServiceTest {
         var assets = service.assets().items();
         assertEquals("已同步", assets.stream().filter(item -> item.name().equals("ods.a")).findFirst().orElseThrow().status());
         assertEquals("待同步", assets.stream().filter(item -> item.name().equals("ods.b")).findFirst().orElseThrow().status());
+    }
+
+    @Test
+    void overviewReturnsOnlyCurrentUsersPersistedFavorites() {
+        PlatformStore store = new PlatformStore();
+        store.projects.clear();
+        store.files.clear();
+        store.projects.put(10L, new DevProjectView(10, "我的收藏", "个人工作区", "ACTIVE", "alice"));
+        store.projects.put(20L, new DevProjectView(20, "我的收藏", "个人工作区", "ACTIVE", "bob"));
+        store.files.put(101L, new DevFileView(101, 10, null, "alice-order.sql", "SQL", "SELECT 1", "订单收藏", "DRAFT", 1));
+        store.files.put(201L, new DevFileView(201, 20, null, "bob-order.sql", "SQL", "SELECT 2", "其他用户收藏", "DRAFT", 1));
+        DashboardService service = new DashboardService(store, testGateway());
+
+        var favorites = service.overview("alice").favorites();
+        assertEquals(1, favorites.size());
+        assertEquals("alice-order.sql", favorites.get(0).name());
+        assertEquals("SQL", favorites.get(0).type());
+        assertEquals("订单收藏", favorites.get(0).detail());
+    }
+
+    @Test
+    void taskStatusesAreAggregatedCaseInsensitively() {
+        PlatformStore store = new PlatformStore();
+        store.integrationTasks.put(3L, new IntegrationTaskView(3, "user_sync", "MYSQL", "STARROCKS", "FULL", "DRAFT", "{}"));
+        store.integrationInstances.put(4L, new IntegrationInstanceView(4, 3, "execution-4", "success",
+                LocalDateTime.now(), LocalDateTime.now(), "completed"));
+        DashboardService service = new DashboardService(store, testGateway());
+
+        assertEquals(1, service.overview().tasks().success());
     }
 
     private static SchedulerGateway testGateway() {
