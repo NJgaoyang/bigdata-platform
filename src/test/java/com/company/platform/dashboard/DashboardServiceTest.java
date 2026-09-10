@@ -56,6 +56,24 @@ class DashboardServiceTest {
     }
 
     @Test
+    void lineageAndSuccessfulSyncDoNotPretendToBeGovernance() {
+        PlatformStore store = new PlatformStore();
+        store.lineages.clear();
+        store.integrationTaskTables.clear();
+        store.integrationInstances.clear();
+        store.lineages.put(10L, new LineageView(10L, "ods.orders", "dwd.orders", "SQL", 1L, 2L));
+        store.integrationTaskTables.put(20L, List.of(new IntegrationTableView(201, 20, "src", "orders", "ods", "synced_orders", "")));
+        store.integrationInstances.put(30L, new IntegrationInstanceView(30, 20, "real-execution", "SUCCESS",
+                LocalDateTime.now(), LocalDateTime.now(), "done"));
+        DashboardService service = new DashboardService(store, testGateway());
+
+        var assets = service.assets();
+        assertEquals(0, assets.governed());
+        assertEquals("已关联", assets.items().stream().filter(item -> item.name().equals("dwd.orders")).findFirst().orElseThrow().status());
+        assertEquals("已同步", assets.items().stream().filter(item -> item.name().equals("ods.synced_orders")).findFirst().orElseThrow().status());
+    }
+
+    @Test
     void overviewReturnsOnlyCurrentUsersPersistedFavorites() {
         PlatformStore store = new PlatformStore();
         store.projects.clear();
