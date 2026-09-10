@@ -5,10 +5,9 @@ import com.company.platform.common.NotFoundException;
 import com.company.platform.common.PlatformStore;
 import com.company.platform.datasource.PasswordCipher;
 import com.company.platform.system.AuditService;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
-import java.net.InetSocketAddress;
-import java.net.Socket;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -17,11 +16,19 @@ public class SeaTunnelClusterService {
     private final PlatformStore store;
     private final PasswordCipher cipher;
     private final AuditService audit;
+    private final SeaTunnelSshClient sshClient;
 
+    /** Retained for focused unit tests that do not require an SSH runtime. */
     public SeaTunnelClusterService(PlatformStore store, PasswordCipher cipher, AuditService audit) {
+        this(store, cipher, audit, null);
+    }
+
+    @Autowired
+    public SeaTunnelClusterService(PlatformStore store, PasswordCipher cipher, AuditService audit, SeaTunnelSshClient sshClient) {
         this.store = store;
         this.cipher = cipher;
         this.audit = audit;
+        this.sshClient = sshClient;
     }
 
     public List<SeaTunnelClusterView> list() {
@@ -75,12 +82,10 @@ public class SeaTunnelClusterService {
     public SeaTunnelClusterView check(long id) { return check(id, "admin"); }
     public SeaTunnelClusterView check(long id, String operator) {
         SeaTunnelClusterView current = get(id);
-        String status;
-        try (Socket socket = new Socket()) {
-            socket.connect(new InetSocketAddress(current.host(), current.port()), 2500);
-            status = "HEALTHY";
-        } catch (Exception ignored) {
-            status = "UNREACHABLE";
+        String status = "UNREACHABLE";
+        if (sshClient != null && current.sshUsername() != null && !current.sshUsername().isBlank()) {
+            try { status = sshClient.executableAvailable(id) ? "HEALTHY" : "UNREACHABLE"; }
+            catch (RuntimeException ignored) { status = "UNREACHABLE"; }
         }
         SeaTunnelClusterView updated = new SeaTunnelClusterView(current.id(), current.name(), current.host(), current.port(),
                 current.sshUsername(), current.sshPort(), current.seatunnelHome(), current.description(), status, current.createdAt());
