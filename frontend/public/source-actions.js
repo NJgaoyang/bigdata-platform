@@ -91,9 +91,16 @@
     data.port = Number(data.port);
     var submitButton = box.querySelector('.submit');
     submitButton.disabled = true;
-    submitButton.textContent = '创建中…';
+    submitButton.textContent = box._editingId ? '保存中…' : '创建中…';
     error.textContent = '';
-    window.fetch('/api/data-sources' + (box._editingId ? '/' + box._editingId : ''), { method: box._editingId ? 'PUT' : 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json' }, body: JSON.stringify(data) })
+    var headers = { 'Content-Type': 'application/json', Accept: 'application/json' };
+    var accessToken = window.localStorage.getItem('platform_access_token');
+    if (accessToken) headers.Authorization = 'Bearer ' + accessToken;
+    window.fetch('/api/data-sources' + (box._editingId ? '/' + box._editingId : ''), {
+      method: box._editingId ? 'PUT' : 'POST',
+      headers: headers,
+      body: JSON.stringify(data)
+    })
       .then(function (response) { return response.json().catch(function () { return {}; }).then(function (payload) { if (!response.ok || payload.success === false) throw new Error(payload.message || '创建失败'); return payload; }); })
       .then(function (payload) {
         closeDialog();
