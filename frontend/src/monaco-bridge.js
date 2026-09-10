@@ -3,6 +3,7 @@ import editorWorker from '../node_modules/monaco-editor/esm/vs/editor/editor.wor
 import '../node_modules/monaco-editor/min/vs/editor/editor.main.css';
 import './development-workspace.js';
 import './settings-cluster-fix.js';
+import './integration-task-dialog.js';
 
 const worker = editorWorker;
 self.MonacoEnvironment = {
