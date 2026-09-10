@@ -15,23 +15,21 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(NotFoundException.class)
     @ResponseStatus(HttpStatus.NOT_FOUND)
-    public Result<Void> notFound(NotFoundException ex) {
-        return Result.fail(ex.getMessage());
-    }
+    public Result<Void> notFound(NotFoundException ex) { return Result.fail(ex.getMessage()); }
+
+    @ExceptionHandler(ForbiddenException.class)
+    @ResponseStatus(HttpStatus.FORBIDDEN)
+    public Result<Void> forbidden(ForbiddenException ex) { return Result.fail(ex.getMessage()); }
 
     @ExceptionHandler({BadRequestException.class, ConstraintViolationException.class})
     @ResponseStatus(HttpStatus.BAD_REQUEST)
-    public Result<Void> badRequest(RuntimeException ex) {
-        return Result.fail(ex.getMessage());
-    }
+    public Result<Void> badRequest(RuntimeException ex) { return Result.fail(ex.getMessage()); }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
     @ResponseStatus(HttpStatus.BAD_REQUEST)
     public Result<Void> invalid(MethodArgumentNotValidException ex) {
-        String message = ex.getBindingResult().getFieldErrors().stream()
-                .findFirst()
-                .map(error -> error.getField() + ": " + error.getDefaultMessage())
-                .orElse("请求参数不合法");
+        String message = ex.getBindingResult().getFieldErrors().stream().findFirst()
+                .map(error -> error.getField() + ": " + error.getDefaultMessage()).orElse("请求参数不合法");
         return Result.fail(message);
     }
 
