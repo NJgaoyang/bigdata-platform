@@ -106,8 +106,8 @@ public class DashboardService {
     private List<FavoriteItem> favorites(String username) {
         String owner = username == null || username.isBlank() ? "admin" : username.trim();
         Set<Long> favoriteProjectIds = store.projects.values().stream()
-                .filter(project -> FAVORITES_PROJECT_NAME.equalsIgnoreCase(normalize(project.name())))
-                .filter(project -> owner.equalsIgnoreCase(normalize(project.ownerName())))
+                .filter(project -> FAVORITES_PROJECT_NAME.equalsIgnoreCase(project.name() == null ? "" : project.name().trim()))
+                .filter(project -> owner.equalsIgnoreCase(project.ownerName() == null ? "" : project.ownerName().trim()))
                 .map(DevProjectView::id)
                 .collect(Collectors.toSet());
         if (favoriteProjectIds.isEmpty()) return List.of();
@@ -249,7 +249,7 @@ public class DashboardService {
     private boolean isRunning(String status) { String value = normalize(status); return value.contains("RUNNING") || value.contains("SUBMITTED") || value.contains("运行中"); }
     private boolean isSuccess(String status) { String value = normalize(status); return value.contains("SUCCESS") || value.contains("FINISHED") || value.contains("成功"); }
     private boolean isFailed(String status) { String value = normalize(status); return value.contains("FAIL") || value.contains("ERROR") || value.contains("失败"); }
-    private String normalize(String status) { return status == null ? "" : status.trim(); }
+    private String normalize(String status) { return status == null ? "" : status.trim().toUpperCase(Locale.ROOT); }
     private LocalDateTime asDateTime(Object value) {
         if (value instanceof LocalDateTime date) return date;
         if (value == null) return null;
