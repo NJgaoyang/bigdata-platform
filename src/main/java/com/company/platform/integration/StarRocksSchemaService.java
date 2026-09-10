@@ -32,7 +32,7 @@ public class StarRocksSchemaService {
 
         IntegrationRequests.Endpoint target = task.target();
         List<SchemaResult> results = new ArrayList<>();
-        try (Connection targetConnection = DriverManager.getConnection(jdbcBase(target), target.username(), target.password())) {
+        try (Connection targetConnection = DriverManager.getConnection(jdbcRootUrl(target), target.username(), target.password())) {
             for (IntegrationRequests.TableRequest table : task.tables()) {
                 requireDatabase(targetConnection, table.targetDatabase());
                 boolean exists = tableExists(targetConnection, table.targetDatabase(), table.targetTable());
@@ -74,7 +74,7 @@ public class StarRocksSchemaService {
     }
 
     private List<SourceColumn> sourceColumns(IntegrationRequests.Endpoint source, String database, String table) {
-        String url = jdbcUrl(source, database);
+        String url = jdbcDatabaseUrl(source, database);
         try (Connection connection = DriverManager.getConnection(url, source.username(), source.password());
              Statement statement = connection.createStatement();
              ResultSet rs = statement.executeQuery("SHOW FULL COLUMNS FROM " + identifier(database) + "." + identifier(table))) {
@@ -210,12 +210,15 @@ public class StarRocksSchemaService {
         String value = type == null ? "" : type.toUpperCase(Locale.ROOT);
         return !value.startsWith("JSON") && !value.startsWith("FLOAT") && !value.startsWith("DOUBLE") && !value.startsWith("STRING");
     }
-    private String jdbcUrl(IntegrationRequests.Endpoint endpoint, String database) {
-        return jdbcBase(endpoint) + "/" + database + "?useUnicode=true&characterEncoding=UTF-8&useSSL=false&serverTimezone=Asia/Shanghai&tinyInt1isBit=false";
+    private String jdbcDatabaseUrl(IntegrationRequests.Endpoint endpoint, String database) {
+        return jdbcAuthority(endpoint) + "/" + database + "?useUnicode=true&characterEncoding=UTF-8&useSSL=false&serverTimezone=Asia/Shanghai&tinyInt1isBit=false&allowPublicKeyRetrieval=true";
     }
-    private String jdbcBase(IntegrationRequests.Endpoint endpoint) {
+    private String jdbcRootUrl(IntegrationRequests.Endpoint endpoint) {
+        return jdbcAuthority(endpoint) + "?useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true";
+    }
+    private String jdbcAuthority(IntegrationRequests.Endpoint endpoint) {
         String host = endpoint.host().split(",")[0].trim();
-        return "jdbc:mysql://" + host + ":" + endpoint.port() + "?useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true";
+        return "jdbc:mysql://" + host + ":" + endpoint.port();
     }
     private String identifier(String value) { return "`" + String.valueOf(value).replace("`", "``") + "`"; }
     private String literal(String value) { return "'" + String.valueOf(value).replace("\\", "\\\\").replace("'", "''") + "'"; }
