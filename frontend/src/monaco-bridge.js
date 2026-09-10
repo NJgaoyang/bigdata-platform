@@ -1,6 +1,7 @@
 import * as monaco from '../node_modules/monaco-editor/esm/vs/editor/editor.api.js';
 import editorWorker from '../node_modules/monaco-editor/esm/vs/editor/editor.worker.js?worker';
 import '../node_modules/monaco-editor/min/vs/editor/editor.main.css';
+import './development-workspace.js';
 
 const worker = editorWorker;
 self.MonacoEnvironment = {
@@ -27,6 +28,24 @@ const keywords = {
   shell: ['if', 'then', 'elif', 'else', 'fi', 'for', 'while', 'in', 'do', 'done', 'case', 'esac', 'function', 'export', 'source', 'echo', 'cd', 'mkdir', 'rm', 'cp', 'mv', 'cat', 'grep', 'awk', 'sed', 'curl']
 };
 
+function installEditorLayoutFixes() {
+  if (document.getElementById('platform-monaco-layout-fixes')) return;
+  const style = document.createElement('style');
+  style.id = 'platform-monaco-layout-fixes';
+  style.textContent = `
+    #page-development .monaco-mounted > .linenos,
+    #page-development .monaco-mounted .linenos { display: none !important; }
+    #page-development .monaco-mounted,
+    #page-development .monaco-editor-host { padding: 0 !important; margin: 0 !important; border: 0 !important; }
+    #page-development .monaco-editor-host { width: 100% !important; height: 100% !important; }
+    #page-development .monaco-editor-host .monaco-editor,
+    #page-development .monaco-editor-host .overflow-guard { border: 0 !important; box-shadow: none !important; }
+    #page-development .monaco-editor-host .decorationsOverviewRuler { display: none !important; }
+    #page-development .monaco-editor-host .margin { border-right: 1px solid #edf1f5 !important; }
+  `;
+  document.head.appendChild(style);
+}
+
 function registerCompletion(language) {
   if (completionDisposable) completionDisposable.dispose();
   completionDisposable = monaco.languages.registerCompletionItemProvider(language, {
@@ -51,8 +70,20 @@ function registerCompletion(language) {
   });
 }
 
+const layoutOptions = {
+  lineNumbers: 'on',
+  lineNumbersMinChars: 3,
+  glyphMargin: false,
+  folding: false,
+  lineDecorationsWidth: 4,
+  overviewRulerLanes: 0,
+  overviewRulerBorder: false,
+  hideCursorInOverviewRuler: true
+};
+
 function mount(container, value, fileType, nextHandlers) {
   if (!container) return null;
+  installEditorLayoutFixes();
   handlers = nextHandlers || {};
   const language = languageFor(fileType);
   if (!editor) {
@@ -62,21 +93,26 @@ function mount(container, value, fileType, nextHandlers) {
       theme: 'vs',
       automaticLayout: true,
       minimap: { enabled: false },
-      glyphMargin: false,
-      folding: true,
-      lineNumbers: 'off',
-      lineNumbersMinChars: 0,
+      ...layoutOptions,
       roundedSelection: false,
       scrollBeyondLastLine: false,
       tabSize: 2,
       insertSpaces: true,
       fontSize: 14,
       lineHeight: 22,
-      padding: { top: 12, bottom: 16 },
+      padding: { top: 8, bottom: 12 },
       wordWrap: 'off',
       suggest: { showMethods: true, showFunctions: true, showVariables: true },
       quickSuggestions: true,
-      scrollbar: { vertical: 'auto', horizontal: 'auto', verticalScrollbarSize: 10, horizontalScrollbarSize: 10, useShadows: false }
+      scrollbar: {
+        vertical: 'auto',
+        horizontal: 'auto',
+        verticalScrollbarSize: 8,
+        horizontalScrollbarSize: 8,
+        useShadows: false,
+        verticalHasArrows: false,
+        horizontalHasArrows: false
+      }
     });
     container.classList.add('monaco-editor-host');
     container.parentElement && container.parentElement.classList.add('monaco-mounted');
@@ -103,7 +139,7 @@ function mount(container, value, fileType, nextHandlers) {
     container.classList.add('monaco-editor-host');
     container.parentElement && container.parentElement.classList.add('monaco-mounted');
   }
-  editor.updateOptions({ lineNumbers: 'off', lineNumbersMinChars: 0, glyphMargin: false });
+  editor.updateOptions(layoutOptions);
   const model = editor.getModel();
   if (model) {
     monaco.editor.setModelLanguage(model, language);
