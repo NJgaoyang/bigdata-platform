@@ -82,25 +82,26 @@ public class DashboardService {
 
     public AssetDashboardView assets() {
         Map<String, AssetItem> items = new LinkedHashMap<>();
-        Set<String> governed = new java.util.LinkedHashSet<>();
         Set<Long> successfulTaskIds = store.integrationInstances.values().stream()
                 .filter(item -> isSuccess(item.status())).map(IntegrationInstanceView::taskId).collect(Collectors.toSet());
         for (Map.Entry<Long, List<IntegrationTableView>> entry : store.integrationTaskTables.entrySet()) {
             boolean taskSucceeded = successfulTaskIds.contains(entry.getKey());
             for (IntegrationTableView table : entry.getValue()) {
                 putAsset(items, table.sourceDatabase(), table.sourceTable(), "SOURCE", "已登记");
-                String targetKey = putAsset(items, table.targetDatabase(), table.targetTable(), "TARGET", taskSucceeded ? "已同步" : "待同步");
-                if (taskSucceeded && !targetKey.isBlank()) governed.add(targetKey);
+                putAsset(items, table.targetDatabase(), table.targetTable(), "TARGET", taskSucceeded ? "已同步" : "待同步");
             }
         }
+        // A parsed lineage relation only proves that a dependency was discovered. It does
+        // not prove that a governance rule, quality policy or stewardship workflow ran.
+        // Keep lineage and synchronization facts separate from governance facts until a
+        // real governance execution model is persisted by the platform.
         store.lineages.values().forEach(lineage -> {
-            putQualifiedAsset(items, lineage.sourceTable(), "LINEAGE_SOURCE", "已登记");
-            String targetKey = putQualifiedAsset(items, lineage.targetTable(), "LINEAGE_TARGET", "已治理");
-            if (!targetKey.isBlank()) governed.add(targetKey);
+            putQualifiedAsset(items, lineage.sourceTable(), "LINEAGE_SOURCE", "已关联");
+            putQualifiedAsset(items, lineage.targetTable(), "LINEAGE_TARGET", "已关联");
         });
         List<AssetItem> assets = items.values().stream().sorted(Comparator.comparing(AssetItem::name, String.CASE_INSENSITIVE_ORDER)).toList();
         return new AssetDashboardView(assets.size(), assets.size(), store.dataSources.values().stream().filter(DataSourceView::metadataVisible).count(),
-                governed.size(), store.lineages.size(), assets, generatedAt());
+                0, store.lineages.size(), assets, generatedAt());
     }
 
     private List<FavoriteItem> favorites(String username) {
