@@ -9,16 +9,27 @@ import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
 /** Converts the platform workflow snapshot into DolphinScheduler 3.1.x API payloads. */
 public final class DolphinSchedulerProcessConverter {
     private final ObjectMapper mapper;
+    private final int defaultFailRetryTimes;
+    private final int defaultFailRetryInterval;
+    private final String defaultWorkerGroup;
 
     public DolphinSchedulerProcessConverter(ObjectMapper mapper) {
+        this(mapper, 3, 1, "default");
+    }
+
+    public DolphinSchedulerProcessConverter(ObjectMapper mapper, int defaultFailRetryTimes,
+                                             int defaultFailRetryInterval, String defaultWorkerGroup) {
         this.mapper = mapper;
+        this.defaultFailRetryTimes = clamp(defaultFailRetryTimes, 0, 10);
+        this.defaultFailRetryInterval = clamp(defaultFailRetryInterval, 1, 60);
+        this.defaultWorkerGroup = defaultWorkerGroup == null || defaultWorkerGroup.isBlank()
+                ? "default" : defaultWorkerGroup.trim();
     }
 
     public ProcessPayload convert(String definitionJson, long projectCode, String tenantCode, String userName) {
@@ -76,6 +87,7 @@ public final class DolphinSchedulerProcessConverter {
 
     private ObjectNode taskDefinition(JsonNode node, long taskCode, long projectCode, String userName) {
         String type = node.path("type").asText("SHELL").toUpperCase();
+        ObjectNode config = nodeConfig(node);
         ObjectNode task = mapper.createObjectNode();
         task.put("code", taskCode);
         task.put("name", node.path("name").asText("platform-task"));
@@ -84,13 +96,13 @@ public final class DolphinSchedulerProcessConverter {
         task.put("projectCode", projectCode);
         task.put("userName", userName);
         task.put("taskType", type);
-        task.set("taskParams", taskParams(node, type));
+        task.set("taskParams", taskParams(node, type, config));
         task.put("flag", "YES");
-        task.put("taskPriority", "MEDIUM");
-        task.put("workerGroup", "default");
-        task.put("environmentCode", -1);
-        task.put("failRetryTimes", 0);
-        task.put("failRetryInterval", 1);
+        task.put("taskPriority", config.path("taskPriority").asText("MEDIUM"));
+        task.put("workerGroup", text(config, "workerGroup", defaultWorkerGroup));
+        task.put("environmentCode", config.path("environmentCode").asLong(-1));
+        task.put("failRetryTimes", clamp(integer(config, "failRetryTimes", "retryTimes", defaultFailRetryTimes), 0, 10));
+        task.put("failRetryInterval", clamp(integer(config, "failRetryInterval", "retryIntervalMinutes", defaultFailRetryInterval), 1, 60));
         task.put("timeoutFlag", "CLOSE");
         task.put("timeout", 0);
         task.put("delayTime", 0);
@@ -102,13 +114,8 @@ public final class DolphinSchedulerProcessConverter {
         return task;
     }
 
-    private ObjectNode taskParams(JsonNode node, String type) {
+    private ObjectNode taskParams(JsonNode node, String type, ObjectNode config) {
         String content = decodeContent(node);
-        JsonNode rawConfig = node.get("configJson");
-        ObjectNode config = rawConfig != null && rawConfig.isTextual()
-                ? readObject(rawConfig.asText())
-                : rawConfig != null && rawConfig.isObject()
-                ? (ObjectNode) rawConfig.deepCopy() : mapper.createObjectNode();
 
         if ("SEATUNNEL".equals(type)) {
             ObjectNode params = mapper.createObjectNode();
@@ -136,6 +143,29 @@ public final class DolphinSchedulerProcessConverter {
         params.put("rawScript", content);
         params.set("resourceList", mapper.createArrayNode());
         return params;
+    }
+
+    private ObjectNode nodeConfig(JsonNode node) {
+        JsonNode rawConfig = node.get("configJson");
+        if (rawConfig != null && rawConfig.isTextual()) return readObject(rawConfig.asText());
+        if (rawConfig != null && rawConfig.isObject()) return (ObjectNode) rawConfig.deepCopy();
+        return mapper.createObjectNode();
+    }
+
+    private int integer(ObjectNode config, String primary, String alias, int defaultValue) {
+        JsonNode primaryNode = config.get(primary);
+        if (primaryNode != null && !primaryNode.isNull()) return primaryNode.asInt(defaultValue);
+        JsonNode aliasNode = config.get(alias);
+        return aliasNode == null || aliasNode.isNull() ? defaultValue : aliasNode.asInt(defaultValue);
+    }
+
+    private String text(ObjectNode config, String field, String defaultValue) {
+        String value = config.path(field).asText(defaultValue);
+        return value == null || value.isBlank() ? defaultValue : value.trim();
+    }
+
+    private static int clamp(int value, int min, int max) {
+        return Math.max(min, Math.min(max, value));
     }
 
     private ObjectNode relation(long projectCode, long preTaskCode, long postTaskCode) {
