@@ -5,8 +5,8 @@ spring:
   lifecycle:
     timeout-per-shutdown-phase: 30s
   datasource:
-    url: ${PLATFORM_DB_URL}
-    username: ${PLATFORM_DB_USERNAME}
+    url: ${PLATFORM_DB_URL:jdbc:mysql://81.69.15.136:3306/bigdata_platform?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true}
+    username: ${PLATFORM_DB_USERNAME:root}
     password: ${PLATFORM_DB_PASSWORD}
     hikari:
       connection-timeout: ${PLATFORM_DB_CONNECTION_TIMEOUT_MS:10000}
