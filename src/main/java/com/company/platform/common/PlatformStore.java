@@ -68,38 +68,55 @@ public class PlatformStore {
     public long nextId() { return ids.incrementAndGet(); }
 
     @Autowired(required = false)
-    public void setJdbcTemplate(JdbcTemplate jdbc) { this.jdbc = jdbc; }
+    public void setJdbcTemplate(JdbcTemplate jdbc) {
+        this.jdbc = jdbc;
+        // Unit tests create a store without Spring/JDBC and keep their small
+        // bootstrap fixture. A real application always clears that fixture
+        // before loading persisted rows from the external database.
+        if (jdbc != null) {
+            projects.clear();
+            folders.clear();
+            files.clear();
+            versions.clear();
+            users.clear();
+        }
+    }
 
     @EventListener(ApplicationReadyEvent.class)
     public void loadPersistedCoreData() {
         if (jdbc == null) return;
         try {
-            jdbc.query("SELECT id,name,type,host,port,database_name,username,password_ciphertext,status,metadata_visible FROM data_source", rs -> {
+            jdbc.query("SELECT id,name,type,host,port,database_name,username,password_ciphertext,status,metadata_visible,last_checked_at,last_check_message FROM data_source", rs -> {
                 long id = rs.getLong("id");
                 dataSources.put(id, new DataSourceView(id, rs.getString("name"),
                         com.company.platform.datasource.DataSourceType.valueOf(rs.getString("type")),
                         rs.getString("host"), rs.getInt("port"), rs.getString("database_name"),
-                        rs.getString("username"), rs.getString("status"), rs.getBoolean("metadata_visible")));
+                        rs.getString("username"), rs.getString("status"), rs.getBoolean("metadata_visible"),
+                        rs.getTimestamp("last_checked_at") == null ? null : rs.getTimestamp("last_checked_at").toLocalDateTime(),
+                        rs.getString("last_check_message")));
                 String encrypted = rs.getString("password_ciphertext");
                 if (encrypted != null) encryptedDataSourcePasswords.put(id, encrypted);
                 advanceId(id);
             });
-            jdbc.query("SELECT id,name,description,status FROM dev_project", rs -> {
+            jdbc.query("SELECT id,name,description,status,owner_name FROM dev_project", rs -> {
                 long id = rs.getLong("id");
-                projects.put(id, new DevProjectView(id, rs.getString("name"), rs.getString("description"), rs.getString("status")));
+                projects.put(id, new DevProjectView(id, rs.getString("name"), rs.getString("description"), rs.getString("status"), rs.getString("owner_name")));
                 advanceId(id);
             });
-            jdbc.query("SELECT id,project_id,parent_id,name FROM dev_folder", rs -> {
+            jdbc.query("SELECT id,project_id,parent_id,name,created_at FROM dev_folder", rs -> {
                 long id = rs.getLong("id");
                 Long parent = rs.getObject("parent_id", Long.class);
-                folders.put(id, new DevFolderView(id, rs.getLong("project_id"), parent, rs.getString("name")));
+                var createdAt = rs.getTimestamp("created_at");
+                folders.put(id, new DevFolderView(id, rs.getLong("project_id"), parent, rs.getString("name"),
+                        createdAt == null ? LocalDateTime.now() : createdAt.toLocalDateTime()));
                 advanceId(id);
             });
-            jdbc.query("SELECT id,project_id,folder_id,name,file_type,content,status,current_version FROM dev_file", rs -> {
+            jdbc.query("SELECT id,project_id,folder_id,name,file_type,content,description,status,current_version FROM dev_file", rs -> {
                 long id = rs.getLong("id");
                 Long folder = rs.getObject("folder_id", Long.class);
                 files.put(id, new DevFileView(id, rs.getLong("project_id"), folder, rs.getString("name"),
-                        rs.getString("file_type"), rs.getString("content"), rs.getString("status"), rs.getInt("current_version")));
+                        rs.getString("file_type"), rs.getString("content"), rs.getString("description"),
+                        rs.getString("status"), rs.getInt("current_version")));
                 advanceId(id);
             });
             jdbc.query("SELECT id,file_id,version_no,content,checksum,publish_flag FROM dev_file_version", rs -> {
@@ -231,8 +248,8 @@ public class PlatformStore {
                         rs.getString("relation_type"), rs.getObject("dev_file_id", Long.class), rs.getObject("file_version_id", Long.class)));
                 advanceId(id);
             });
-        } catch (RuntimeException ignored) {
-            // A clean development database may not be reachable during startup; memory mode remains usable.
+        } catch (RuntimeException ex) {
+            throw new IllegalStateException("平台持久化数据加载失败，已禁止回退到内存模式", ex);
         } finally {
             refreshIdSequence();
         }
@@ -240,15 +257,15 @@ public class PlatformStore {
 
     public void persistDataSource(DataSourceView view, String encryptedPassword) {
         if (jdbc == null) return;
-        int updated = jdbc.update("UPDATE data_source SET name=?,type=?,host=?,port=?,database_name=?,username=?,password_ciphertext=?,status=?,metadata_visible=?,updated_at=CURRENT_TIMESTAMP WHERE id=?",
-                view.name(), view.type().name(), view.host(), view.port(), view.databaseName(), view.username(), encryptedPassword, view.status(), view.metadataVisible(), view.id());
-        if (updated == 0) jdbc.update("INSERT INTO data_source (id,name,type,host,port,database_name,username,password_ciphertext,status,metadata_visible) VALUES (?,?,?,?,?,?,?,?,?,?)",
-                view.id(), view.name(), view.type().name(), view.host(), view.port(), view.databaseName(), view.username(), encryptedPassword, view.status(), view.metadataVisible());
+        int updated = jdbc.update("UPDATE data_source SET name=?,type=?,host=?,port=?,database_name=?,username=?,password_ciphertext=?,status=?,metadata_visible=?,last_checked_at=?,last_check_message=?,updated_at=CURRENT_TIMESTAMP WHERE id=?",
+                view.name(), view.type().name(), view.host(), view.port(), view.databaseName(), view.username(), encryptedPassword, view.status(), view.metadataVisible(), view.lastCheckedAt(), view.lastCheckMessage(), view.id());
+        if (updated == 0) jdbc.update("INSERT INTO data_source (id,name,type,host,port,database_name,username,password_ciphertext,status,metadata_visible,last_checked_at,last_check_message) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                view.id(), view.name(), view.type().name(), view.host(), view.port(), view.databaseName(), view.username(), encryptedPassword, view.status(), view.metadataVisible(), view.lastCheckedAt(), view.lastCheckMessage());
     }
     public void persistProject(DevProjectView view) {
         if (jdbc == null) return;
-        int updated = jdbc.update("UPDATE dev_project SET name=?,description=?,status=?,updated_at=CURRENT_TIMESTAMP WHERE id=?", view.name(), view.description(), view.status(), view.id());
-        if (updated == 0) jdbc.update("INSERT INTO dev_project (id,name,description,status) VALUES (?,?,?,?)", view.id(), view.name(), view.description(), view.status());
+        int updated = jdbc.update("UPDATE dev_project SET name=?,description=?,status=?,owner_name=?,updated_at=CURRENT_TIMESTAMP WHERE id=?", view.name(), view.description(), view.status(), view.ownerName(), view.id());
+        if (updated == 0) jdbc.update("INSERT INTO dev_project (id,name,description,status,owner_name) VALUES (?,?,?,?,?)", view.id(), view.name(), view.description(), view.status(), view.ownerName());
     }
     public void persistFolder(DevFolderView view) {
         if (jdbc == null) return;
@@ -257,10 +274,10 @@ public class PlatformStore {
     }
     public void persistFile(DevFileView view) {
         if (jdbc == null) return;
-        int updated = jdbc.update("UPDATE dev_file SET project_id=?,folder_id=?,name=?,file_type=?,content=?,status=?,current_version=?,updated_at=CURRENT_TIMESTAMP WHERE id=?",
-                view.projectId(), view.folderId(), view.name(), view.fileType(), view.content(), view.status(), view.currentVersion(), view.id());
-        if (updated == 0) jdbc.update("INSERT INTO dev_file (id,project_id,folder_id,name,file_type,content,status,current_version) VALUES (?,?,?,?,?,?,?,?)",
-                view.id(), view.projectId(), view.folderId(), view.name(), view.fileType(), view.content(), view.status(), view.currentVersion());
+        int updated = jdbc.update("UPDATE dev_file SET project_id=?,folder_id=?,name=?,file_type=?,content=?,description=?,status=?,current_version=?,updated_at=CURRENT_TIMESTAMP WHERE id=?",
+                view.projectId(), view.folderId(), view.name(), view.fileType(), view.content(), view.description(), view.status(), view.currentVersion(), view.id());
+        if (updated == 0) jdbc.update("INSERT INTO dev_file (id,project_id,folder_id,name,file_type,content,description,status,current_version) VALUES (?,?,?,?,?,?,?,?,?)",
+                view.id(), view.projectId(), view.folderId(), view.name(), view.fileType(), view.content(), view.description(), view.status(), view.currentVersion());
     }
     public void persistVersion(FileVersionView view) {
         if (jdbc == null) return;
@@ -372,19 +389,19 @@ public class PlatformStore {
             jdbc.update("INSERT INTO user_permission (user_id,permission_code) VALUES (?,?)", userId, permission);
     }
     public void persistQueryExecution(String queryId, Long datasourceId, String databaseName, String sql,
-                                      String status, LocalDateTime startedAt, LocalDateTime finishedAt, long elapsedMs, String error) {
+                                      String status, String username, LocalDateTime startedAt, LocalDateTime finishedAt, long elapsedMs, String error) {
         if (jdbc == null) return;
-        jdbc.update("INSERT INTO query_execution (query_id,datasource_id,database_name,sql_text,status,started_at,finished_at,elapsed_ms,error_message) VALUES (?,?,?,?,?,?,?,?,?)",
-                queryId, datasourceId, databaseName, sql, status, startedAt, finishedAt, elapsedMs, error);
+        jdbc.update("INSERT INTO query_execution (query_id,datasource_id,database_name,sql_text,status,operator_name,started_at,finished_at,elapsed_ms,error_message) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                queryId, datasourceId, databaseName, sql, status, username == null || username.isBlank() ? "admin" : username, startedAt, finishedAt, elapsedMs, error);
     }
     public List<QueryHistoryView> queryHistory() {
         if (jdbc == null) return List.of();
-        return jdbc.query("SELECT query_id,datasource_id,database_name,sql_text,status,started_at,finished_at,elapsed_ms,error_message FROM query_execution ORDER BY started_at DESC LIMIT 100", (rs, rowNum) -> {
+        return jdbc.query("SELECT query_id,datasource_id,database_name,sql_text,status,operator_name,started_at,finished_at,elapsed_ms,error_message FROM query_execution ORDER BY started_at DESC LIMIT 100", (rs, rowNum) -> {
             var started = rs.getTimestamp("started_at");
             var finished = rs.getTimestamp("finished_at");
             Long datasourceId = rs.getObject("datasource_id", Long.class);
             return new QueryHistoryView(rs.getString("query_id"), datasourceId, rs.getString("database_name"),
-                    rs.getString("sql_text"), rs.getString("status"), started == null ? null : started.toLocalDateTime(),
+                    rs.getString("sql_text"), rs.getString("status"), rs.getString("operator_name"), started == null ? null : started.toLocalDateTime(),
                     finished == null ? null : finished.toLocalDateTime(), rs.getLong("elapsed_ms"), rs.getString("error_message"));
         });
     }
@@ -450,13 +467,16 @@ public class PlatformStore {
     }
 
     public PlatformStore() {
+        // Local, JDBC-free unit tests need an editable fixture. Spring injects
+        // JdbcTemplate before ApplicationReadyEvent and removes this fixture
+        // before loading the external platform database.
         long projectId = nextId();
-        projects.put(projectId, new DevProjectView(projectId, "示例项目", "平台内置演示项目", "ACTIVE"));
+        projects.put(projectId, new DevProjectView(projectId, "示例项目", "平台内置演示项目", "ACTIVE", "admin"));
         long folderId = nextId();
-        folders.put(folderId, new DevFolderView(folderId, projectId, null, "analytics"));
+        folders.put(folderId, new DevFolderView(folderId, projectId, null, "analytics", LocalDateTime.now()));
         long fileId = nextId();
         String content = "SELECT order_date, SUM(amount) AS total_amount FROM sales.orders GROUP BY order_date;";
-        files.put(fileId, new DevFileView(fileId, projectId, folderId, "daily_sales.sql", "SQL", content, "DRAFT", 1));
+        files.put(fileId, new DevFileView(fileId, projectId, folderId, "daily_sales.sql", "SQL", content, "每日销售汇总示例", "DRAFT", 1));
         long versionId = nextId();
         versions.put(versionId, new FileVersionView(versionId, fileId, 1, content, "seed", false));
         long adminId = nextId();

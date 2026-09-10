@@ -1,4 +1,4 @@
 package com.company.platform.scheduler;
 
-/** External scheduler boundary. The development profile uses the mock implementation. */
+/** External DolphinScheduler boundary. */
 public interface DolphinSchedulerGateway extends SchedulerGateway { }

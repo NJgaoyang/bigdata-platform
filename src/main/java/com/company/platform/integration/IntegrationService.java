@@ -4,11 +4,13 @@ import com.company.platform.common.BadRequestException;
 import com.company.platform.common.NotFoundException;
 import com.company.platform.common.PlatformStore;
 import com.company.platform.datasource.PasswordCipher;
+import com.company.platform.datasource.DataSourceService;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -22,43 +24,53 @@ public class IntegrationService {
     private final SeaTunnelGateway gateway;
     private final ObjectMapper mapper;
     private final PasswordCipher passwordCipher;
+    private final DataSourceService dataSourceService;
 
     public IntegrationService(PlatformStore store, SeaTunnelConfigBuilder builder, SeaTunnelGateway gateway,
-                              ObjectMapper mapper, PasswordCipher passwordCipher) {
+                              ObjectMapper mapper, PasswordCipher passwordCipher, DataSourceService dataSourceService) {
         this.store = store;
         this.builder = builder;
         this.gateway = gateway;
         this.mapper = mapper;
         this.passwordCipher = passwordCipher;
+        this.dataSourceService = dataSourceService;
     }
     public List<IntegrationTaskView> list() { return store.integrationTasks.values().stream().map(this::masked).toList(); }
+    @Transactional
     public IntegrationTaskView create(IntegrationRequests.TaskRequest request) {
         List<IntegrationRequests.TableRequest> tables = resolveTables(request, null);
+        IntegrationRequests.Endpoint source = resolveDataSource(request.sourceDataSourceId(), request.source());
+        IntegrationRequests.Endpoint target = resolveDataSource(request.targetDataSourceId(), request.target());
         IntegrationTask task = new IntegrationTask(request.name(), request.sourceType(), request.targetType(),
-                request.syncMode(), request.source(), request.target(), request.mappings(), request.options(), tables);
+                request.syncMode(), source, target, request.mappings(), request.options(), tables);
         long id = store.nextId();
         IntegrationTaskView view = new IntegrationTaskView(id, request.name(), request.sourceType(), request.targetType(),
-                request.syncMode(), "DRAFT", secureEndpoint(request.source()), secureEndpoint(request.target()),
+                request.syncMode(), "DRAFT", secureEndpoint(source), secureEndpoint(target),
                 secureTransform(request.mappings(), request.options(), tables), safeConfig(task), tableViews(id, tables));
+        store.persistIntegrationTask(view);
         store.integrationTasks.put(id, view);
         store.integrationTaskTables.put(id, view.tables());
-        store.persistIntegrationTask(view);
         return masked(view);
     }
+    @Transactional
     public IntegrationTaskView update(long id, IntegrationRequests.TaskRequest request) {
         IntegrationTaskView currentView = raw(id);
         IntegrationTask current = hasStructuredConfig(currentView) ? task(id) : null;
-        IntegrationRequests.Endpoint source = preservePassword(request.source(), current == null ? null : current.source());
-        IntegrationRequests.Endpoint target = preservePassword(request.target(), current == null ? null : current.target());
+        IntegrationRequests.Endpoint source = request.sourceDataSourceId() == null
+                ? preservePassword(request.source(), current == null ? null : current.source())
+                : resolveDataSource(request.sourceDataSourceId(), request.source());
+        IntegrationRequests.Endpoint target = request.targetDataSourceId() == null
+                ? preservePassword(request.target(), current == null ? null : current.target())
+                : resolveDataSource(request.targetDataSourceId(), request.target());
         List<IntegrationRequests.TableRequest> tables = resolveTables(request, current);
         IntegrationTask task = new IntegrationTask(request.name(), request.sourceType(), request.targetType(),
                 request.syncMode(), source, target, request.mappings(), request.options(), tables);
         IntegrationTaskView view = new IntegrationTaskView(id, request.name(), request.sourceType(), request.targetType(),
                 request.syncMode(), "DRAFT", secureEndpoint(source), secureEndpoint(target),
                 secureTransform(request.mappings(), request.options(), tables), safeConfig(task), tableViews(id, tables));
+        store.persistIntegrationTask(view);
         store.integrationTasks.put(id, view);
         store.integrationTaskTables.put(id, view.tables());
-        store.persistIntegrationTask(view);
         return masked(view);
     }
     public IntegrationTaskView get(long id) {
@@ -66,19 +78,21 @@ public class IntegrationService {
         if (view == null) throw new NotFoundException("离线同步任务不存在：" + id);
         return masked(view);
     }
-    public void delete(long id) { if (store.integrationTasks.remove(id) == null) throw new NotFoundException("离线同步任务不存在：" + id); store.integrationTaskTables.remove(id); store.deleteIntegrationTask(id); }
+    @Transactional
+    public void delete(long id) { raw(id); store.deleteIntegrationTask(id); store.integrationTasks.remove(id); store.integrationTaskTables.remove(id); }
     public SeaTunnelGateway.ValidationResult validate(long id) {
         IntegrationTaskView view = raw(id);
         return gateway.validate(hasStructuredConfig(view) ? builder.build(task(id)) : view.seatunnelConfig());
     }
+    @Transactional
     public SeaTunnelGateway.SubmitResult execute(long id) {
         IntegrationTaskView view = raw(id);
         SeaTunnelGateway.SubmitResult result = gateway.submit(hasStructuredConfig(view) ? builder.build(task(id)) : view.seatunnelConfig());
         long instanceId = store.nextId();
         IntegrationInstanceView instance = new IntegrationInstanceView(instanceId, id, result.executionId(), result.status(), LocalDateTime.now(),
                 "SUCCESS".equals(result.status()) ? LocalDateTime.now() : null, "SeaTunnel 执行实例");
-        store.integrationInstances.put(instanceId, instance);
         store.persistIntegrationInstance(instance);
+        store.integrationInstances.put(instanceId, instance);
         return result;
     }
     public void stop(String executionId) { gateway.cancel(executionId); }
@@ -88,6 +102,7 @@ public class IntegrationService {
         List<IntegrationTableView> persisted = store.integrationTaskTables.getOrDefault(taskId, List.of());
         return persisted.isEmpty() ? legacyTable(raw(taskId)) : persisted;
     }
+    @Transactional
     public IntegrationTaskView deleteTable(long taskId, long tableId) {
         IntegrationTaskView currentView = raw(taskId);
         if (instances(taskId).stream().anyMatch(item -> "RUNNING".equalsIgnoreCase(item.status()))) {
@@ -104,18 +119,19 @@ public class IntegrationService {
         IntegrationTaskView updated = new IntegrationTaskView(currentView.id(), currentView.name(), currentView.sourceType(), currentView.targetType(),
                 currentView.syncMode(), "DRAFT", secureEndpoint(remainingSource), secureEndpoint(remainingTarget),
                 secureTransform(task.mappings(), task.options(), toRequests(remaining)), config, remaining);
+        store.persistIntegrationTask(updated);
         store.integrationTasks.put(taskId, updated);
         store.integrationTaskTables.put(taskId, remaining);
-        store.persistIntegrationTask(updated);
         return masked(updated);
     }
+    @Transactional
     public SeaTunnelGateway.JobStatus status(String executionId) {
         SeaTunnelGateway.JobStatus status = gateway.status(executionId);
         store.integrationInstances.values().stream().filter(item -> executionId.equals(item.executionId())).findFirst().ifPresent(instance -> {
             IntegrationInstanceView updated = new IntegrationInstanceView(instance.id(), instance.taskId(), instance.executionId(),
                     status.status(), instance.startedAt(), "RUNNING".equals(status.status()) ? null : LocalDateTime.now(), status.message());
-            store.integrationInstances.put(instance.id(), updated);
             store.persistIntegrationInstance(updated);
+            store.integrationInstances.put(instance.id(), updated);
         });
         return status;
     }
@@ -172,6 +188,13 @@ public class IntegrationService {
     private IntegrationRequests.Endpoint preservePassword(IntegrationRequests.Endpoint incoming, IntegrationRequests.Endpoint current) {
         if (current == null || incoming == null || (incoming.password() != null && !incoming.password().isBlank() && !"***".equals(incoming.password()))) return incoming;
         return withPassword(incoming, current.password());
+    }
+    private IntegrationRequests.Endpoint resolveDataSource(Long dataSourceId, IntegrationRequests.Endpoint requested) {
+        if (dataSourceId == null) return requested;
+        DataSourceService.ConnectionInfo stored = dataSourceService.connectionInfo(dataSourceId);
+        String database = requested.database() == null || requested.database().isBlank() ? stored.databaseName() : requested.database();
+        return new IntegrationRequests.Endpoint(dataSourceService.get(dataSourceId).host(), dataSourceService.get(dataSourceId).port(),
+                database, stored.username(), stored.password(), requested.table());
     }
     private String secureEndpoint(IntegrationRequests.Endpoint endpoint) {
         try {

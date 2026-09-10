@@ -35,7 +35,6 @@ public class DolphinSchedulerGatewayImpl implements DolphinSchedulerGateway {
     private final ObjectMapper mapper;
     private final DolphinSchedulerProcessConverter processConverter;
     private final HttpClient client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
-    private final Map<String, InstanceStatus> mockInstances = new ConcurrentHashMap<>();
     private final Map<String, String> processCodes = new ConcurrentHashMap<>();
     private volatile String sessionId;
 
@@ -51,7 +50,7 @@ public class DolphinSchedulerGatewayImpl implements DolphinSchedulerGateway {
     }
 
     @Override public PublishResult publish(PublishRequest request) {
-        if (!realEnabled()) return new PublishResult(request.workflowCode(), request.version(), "MOCK_PUBLISHED@DS-" + version());
+        requireRealMode();
         long projectCode = projectCode();
         var payload = processConverter.convert(request.definitionJson(), projectCode,
                 properties.getScheduler().getDolphinscheduler().getTenantCode(),
@@ -77,11 +76,7 @@ public class DolphinSchedulerGatewayImpl implements DolphinSchedulerGateway {
     }
 
     @Override public RunResult run(String processCode) {
-        if (!realEnabled()) {
-            String id = "mock-ds-instance-" + UUID.randomUUID();
-            mockInstances.put(id, new InstanceStatus(id, "SUCCESS", "Mock DolphinScheduler instance completed"));
-            return new RunResult(id, "SUCCESS");
-        }
+        requireRealMode();
         String dsProcessCode = processCodes.getOrDefault(processCode, processCode);
         Map<String, String> form = baseForm();
         form.put("processDefinitionCode", dsProcessCode);
@@ -104,7 +99,7 @@ public class DolphinSchedulerGatewayImpl implements DolphinSchedulerGateway {
     }
 
     @Override public InstanceStatus status(String instanceId) {
-        if (!realEnabled()) return mockInstances.getOrDefault(instanceId, new InstanceStatus(instanceId, "NOT_FOUND", "实例不存在"));
+        requireRealMode();
         if (instanceId == null || !instanceId.matches("\\d+")) {
             return new InstanceStatus(instanceId, "SUBMITTED", "DolphinScheduler 已接受调度命令，等待 Master 创建实例");
         }
@@ -113,7 +108,7 @@ public class DolphinSchedulerGatewayImpl implements DolphinSchedulerGateway {
     }
 
     @Override public void stop(String instanceId) {
-        if (!realEnabled()) { mockInstances.computeIfPresent(instanceId, (id, old) -> new InstanceStatus(id, "STOPPED", old.log())); return; }
+        requireRealMode();
         requireNumericInstanceId(instanceId);
         Map<String, String> form = baseForm();
         form.put("processInstanceId", instanceId);
@@ -122,7 +117,7 @@ public class DolphinSchedulerGatewayImpl implements DolphinSchedulerGateway {
     }
 
     @Override public RunResult rerun(String instanceId) {
-        if (!realEnabled()) return run(instanceId);
+        requireRealMode();
         requireNumericInstanceId(instanceId);
         Map<String, String> form = baseForm();
         form.put("processInstanceId", instanceId);
@@ -132,7 +127,7 @@ public class DolphinSchedulerGatewayImpl implements DolphinSchedulerGateway {
     }
 
     @Override public RunResult backfill(String processCode, String start, String end, int parallelism) {
-        if (!realEnabled()) return run(processCode + " [backfill " + start + ".." + end + "]");
+        requireRealMode();
         Map<String, String> form = baseForm();
         form.put("processDefinitionCode", processCodes.getOrDefault(processCode, processCode));
         form.put("failureStrategy", "END");
@@ -151,7 +146,7 @@ public class DolphinSchedulerGatewayImpl implements DolphinSchedulerGateway {
     }
 
     @Override public void release(String processCode, boolean online) {
-        if (!realEnabled()) return;
+        requireRealMode();
         String dsProcessCode = processCodes.getOrDefault(processCode, processCode);
         sendForm("POST", path("/process-definition/" + encode(dsProcessCode) + "/release"),
                 Map.of("releaseState", online ? "ONLINE" : "OFFLINE"));
@@ -159,7 +154,7 @@ public class DolphinSchedulerGatewayImpl implements DolphinSchedulerGateway {
 
     @Override public String upsertSchedule(String processCode, String cronExpression, String timezone, boolean enabled,
                                            String failureStrategy, int parallelism) {
-        if (!realEnabled()) return "";
+        requireRealMode();
         String project = encode(properties.getScheduler().getDolphinscheduler().getProjectCode());
         String query = "/schedules?processDefinitionCode=" + encode(processCode) + "&pageNo=1&pageSize=100";
         String existing = findScheduleId(sendForm("GET", path(query), Map.of()));
@@ -183,13 +178,14 @@ public class DolphinSchedulerGatewayImpl implements DolphinSchedulerGateway {
     }
 
     @Override public void scheduleState(String scheduleId, boolean online) {
-        if (!realEnabled() || scheduleId == null || scheduleId.isBlank()) return;
+        requireRealMode();
+        if (scheduleId == null || scheduleId.isBlank()) return;
         sendForm("POST", basePath("/dolphinscheduler/projects/" + encode(properties.getScheduler().getDolphinscheduler().getProjectCode())
                 + "/schedules/" + encode(scheduleId) + (online ? "/online" : "/offline")), Map.of());
     }
 
     @Override public List<Map<String, Object>> listProcessInstances() {
-        if (!realEnabled()) return List.of();
+        requireRealMode();
         String body = sendForm("GET", path("/process-instances?pageNo=1&pageSize=100"), Map.of());
         return parseInstanceList(body, "process");
     }
@@ -197,13 +193,13 @@ public class DolphinSchedulerGatewayImpl implements DolphinSchedulerGateway {
     @Override public boolean isRealMode() { return realEnabled(); }
 
     @Override public List<Map<String, Object>> listTaskInstances() {
-        if (!realEnabled()) return List.of();
+        requireRealMode();
         String body = sendForm("GET", path("/task-instances?pageNo=1&pageSize=100&taskExecuteType=BATCH"), Map.of());
         return parseInstanceList(body, "task");
     }
 
     @Override public String taskLog(String taskInstanceId) {
-        if (!realEnabled()) return "暂无任务日志";
+        requireRealMode();
         if (taskInstanceId == null || !taskInstanceId.matches("\\d+")) {
             return "DolphinScheduler 任务实例尚未生成可查询的编号";
         }
@@ -228,6 +224,10 @@ public class DolphinSchedulerGatewayImpl implements DolphinSchedulerGateway {
             throw new IllegalStateException("DolphinScheduler 已开启真实模式，但未配置密码或 sessionId Token");
         }
         return true;
+    }
+
+    private void requireRealMode() {
+        if (!realEnabled()) throw new IllegalStateException("DolphinScheduler 真实执行未启用，禁止创建模拟任务");
     }
 
     private Map<String, String> baseForm() {

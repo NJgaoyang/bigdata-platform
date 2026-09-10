@@ -11,14 +11,10 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
-/**
- * SeaTunnel boundary. The default profile delegates to a deterministic fake;
- * the process adapter is only reachable after explicit final-acceptance enabling.
- */
+/** SeaTunnel process boundary. Runtime execution never falls back to simulated jobs. */
 @Component
 public class SeaTunnelGatewayImpl implements SeaTunnelGateway {
     private final PlatformProperties properties;
-    private final FakeSeaTunnelGateway fake = new FakeSeaTunnelGateway();
     private final Map<String, Process> processes = new ConcurrentHashMap<>();
     private final Map<String, Path> configs = new ConcurrentHashMap<>();
     private final Map<String, StringBuffer> logs = new ConcurrentHashMap<>();
@@ -35,11 +31,13 @@ public class SeaTunnelGatewayImpl implements SeaTunnelGateway {
             }
             return new ValidationResult(true, "SeaTunnel 配置与真实运行环境检查通过");
         }
-        return fake.validate(config);
+        return new ValidationResult(false, "SeaTunnel 真实执行未启用");
     }
 
     @Override public SubmitResult submit(String config) {
-        if (!properties.getSeatunnel().isRealEnabled()) return fake.submit(config);
+        if (!properties.getSeatunnel().isRealEnabled()) {
+            throw new IllegalStateException("SeaTunnel 真实执行未启用，禁止创建模拟任务");
+        }
         try {
             Path home = Path.of(properties.getSeatunnel().getHome());
             Path executable = home.resolve("bin").resolve("seatunnel.sh");
@@ -65,7 +63,7 @@ public class SeaTunnelGatewayImpl implements SeaTunnelGateway {
     }
 
     @Override public JobStatus status(String executionId) {
-        if (!properties.getSeatunnel().isRealEnabled()) return fake.status(executionId);
+        if (!properties.getSeatunnel().isRealEnabled()) return new JobStatus(executionId, "NOT_CONFIGURED", "SeaTunnel 真实执行未启用");
         Process process = processes.get(executionId);
         if (process == null) return new JobStatus(executionId, "NOT_FOUND", "SeaTunnel 实例不存在");
         String status = process.isAlive() ? "RUNNING" : process.exitValue() == 0 ? "FINISHED" : "FAILED";
@@ -73,13 +71,13 @@ public class SeaTunnelGatewayImpl implements SeaTunnelGateway {
     }
 
     @Override public void cancel(String executionId) {
-        if (!properties.getSeatunnel().isRealEnabled()) { fake.cancel(executionId); return; }
+        if (!properties.getSeatunnel().isRealEnabled()) throw new IllegalStateException("SeaTunnel 真实执行未启用");
         Process process = processes.get(executionId);
         if (process != null) process.destroy();
     }
 
     @Override public String log(String executionId) {
-        if (!properties.getSeatunnel().isRealEnabled()) return fake.log(executionId);
+        if (!properties.getSeatunnel().isRealEnabled()) return "SeaTunnel 真实执行未启用";
         return logs.getOrDefault(executionId, new StringBuffer("SeaTunnel 实例不存在")).toString();
     }
 

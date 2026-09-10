@@ -4,7 +4,9 @@ import com.company.platform.common.NotFoundException;
 import com.company.platform.common.BadRequestException;
 import com.company.platform.common.PlatformStore;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 @Service
@@ -21,15 +23,17 @@ public class DataSourceService {
 
     public List<DataSourceView> list() { return store.dataSources.values().stream().toList(); }
 
+    @Transactional
     public DataSourceView create(CreateDataSourceRequest request) {
         ensureUniqueName(request.name(), null);
         if (request.password() == null || request.password().isBlank()) {
             throw new BadRequestException("新建数据源必须填写密码");
         }
         long id = store.nextId();
+        boolean metadataVisible = request.metadataVisible() == null || request.metadataVisible();
         DataSourceView view = new DataSourceView(id, request.name(), request.type(), request.host(),
                 request.port() == 0 ? (request.type() == DataSourceType.MYSQL ? 3306 : 9030) : request.port(),
-                normalizedDatabase(request.databaseName()), request.username(), "ACTIVE", true);
+                normalizedDatabase(request.databaseName()), request.username(), "UNKNOWN", metadataVisible, null, null);
         String encrypted = cipher.encrypt(request.password());
         store.persistDataSource(view, encrypted);
         store.dataSources.put(id, view);
@@ -43,12 +47,14 @@ public class DataSourceService {
         return result;
     }
 
+    @Transactional
     public DataSourceView update(long id, CreateDataSourceRequest request) {
         DataSourceView current = get(id);
         ensureUniqueName(request.name(), id);
+        boolean metadataVisible = request.metadataVisible() == null ? current.metadataVisible() : request.metadataVisible();
         DataSourceView updated = new DataSourceView(id, request.name(), request.type(), request.host(),
                 request.port() == 0 ? (request.type() == DataSourceType.MYSQL ? 3306 : 9030) : request.port(),
-                normalizedDatabase(request.databaseName()), request.username(), "ACTIVE", current.metadataVisible());
+                normalizedDatabase(request.databaseName()), request.username(), "UNKNOWN", metadataVisible, null, null);
         // Passwords are deliberately not sent back to the browser.  An empty field
         // in the edit form therefore means "keep the current credential", not
         // "erase it".
@@ -62,15 +68,18 @@ public class DataSourceService {
         return updated;
     }
 
+    @Transactional
     public DataSourceView setMetadataVisible(long id, boolean visible) {
         DataSourceView current = get(id);
         DataSourceView updated = new DataSourceView(current.id(), current.name(), current.type(), current.host(),
-                current.port(), current.databaseName(), current.username(), current.status(), visible);
+                current.port(), current.databaseName(), current.username(), current.status(), visible,
+                current.lastCheckedAt(), current.lastCheckMessage());
         store.persistDataSource(updated, store.encryptedDataSourcePasswords.getOrDefault(id, ""));
         store.dataSources.put(id, updated);
         return updated;
     }
 
+    @Transactional
     public void delete(long id) {
         get(id);
         store.deleteCore("data_source", id);
@@ -79,12 +88,25 @@ public class DataSourceService {
         dataSourceManager.close(id);
     }
 
+    @Transactional
     public ConnectionTestResult test(long id) {
         try (var ignored = dataSourceManager.testConnection(connectionInfo(id).jdbcUrl(), connectionInfo(id).username(), connectionInfo(id).password())) {
-            return new ConnectionTestResult(true, connectionInfo(id).type() + " 连接成功");
+            String message = connectionInfo(id).type() + " 连接成功";
+            updateHealthStatus(id, "ACTIVE", message);
+            return new ConnectionTestResult(true, message);
         } catch (Exception ex) {
-            return new ConnectionTestResult(false, connectionInfo(id).type() + " 连接失败：" + ex.getMessage());
+            String message = connectionInfo(id).type() + " 连接失败：" + ex.getMessage();
+            updateHealthStatus(id, "UNAVAILABLE", message);
+            return new ConnectionTestResult(false, message);
         }
+    }
+
+    private void updateHealthStatus(long id, String status, String message) {
+        DataSourceView current = get(id);
+        DataSourceView updated = new DataSourceView(current.id(), current.name(), current.type(), current.host(), current.port(),
+                current.databaseName(), current.username(), status, current.metadataVisible(), LocalDateTime.now(), message);
+        store.persistDataSource(updated, store.encryptedDataSourcePasswords.getOrDefault(id, ""));
+        store.dataSources.put(id, updated);
     }
 
     public ConnectionInfo connectionInfo(long id) {

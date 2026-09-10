@@ -1,7 +1,6 @@
 package com.company.platform.scheduler;
 
 import com.company.platform.common.PlatformStore;
-import com.company.platform.config.PlatformProperties;
 import com.company.platform.workflow.DagValidator;
 import com.company.platform.workflow.NodeType;
 import com.company.platform.workflow.WorkflowRequests;
@@ -22,7 +21,7 @@ class SchedulerServiceTest {
         WorkflowService workflows = new WorkflowService(store, new DagValidator());
         var workflow = workflows.create(new WorkflowRequests.WorkflowRequest("daily_sales", "demo",
                 List.of(new WorkflowRequests.NodeRequest("query", NodeType.SQL, null, null, 0, 0)), List.of()));
-        var gateway = new DolphinSchedulerGatewayImpl(new PlatformProperties());
+        var gateway = testGateway();
         SchedulerService service = new SchedulerService(store, workflows, gateway);
 
         ScheduleConfigView saved = service.save(workflow.id(), new ScheduleRequests.ScheduleRequest(
@@ -37,7 +36,7 @@ class SchedulerServiceTest {
         WorkflowService workflows = new WorkflowService(store, new DagValidator());
         var workflow = workflows.create(new WorkflowRequests.WorkflowRequest("daily_sales", "demo",
                 List.of(new WorkflowRequests.NodeRequest("query", NodeType.SQL, null, null, 0, 0)), List.of()));
-        var gateway = new DolphinSchedulerGatewayImpl(new PlatformProperties());
+        var gateway = testGateway();
         long versionId = store.versions.values().iterator().next().id();
         var published = workflows.create(new WorkflowRequests.WorkflowRequest("published_sales", "demo",
                 List.of(new WorkflowRequests.NodeRequest("query", NodeType.SQL, versionId, null, 0, 0)), List.of()));
@@ -46,5 +45,24 @@ class SchedulerServiceTest {
         SchedulerService service = new SchedulerService(store, workflows, gateway);
 
         assertTrue(service.online(published.id()).enabled());
+    }
+
+    private static SchedulerGateway testGateway() {
+        return new SchedulerGateway() {
+            @Override public PublishResult publish(PublishRequest request) {
+                return new PublishResult("test-process-1", request.version(), "PUBLISHED");
+            }
+            @Override public RunResult run(String processCode) { return new RunResult("test-instance-1", "RUNNING"); }
+            @Override public InstanceStatus status(String instanceId) { return new InstanceStatus(instanceId, "RUNNING", ""); }
+            @Override public void stop(String instanceId) { }
+            @Override public RunResult rerun(String instanceId) { return new RunResult(instanceId, "RUNNING"); }
+            @Override public RunResult backfill(String processCode, String start, String end, int parallelism) {
+                return new RunResult("test-instance-1", "RUNNING");
+            }
+            @Override public String upsertSchedule(String processCode, String cronExpression, String timezone, boolean enabled,
+                                                   String failureStrategy, int parallelism) { return "test-schedule-1"; }
+            @Override public void scheduleState(String scheduleId, boolean online) { }
+            @Override public void release(String processCode, boolean online) { }
+        };
     }
 }

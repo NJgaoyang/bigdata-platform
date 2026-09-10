@@ -19,7 +19,7 @@ public class PlatformAuthInterceptor implements HandlerInterceptor {
         if (path.equals("/api/health") || path.startsWith("/api/auth/") || request.getMethod().equalsIgnoreCase("OPTIONS")) return true;
         if (!auth.enabled()) {
             request.setAttribute("platform.operator", "admin");
-            audit.record("API_REQUEST", "HTTP", null, request.getMethod() + " " + path, "admin");
+            auditMutation(request, path, "admin");
             return true;
         }
         String header = request.getHeader("Authorization");
@@ -33,12 +33,18 @@ public class PlatformAuthInterceptor implements HandlerInterceptor {
                 return false;
             }
             request.setAttribute("platform.operator", auth.currentUsername(token));
-            audit.record("API_REQUEST", "HTTP", null, request.getMethod() + " " + path, auth.currentUsername(token));
+            auditMutation(request, path, auth.currentUsername(token));
             return true;
         }
         response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
         response.setContentType("application/json;charset=UTF-8");
         response.getWriter().write("{\"success\":false,\"data\":null,\"message\":\"请先登录平台\"}");
         return false;
+    }
+
+    private void auditMutation(HttpServletRequest request, String path, String operator) {
+        if (!request.getMethod().equalsIgnoreCase("GET")) {
+            audit.record("API_MUTATION", "HTTP", null, request.getMethod() + " " + path, operator);
+        }
     }
 }

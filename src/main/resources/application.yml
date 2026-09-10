@@ -5,10 +5,14 @@ spring:
   application:
     name: bigdata-platform
   datasource:
-    url: jdbc:h2:mem:bigdata_platform;MODE=MySQL;DB_CLOSE_DELAY=-1;DATABASE_TO_LOWER=TRUE
-    username: sa
-    password:
-    driver-class-name: org.h2.Driver
+    url: ${PLATFORM_DB_URL:jdbc:mysql://81.69.15.136:3306/bigdata_platform?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true}
+    username: ${PLATFORM_DB_USERNAME:root}
+    password: ${PLATFORM_DB_PASSWORD}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      connection-timeout: 10000
+      validation-timeout: 5000
+      maximum-pool-size: 10
   flyway:
     enabled: true
     locations: classpath:db/migration
@@ -36,16 +40,16 @@ platform:
   seatunnel:
     version: "2.3.12"
     home: /data/software/seatunnel
-    real-enabled: false
+    real-enabled: ${SEATUNNEL_REAL_ENABLED:true}
   scheduler:
     type: dolphinscheduler
     dolphinscheduler:
-      base-url: ${DOLPHINSCHEDULER_BASE_URL:http://192.168.113.135:12345}
+      base-url: ${DOLPHINSCHEDULER_BASE_URL:http://81.69.15.136:12345}
       version: "3.1.9"
       install-dir: /data/software/dolphinscheduler
       username: admin
-      project-code: ${DOLPHINSCHEDULER_PROJECT_CODE:bigdata-platform}
+      project-code: ${DOLPHINSCHEDULER_PROJECT_CODE:22919517565792}
       tenant-code: ${DOLPHINSCHEDULER_TENANT_CODE:bigdata}
-      password: ${DOLPHINSCHEDULER_PASSWORD:}
+      password: ${DOLPHINSCHEDULER_PASSWORD}
       token:
-      real-enabled: ${DOLPHINSCHEDULER_REAL_ENABLED:false}
+      real-enabled: ${DOLPHINSCHEDULER_REAL_ENABLED:true}

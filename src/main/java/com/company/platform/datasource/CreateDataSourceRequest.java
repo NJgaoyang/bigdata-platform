@@ -10,4 +10,12 @@ public record CreateDataSourceRequest(
         int port,
         String databaseName,
         @NotBlank String username,
-        String password) { }
+        String password,
+        Boolean metadataVisible) {
+
+    /** Backwards-compatible constructor for callers that use the original request shape. */
+    public CreateDataSourceRequest(String name, DataSourceType type, String host, int port,
+                                   String databaseName, String username, String password) {
+        this(name, type, host, port, databaseName, username, password, null);
+    }
+}

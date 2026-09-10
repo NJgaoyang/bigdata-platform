@@ -1,3 +1,5 @@
 package com.company.platform.development;
 
-public record DevFolderView(long id, long projectId, Long parentId, String name) { }
+import java.time.LocalDateTime;
+
+public record DevFolderView(long id, long projectId, Long parentId, String name, LocalDateTime createdAt) { }

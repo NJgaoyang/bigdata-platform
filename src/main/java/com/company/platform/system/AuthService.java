@@ -120,13 +120,15 @@ public class AuthService {
         var user = store.users.values().stream().filter(item -> item.username().equalsIgnoreCase(username.trim())).findFirst().orElse(null);
         if (user == null || !"ACTIVE".equalsIgnoreCase(user.status())) return false;
         if ("ADMIN".equalsIgnoreCase(user.roleCode())) return true;
-        Set<String> granted = store.userPermissions.getOrDefault(user.id(), java.util.Set.of());
+        Set<String> granted = accessPermissions(user.id());
+        if (path.startsWith("/api/dashboard")) return granted.contains("WORKBENCH_VIEW");
         if (path.startsWith("/api/data-sources")) {
-            if (!"GET".equalsIgnoreCase(method)) return granted.contains("SYSTEM_SETTINGS");
-            return granted.stream().anyMatch(Set.of("DATA_EXPLORE", "DATA_DEVELOPMENT", "DATA_INTEGRATION", "SYSTEM_SETTINGS")::contains);
+            if (!"GET".equalsIgnoreCase(method)) return granted.contains("SYSTEM_SETTINGS_EDIT");
+            return granted.contains("METADATA_VIEW") || granted.contains("SYSTEM_SETTINGS_VIEW");
         }
         String permission = permissionFor(path);
-        return permission == null || granted.contains(permission);
+        if (permission == null) return true;
+        return granted.contains(permission + ("GET".equalsIgnoreCase(method) ? "_VIEW" : "_EDIT"));
     }
 
     public Set<String> permissionsForToken(String token) {
@@ -137,18 +139,22 @@ public class AuthService {
         var user = store.users.values().stream().filter(item -> item.username().equalsIgnoreCase(username.trim())).findFirst().orElse(null);
         if (user == null) return Set.of();
         if ("ADMIN".equalsIgnoreCase(user.roleCode())) return AccessService.MODULE_PERMISSIONS;
-        return Set.copyOf(store.userPermissions.getOrDefault(user.id(), Set.of()));
+        return accessPermissions(user.id());
     }
 
     private String permissionFor(String path) {
         if (path.startsWith("/api/integration")) return "DATA_INTEGRATION";
         if (path.startsWith("/api/development")) return "DATA_DEVELOPMENT";
-        if (path.startsWith("/api/query") || path.startsWith("/api/metadata")) return "DATA_EXPLORE";
-        if (path.startsWith("/api/lineage")) return "DATA_LINEAGE";
-        if (path.startsWith("/api/workflows") || path.startsWith("/api/scheduler")) return "SCHEDULER";
+        if (path.startsWith("/api/query") || path.startsWith("/api/metadata")) return "METADATA";
+        if (path.startsWith("/api/lineage")) return "DATA_ASSETS";
+        if (path.startsWith("/api/workflows") || path.startsWith("/api/scheduler")) return "WORKFLOW";
         if (path.startsWith("/api/operations")) return "OPERATIONS";
         if (path.startsWith("/api/system")) return "SYSTEM_SETTINGS";
         return null;
+    }
+
+    private Set<String> accessPermissions(long userId) {
+        return AccessService.effectivePermissions(store.userPermissions.getOrDefault(userId, Set.of()));
     }
 
     private boolean isConfiguredAdmin(String username) {

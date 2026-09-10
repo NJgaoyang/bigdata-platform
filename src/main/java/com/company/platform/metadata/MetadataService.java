@@ -12,6 +12,8 @@ import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Locale;
+import java.util.Set;
 
 @Service
 public class MetadataService {
@@ -24,19 +26,25 @@ public class MetadataService {
     }
 
     public List<DatabaseView> databases(long dataSourceId, DataSourceType type) {
-        if (type != DataSourceType.STARROCKS) {
-            throw new BadRequestException("数据库元数据仅允许查看 StarRocks 数据源");
+        ensureMetadataVisible(dataSourceId);
+        if (type != DataSourceType.STARROCKS && type != DataSourceType.MYSQL) {
+            throw new BadRequestException("当前数据源类型暂不支持元数据读取");
         }
         DataSourceService.ConnectionInfo info = dataSources.connectionInfo(dataSourceId);
-        if (info.type() != DataSourceType.STARROCKS) {
-            throw new BadRequestException("该数据源不是 StarRocks 数据源");
+        if (info.type() != type) {
+            throw new BadRequestException("数据源类型与请求不一致");
         }
         try (Connection connection = connection(dataSourceId)) {
             List<DatabaseView> result = new ArrayList<>();
             try (ResultSet catalogs = connection.getMetaData().getCatalogs()) {
                 while (catalogs.next()) {
                     String name = catalogs.getString("TABLE_CAT");
-                    if (name != null && !name.isBlank()) result.add(new DatabaseView(name, ""));
+                    if (name != null && !name.isBlank() && !isSystemDatabase(name, type)) {
+                        // The configured database is only the connection default.  Metadata
+                        // browsing should expose every business database on the source while
+                        // still excluding system schemas via isSystemDatabase above.
+                        result.add(new DatabaseView(name, ""));
+                    }
                 }
             }
             return result.stream()
@@ -47,7 +55,16 @@ public class MetadataService {
         }
     }
 
+    private boolean isSystemDatabase(String database, DataSourceType type) {
+        String name = database.toLowerCase(Locale.ROOT);
+        Set<String> systemDatabases = type == DataSourceType.MYSQL
+                ? Set.of("information_schema", "mysql", "performance_schema", "sys", "ndbinfo")
+                : Set.of("information_schema", "_statistics_", "sys");
+        return systemDatabases.contains(name);
+    }
+
     public List<TableView> tables(long dataSourceId, String database) {
+        ensureMetadataVisible(dataSourceId);
         try (Connection connection = connection(dataSourceId)) {
             List<TableView> result = new ArrayList<>();
             try (ResultSet tables = connection.getMetaData().getTables(database, null, "%", new String[]{"TABLE", "VIEW"})) {
@@ -63,6 +80,7 @@ public class MetadataService {
     }
 
     public List<ColumnView> columns(long dataSourceId, String database, String table) {
+        ensureMetadataVisible(dataSourceId);
         try (Connection connection = connection(dataSourceId)) {
             List<ColumnView> result = new ArrayList<>();
             try (ResultSet columns = connection.getMetaData().getColumns(database, null, table, "%")) {
@@ -80,6 +98,12 @@ public class MetadataService {
     private Connection connection(long dataSourceId) throws SQLException {
         DataSourceService.ConnectionInfo info = dataSources.connectionInfo(dataSourceId);
         return connectionManager.getConnection(info.id(), info.jdbcUrl(), info.username(), info.password());
+    }
+
+    private void ensureMetadataVisible(long dataSourceId) {
+        if (!dataSources.get(dataSourceId).metadataVisible()) {
+            throw new BadRequestException("该数据源未开启元数据展示");
+        }
     }
     public record DatabaseView(String name, String comment) { }
     public record TableView(String database, String name, String comment, String type) { }

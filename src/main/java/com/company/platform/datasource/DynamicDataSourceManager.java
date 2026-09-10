@@ -12,10 +12,11 @@ import java.util.concurrent.ConcurrentHashMap;
 
 @Component
 public class DynamicDataSourceManager {
-    private final Map<Long, HikariDataSource> pools = new ConcurrentHashMap<>();
+    private final Map<String, HikariDataSource> pools = new ConcurrentHashMap<>();
 
     public Connection getConnection(long sourceId, String jdbcUrl, String username, String password) throws SQLException {
-        HikariDataSource pool = pools.computeIfAbsent(sourceId, ignored -> createPool(jdbcUrl, username, password));
+        String poolKey = sourceId + "|" + jdbcUrl;
+        HikariDataSource pool = pools.computeIfAbsent(poolKey, ignored -> createPool(jdbcUrl, username, password));
         return pool.getConnection();
     }
 
@@ -24,8 +25,11 @@ public class DynamicDataSourceManager {
     }
 
     public void close(long sourceId) {
-        HikariDataSource pool = pools.remove(sourceId);
-        if (pool != null) pool.close();
+        pools.entrySet().removeIf(entry -> {
+            if (!entry.getKey().startsWith(sourceId + "|")) return false;
+            entry.getValue().close();
+            return true;
+        });
     }
 
     private HikariDataSource createPool(String jdbcUrl, String username, String password) {
