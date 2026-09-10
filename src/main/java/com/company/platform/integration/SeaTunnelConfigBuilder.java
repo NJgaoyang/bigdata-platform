@@ -8,7 +8,7 @@ import java.util.Map;
 
 @Component
 public class SeaTunnelConfigBuilder {
-    /** Retained for Spring and existing callers; SeaTunnel now emits HOCON directly. */
+    /** Retained for Spring and existing callers; SeaTunnel emits HOCON directly. */
     public SeaTunnelConfigBuilder(ObjectMapper ignored) { }
 
     public String build(IntegrationTask task) {
@@ -21,7 +21,7 @@ public class SeaTunnelConfigBuilder {
         int batchSize = integerOption(options, "batchSize", 1000);
         String where = stringOption(options, "where", "");
         String targetCompatibility = task.targetType().equalsIgnoreCase("STARROCKS")
-                ? "    compatible_mode = \"StarRocks\"\n    enable_upsert = false\n" : "";
+                ? "    compatible_mode = \"starrocks\"\n    dialect = \"starrocks\"\n    enable_upsert = false\n" : "";
         boolean multiTable = tables.size() > 1;
         StringBuilder config = new StringBuilder();
         config.append("env {\n  parallelism = ").append(parallelism).append("\n  job.mode = \"BATCH\"\n}\n\nsource {\n");
