@@ -40,9 +40,6 @@ public class MetadataService {
                 while (catalogs.next()) {
                     String name = catalogs.getString("TABLE_CAT");
                     if (name != null && !name.isBlank() && !isSystemDatabase(name, type)) {
-                        // The configured database is only the connection default.  Metadata
-                        // browsing should expose every business database on the source while
-                        // still excluding system schemas via isSystemDatabase above.
                         result.add(new DatabaseView(name, ""));
                     }
                 }
@@ -51,7 +48,7 @@ public class MetadataService {
                     .sorted(Comparator.comparing(DatabaseView::name, String.CASE_INSENSITIVE_ORDER))
                     .toList();
         } catch (SQLException ex) {
-            throw new BadRequestException("读取数据库元数据失败：" + ex.getMessage());
+            throw metadataReadFailure("数据库");
         }
     }
 
@@ -75,7 +72,7 @@ public class MetadataService {
             }
             return result;
         } catch (SQLException ex) {
-            throw new BadRequestException("读取表元数据失败：" + ex.getMessage());
+            throw metadataReadFailure("表");
         }
     }
 
@@ -91,7 +88,7 @@ public class MetadataService {
             }
             return result;
         } catch (SQLException ex) {
-            throw new BadRequestException("读取字段元数据失败：" + ex.getMessage());
+            throw metadataReadFailure("字段");
         }
     }
 
@@ -105,6 +102,13 @@ public class MetadataService {
             throw new BadRequestException("该数据源未开启元数据展示");
         }
     }
+
+    private BadRequestException metadataReadFailure(String object) {
+        // Raw JDBC errors can contain infrastructure addresses and SQL-driver details.
+        // Keep browser-facing metadata errors stable and non-sensitive.
+        return new BadRequestException("读取" + object + "元数据失败，请检查数据源连接、账号权限和元数据可见性");
+    }
+
     public record DatabaseView(String name, String comment) { }
     public record TableView(String database, String name, String comment, String type) { }
     public record ColumnView(String name, String dataType, boolean nullable, String comment) { }
