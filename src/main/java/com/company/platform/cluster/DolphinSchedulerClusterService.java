@@ -37,7 +37,7 @@ public class DolphinSchedulerClusterService {
     public DolphinSchedulerClusterView create(DolphinSchedulerClusterRequests.ClusterRequest request) {
         ensureUniqueName(request.name(), null);
         DolphinSchedulerClusterView cluster = new DolphinSchedulerClusterView(store.nextId(), request.name().trim(), request.host().trim(),
-                request.port(), normalizePath(request.basePath()), defaultValue(request.version(), "3.1.9"), blankToNull(request.username()),
+                request.port(), normalizePath(request.basePath()), blankToNull(request.version()), blankToNull(request.username()),
                 blankToNull(request.installDir()), blankToNull(request.description()), "UNKNOWN", LocalDateTime.now());
         String encryptedPassword = cipher.encrypt(request.password());
         store.dolphinSchedulerClusters.put(cluster.id(), cluster);
@@ -51,7 +51,7 @@ public class DolphinSchedulerClusterService {
         DolphinSchedulerClusterView current = get(id);
         ensureUniqueName(request.name(), id);
         DolphinSchedulerClusterView updated = new DolphinSchedulerClusterView(id, request.name().trim(), request.host().trim(), request.port(),
-                normalizePath(request.basePath()), defaultValue(request.version(), "3.1.9"), blankToNull(request.username()),
+                normalizePath(request.basePath()), blankToNull(request.version()), blankToNull(request.username()),
                 blankToNull(request.installDir()), blankToNull(request.description()), current.healthStatus(), current.createdAt());
         String encryptedPassword = request.password() == null || request.password().isBlank()
                 ? store.encryptedDolphinSchedulerPasswords.getOrDefault(id, "") : cipher.encrypt(request.password());
@@ -108,6 +108,5 @@ public class DolphinSchedulerClusterService {
         String path = value == null || value.isBlank() ? "/dolphinscheduler" : value.trim();
         return "/" + path.replaceAll("^/+|/+$", "");
     }
-    private String defaultValue(String value, String fallback) { return value == null || value.isBlank() ? fallback : value.trim(); }
     private String blankToNull(String value) { return value == null || value.isBlank() ? null : value.trim(); }
 }
