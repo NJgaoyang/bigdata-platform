@@ -5,7 +5,7 @@ spring:
   application:
     name: bigdata-platform
   datasource:
-    url: ${PLATFORM_DB_URL:jdbc:mysql://127.0.0.1:3306/bigdata_platform?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true}
+    url: ${PLATFORM_DB_URL:jdbc:mysql://81.69.15.136:3306/bigdata_platform?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true}
     username: ${PLATFORM_DB_USERNAME:root}
     password: ${PLATFORM_DB_PASSWORD}
     driver-class-name: com.mysql.cj.jdbc.Driver
