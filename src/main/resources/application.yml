@@ -47,9 +47,12 @@ platform:
       base-url: ${DOLPHINSCHEDULER_BASE_URL:http://81.69.15.136:12345}
       version: "3.1.9"
       install-dir: /data/software/dolphinscheduler
-      username: admin
+      username: ${DOLPHINSCHEDULER_USERNAME:admin}
       project-code: ${DOLPHINSCHEDULER_PROJECT_CODE:22919517565792}
       tenant-code: ${DOLPHINSCHEDULER_TENANT_CODE:bigdata}
-      password: ${DOLPHINSCHEDULER_PASSWORD}
-      token:
+      password: ${DOLPHINSCHEDULER_PASSWORD:}
+      token: ${DOLPHINSCHEDULER_TOKEN:}
       real-enabled: ${DOLPHINSCHEDULER_REAL_ENABLED:true}
+      fail-retry-times: ${DOLPHINSCHEDULER_FAIL_RETRY_TIMES:3}
+      fail-retry-interval: ${DOLPHINSCHEDULER_FAIL_RETRY_INTERVAL:1}
+      worker-group: ${DOLPHINSCHEDULER_WORKER_GROUP:default}
