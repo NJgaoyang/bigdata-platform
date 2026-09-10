@@ -4,11 +4,13 @@ import com.company.platform.common.BadRequestException;
 import com.company.platform.common.PlatformStore;
 import com.company.platform.scheduler.SchedulerGateway;
 import com.company.platform.lineage.LineageService;
+import com.company.platform.development.DevFileView;
 import com.company.platform.development.FileVersionView;
 import org.springframework.stereotype.Service;
 
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
+import java.util.Locale;
 import java.util.StringJoiner;
 
 @Service
@@ -32,16 +34,20 @@ public class WorkflowPublishService {
                 throw new BadRequestException("节点“" + node.name() + "”没有绑定开发文件版本");
             }
             String snapshot = "";
+            NodeType effectiveType = node.nodeType();
             if (node.fileVersionId() != null) {
                 FileVersionView fileVersion = store.versions.get(node.fileVersionId());
                 if (fileVersion == null) throw new BadRequestException("节点“" + node.name() + "”绑定的文件版本不存在");
+                DevFileView devFile = store.files.get(fileVersion.fileId());
+                if (devFile == null) throw new BadRequestException("节点“" + node.name() + "”绑定的开发文件不存在");
+                effectiveType = resolveTaskType(devFile.fileType(), devFile.name());
                 snapshot = Base64.getEncoder().encodeToString(fileVersion.content().getBytes(StandardCharsets.UTF_8));
-                if (node.nodeType() == NodeType.SQL) {
+                if (effectiveType == NodeType.SQL) {
                     lineageService.removeForFile(fileVersion.fileId());
                     lineageService.parseAndStore(fileVersion.fileId(), fileVersion.id(), fileVersion.content());
                 }
             }
-            nodeDefinitions.add("{\"id\":" + node.id() + ",\"name\":\"" + escape(node.name()) + "\",\"type\":\"" + node.nodeType() + "\",\"configJson\":\"" +
+            nodeDefinitions.add("{\"id\":" + node.id() + ",\"name\":\"" + escape(node.name()) + "\",\"type\":\"" + effectiveType + "\",\"configJson\":\"" +
                     escape(node.configJson() == null ? "" : node.configJson()) + "\",\"fileVersionId\":" +
                     (node.fileVersionId() == null ? "null" : node.fileVersionId()) + ",\"contentBase64\":\"" + snapshot + "\"}");
         }
@@ -57,7 +63,7 @@ public class WorkflowPublishService {
         store.workflows.put(workflowId, new WorkflowView(workflow.id(), workflow.name(), workflow.workflowCode(),
                 workflow.description(), "PUBLISHED", version, workflow.nodes(), workflow.edges(), result.processCode()));
         store.persistWorkflow(store.workflows.get(workflowId));
-        return new PublishResult(workflow.id(), version, result.processCode(), result.status(), "已生成发布快照");
+        return new PublishResult(workflow.id(), version, result.processCode(), result.status(), "已按开发文件类型生成 DolphinScheduler 发布快照");
     }
     public RunResult run(long workflowId) {
         WorkflowView workflow = workflowService.get(workflowId);
@@ -67,6 +73,29 @@ public class WorkflowPublishService {
         SchedulerGateway.RunResult result = schedulerGateway.run(processCode);
         return new RunResult(result.instanceId(), result.status(), "调度实例已提交");
     }
+
+    private NodeType resolveTaskType(String fileType, String fileName) {
+        String normalized = fileType == null ? "" : fileType.trim().toUpperCase(Locale.ROOT);
+        if (normalized.startsWith(".")) normalized = normalized.substring(1);
+        return switch (normalized) {
+            case "SQL" -> NodeType.SQL;
+            case "PY", "PYTHON", "PYTHON3" -> NodeType.PYTHON;
+            case "SH", "SHELL", "BASH" -> NodeType.SHELL;
+            case "SEATUNNEL", "HOCON", "CONF" -> NodeType.SEATUNNEL;
+            default -> resolveTaskTypeFromFileName(fileName, fileType);
+        };
+    }
+
+    private NodeType resolveTaskTypeFromFileName(String fileName, String configuredType) {
+        String name = fileName == null ? "" : fileName.toLowerCase(Locale.ROOT);
+        if (name.endsWith(".sql")) return NodeType.SQL;
+        if (name.endsWith(".py")) return NodeType.PYTHON;
+        if (name.endsWith(".sh") || name.endsWith(".bash")) return NodeType.SHELL;
+        if (name.endsWith(".conf") || name.endsWith(".hocon") || name.endsWith(".seatunnel")) return NodeType.SEATUNNEL;
+        throw new BadRequestException("不支持的开发文件类型：" + (configuredType == null ? "" : configuredType)
+                + "，文件：" + (fileName == null ? "" : fileName));
+    }
+
     private String escape(String value) { return value.replace("\\", "\\\\").replace("\"", "\\\""); }
     public record PublishResult(long workflowId, int version, String processCode, String status, String message) { }
     public record RunResult(String instanceId, String status, String message) { }
