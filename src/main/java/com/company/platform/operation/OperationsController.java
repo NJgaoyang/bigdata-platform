@@ -35,5 +35,4 @@ public class OperationsController {
     public Result<Void> stop(@PathVariable String id) { gateway.stop(id); return Result.ok(null, "实例已停止"); }
     @PostMapping("/process-instances/{id}/rerun")
     public Result<SchedulerGateway.RunResult> rerun(@PathVariable String id) { return Result.ok(gateway.rerun(id)); }
-    private Map<String, Object> instance(String name, String status) { return Map.of("name", name, "status", status, "engine", "DolphinScheduler 3.1.9"); }
 }
