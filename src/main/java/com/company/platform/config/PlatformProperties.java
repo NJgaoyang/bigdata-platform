@@ -41,10 +41,13 @@ public class PlatformProperties {
     public static class Query {
         private int defaultMaxRows = 1000;
         private int timeoutSeconds = 300;
+        private int maxConcurrentQueries = 8;
         public int getDefaultMaxRows() { return defaultMaxRows; }
         public void setDefaultMaxRows(int value) { this.defaultMaxRows = value; }
         public int getTimeoutSeconds() { return timeoutSeconds; }
         public void setTimeoutSeconds(int value) { this.timeoutSeconds = value; }
+        public int getMaxConcurrentQueries() { return maxConcurrentQueries; }
+        public void setMaxConcurrentQueries(int value) { this.maxConcurrentQueries = value; }
     }
     public static class Starrocks {
         private String version = "3.3.22";

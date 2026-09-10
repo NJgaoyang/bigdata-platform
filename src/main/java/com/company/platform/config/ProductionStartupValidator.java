@@ -5,10 +5,7 @@ import org.springframework.context.annotation.Profile;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
 
-/**
- * Production profile guardrails. The application must fail fast instead of
- * silently running with mock/disabled integrations or missing scheduler credentials.
- */
+/** Production profile guardrails. */
 @Component
 @Profile("prod")
 public class ProductionStartupValidator {
@@ -22,6 +19,14 @@ public class ProductionStartupValidator {
     public void validate() {
         if (!properties.getSecurity().isEnabled()) {
             throw new IllegalStateException("生产环境必须开启 PLATFORM_AUTH_ENABLED=true");
+        }
+        requireText(properties.getSecurity().getAdminPasswordHash(), "PLATFORM_ADMIN_PASSWORD_SHA256");
+        if (properties.getQuery().getMaxConcurrentQueries() < 1 || properties.getQuery().getMaxConcurrentQueries() > 64) {
+            throw new IllegalStateException("PLATFORM_QUERY_MAX_CONCURRENT 必须在 1-64 之间");
+        }
+        String masterKey = System.getenv("DATASOURCE_MASTER_KEY");
+        if (masterKey == null || masterKey.length() < 32) {
+            throw new IllegalStateException("生产环境必须配置至少 32 位的 DATASOURCE_MASTER_KEY，禁止使用代码内置兼容密钥");
         }
         if (!properties.getSeatunnel().isRealEnabled()) {
             throw new IllegalStateException("生产环境必须开启 SEATUNNEL_REAL_ENABLED=true，禁止使用模拟同步");
@@ -47,8 +52,6 @@ public class ProductionStartupValidator {
     }
 
     private void requireText(String value, String key) {
-        if (value == null || value.isBlank()) {
-            throw new IllegalStateException("生产环境缺少配置：" + key);
-        }
+        if (value == null || value.isBlank()) throw new IllegalStateException("生产环境缺少配置：" + key);
     }
 }

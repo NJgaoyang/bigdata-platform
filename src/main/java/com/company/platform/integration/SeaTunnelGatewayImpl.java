@@ -1,13 +1,16 @@
 package com.company.platform.integration;
 
 import com.company.platform.config.PlatformProperties;
+import jakarta.annotation.PreDestroy;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.PosixFilePermission;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -35,29 +38,31 @@ public class SeaTunnelGatewayImpl implements SeaTunnelGateway {
     }
 
     @Override public SubmitResult submit(String config) {
-        if (!properties.getSeatunnel().isRealEnabled()) {
-            throw new IllegalStateException("SeaTunnel 真实执行未启用，禁止创建模拟任务");
-        }
+        if (!properties.getSeatunnel().isRealEnabled()) throw new IllegalStateException("SeaTunnel 真实执行未启用，禁止创建模拟任务");
+        Path configFile = null;
         try {
             Path home = Path.of(properties.getSeatunnel().getHome());
             Path executable = home.resolve("bin").resolve("seatunnel.sh");
             if (!Files.isExecutable(executable)) throw new IllegalStateException("SeaTunnel 启动脚本不可执行：" + executable);
             Path configDirectory = home.resolve("config");
             Files.createDirectories(configDirectory);
-            Path configFile = Files.createTempFile(configDirectory, "platform-", ".conf");
+            configFile = Files.createTempFile(configDirectory, "platform-", ".conf");
+            restrictPermissions(configFile);
             Files.writeString(configFile, config, StandardCharsets.UTF_8);
             Process process = new ProcessBuilder(executable.toString(), "-c", configFile.toString())
                     .redirectErrorStream(true).start();
             String executionId = "seatunnel-" + UUID.randomUUID();
             StringBuffer output = new StringBuffer();
             logs.put(executionId, output);
-            Thread logReader = new Thread(() -> readOutput(executionId, process, output), "seatunnel-log-" + executionId);
+            Path finalConfigFile = configFile;
+            Thread logReader = new Thread(() -> readOutput(executionId, process, output, finalConfigFile), "seatunnel-log-" + executionId);
             logReader.setDaemon(true);
             logReader.start();
             processes.put(executionId, process);
             configs.put(executionId, configFile);
             return new SubmitResult(executionId, "RUNNING");
         } catch (IOException | RuntimeException ex) {
+            if (configFile != null) try { Files.deleteIfExists(configFile); } catch (IOException ignored) { }
             throw new IllegalStateException("SeaTunnel 任务启动失败：" + ex.getMessage(), ex);
         }
     }
@@ -81,7 +86,7 @@ public class SeaTunnelGatewayImpl implements SeaTunnelGateway {
         return logs.getOrDefault(executionId, new StringBuffer("SeaTunnel 实例不存在")).toString();
     }
 
-    private void readOutput(String executionId, Process process, StringBuffer output) {
+    private void readOutput(String executionId, Process process, StringBuffer output, Path configFile) {
         try (var reader = process.inputReader()) {
             reader.lines().forEach(line -> { synchronized (output) { output.append(line).append(System.lineSeparator()); } });
             int exit = process.waitFor();
@@ -89,8 +94,29 @@ public class SeaTunnelGatewayImpl implements SeaTunnelGateway {
         } catch (Exception ex) {
             synchronized (output) { output.append("[SeaTunnel] log reader failed: ").append(ex.getMessage()).append(System.lineSeparator()); }
         } finally {
-            Path config = configs.remove(executionId);
-            if (config != null) try { Files.deleteIfExists(config); } catch (IOException ignored) { }
+            configs.remove(executionId);
+            try { Files.deleteIfExists(configFile); } catch (IOException ignored) { }
         }
+    }
+
+    private void restrictPermissions(Path configFile) throws IOException {
+        try {
+            Files.setPosixFilePermissions(configFile, Set.of(PosixFilePermission.OWNER_READ, PosixFilePermission.OWNER_WRITE));
+        } catch (UnsupportedOperationException ignored) {
+            // Non-POSIX development filesystems do not expose chmod semantics.
+        }
+    }
+
+    @PreDestroy
+    public void shutdown() {
+        processes.values().forEach(process -> {
+            if (process.isAlive()) {
+                try { process.destroy(); } catch (RuntimeException ignored) { }
+            }
+        });
+        configs.values().forEach(path -> {
+            try { Files.deleteIfExists(path); } catch (IOException ignored) { }
+        });
+        configs.clear();
     }
 }
