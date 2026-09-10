@@ -34,7 +34,8 @@ public class DolphinSchedulerClusterService {
                 .sorted(Comparator.comparing(DolphinSchedulerClusterView::createdAt).reversed()).toList();
     }
 
-    public DolphinSchedulerClusterView create(DolphinSchedulerClusterRequests.ClusterRequest request) {
+    public DolphinSchedulerClusterView create(DolphinSchedulerClusterRequests.ClusterRequest request) { return create(request, "admin"); }
+    public DolphinSchedulerClusterView create(DolphinSchedulerClusterRequests.ClusterRequest request, String operator) {
         ensureUniqueName(request.name(), null);
         DolphinSchedulerClusterView cluster = new DolphinSchedulerClusterView(store.nextId(), request.name().trim(), request.host().trim(),
                 request.port(), normalizePath(request.basePath()), blankToNull(request.version()), blankToNull(request.username()),
@@ -43,11 +44,12 @@ public class DolphinSchedulerClusterService {
         store.dolphinSchedulerClusters.put(cluster.id(), cluster);
         store.encryptedDolphinSchedulerPasswords.put(cluster.id(), encryptedPassword);
         store.persistDolphinSchedulerCluster(cluster, encryptedPassword);
-        audit.record("CREATE_DOLPHINSCHEDULER_CLUSTER", "DOLPHINSCHEDULER_CLUSTER", cluster.id(), cluster.name(), "admin");
+        audit.record("CREATE_DOLPHINSCHEDULER_CLUSTER", "DOLPHINSCHEDULER_CLUSTER", cluster.id(), cluster.name(), normalizeOperator(operator));
         return cluster;
     }
 
-    public DolphinSchedulerClusterView update(long id, DolphinSchedulerClusterRequests.ClusterRequest request) {
+    public DolphinSchedulerClusterView update(long id, DolphinSchedulerClusterRequests.ClusterRequest request) { return update(id, request, "admin"); }
+    public DolphinSchedulerClusterView update(long id, DolphinSchedulerClusterRequests.ClusterRequest request, String operator) {
         DolphinSchedulerClusterView current = get(id);
         ensureUniqueName(request.name(), id);
         DolphinSchedulerClusterView updated = new DolphinSchedulerClusterView(id, request.name().trim(), request.host().trim(), request.port(),
@@ -58,19 +60,21 @@ public class DolphinSchedulerClusterService {
         store.dolphinSchedulerClusters.put(id, updated);
         store.encryptedDolphinSchedulerPasswords.put(id, encryptedPassword);
         store.persistDolphinSchedulerCluster(updated, encryptedPassword);
-        audit.record("UPDATE_DOLPHINSCHEDULER_CLUSTER", "DOLPHINSCHEDULER_CLUSTER", id, updated.name(), "admin");
+        audit.record("UPDATE_DOLPHINSCHEDULER_CLUSTER", "DOLPHINSCHEDULER_CLUSTER", id, updated.name(), normalizeOperator(operator));
         return updated;
     }
 
-    public void delete(long id) {
+    public void delete(long id) { delete(id, "admin"); }
+    public void delete(long id, String operator) {
         DolphinSchedulerClusterView cluster = get(id);
         store.dolphinSchedulerClusters.remove(id);
         store.encryptedDolphinSchedulerPasswords.remove(id);
         store.deleteDolphinSchedulerCluster(id);
-        audit.record("DELETE_DOLPHINSCHEDULER_CLUSTER", "DOLPHINSCHEDULER_CLUSTER", id, cluster.name(), "admin");
+        audit.record("DELETE_DOLPHINSCHEDULER_CLUSTER", "DOLPHINSCHEDULER_CLUSTER", id, cluster.name(), normalizeOperator(operator));
     }
 
-    public DolphinSchedulerClusterView check(long id) {
+    public DolphinSchedulerClusterView check(long id) { return check(id, "admin"); }
+    public DolphinSchedulerClusterView check(long id, String operator) {
         DolphinSchedulerClusterView current = get(id);
         String status = "UNREACHABLE";
         try {
@@ -85,11 +89,12 @@ public class DolphinSchedulerClusterService {
                 current.basePath(), current.version(), current.username(), current.installDir(), current.description(), status, current.createdAt());
         store.dolphinSchedulerClusters.put(id, updated);
         store.persistDolphinSchedulerCluster(updated, store.encryptedDolphinSchedulerPasswords.getOrDefault(id, ""));
-        audit.record("CHECK_DOLPHINSCHEDULER_CLUSTER", "DOLPHINSCHEDULER_CLUSTER", id, status, "admin");
+        audit.record("CHECK_DOLPHINSCHEDULER_CLUSTER", "DOLPHINSCHEDULER_CLUSTER", id, status, normalizeOperator(operator));
         return updated;
     }
 
-    public List<DolphinSchedulerClusterView> checkAll() { return list().stream().map(item -> check(item.id())).toList(); }
+    public List<DolphinSchedulerClusterView> checkAll() { return checkAll("admin"); }
+    public List<DolphinSchedulerClusterView> checkAll(String operator) { return list().stream().map(item -> check(item.id(), operator)).toList(); }
 
     private DolphinSchedulerClusterView get(long id) {
         DolphinSchedulerClusterView cluster = store.dolphinSchedulerClusters.get(id);
@@ -109,4 +114,5 @@ public class DolphinSchedulerClusterService {
         return "/" + path.replaceAll("^/+|/+$", "");
     }
     private String blankToNull(String value) { return value == null || value.isBlank() ? null : value.trim(); }
+    private String normalizeOperator(String value) { return value == null || value.isBlank() ? "admin" : value.trim(); }
 }

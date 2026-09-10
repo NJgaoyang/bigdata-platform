@@ -29,7 +29,8 @@ public class SeaTunnelClusterService {
                 .sorted(java.util.Comparator.comparing(SeaTunnelClusterView::createdAt).reversed()).toList();
     }
 
-    public SeaTunnelClusterView create(SeaTunnelClusterRequests.ClusterRequest request) {
+    public SeaTunnelClusterView create(SeaTunnelClusterRequests.ClusterRequest request) { return create(request, "admin"); }
+    public SeaTunnelClusterView create(SeaTunnelClusterRequests.ClusterRequest request, String operator) {
         if (store.seaTunnelClusters.values().stream().anyMatch(item -> item.name().equalsIgnoreCase(request.name()))) {
             throw new BadRequestException("集群名称已存在");
         }
@@ -40,11 +41,12 @@ public class SeaTunnelClusterService {
         store.persistSeaTunnelCluster(cluster, encryptedPassword);
         store.seaTunnelClusters.put(cluster.id(), cluster);
         store.encryptedClusterPasswords.put(cluster.id(), encryptedPassword);
-        audit.record("CREATE_CLUSTER", "SEATUNNEL_CLUSTER", cluster.id(), cluster.name(), "admin");
+        audit.record("CREATE_CLUSTER", "SEATUNNEL_CLUSTER", cluster.id(), cluster.name(), normalizeOperator(operator));
         return cluster;
     }
 
-    public SeaTunnelClusterView update(long id, SeaTunnelClusterRequests.ClusterRequest request) {
+    public SeaTunnelClusterView update(long id, SeaTunnelClusterRequests.ClusterRequest request) { return update(id, request, "admin"); }
+    public SeaTunnelClusterView update(long id, SeaTunnelClusterRequests.ClusterRequest request, String operator) {
         SeaTunnelClusterView current = get(id);
         boolean duplicate = store.seaTunnelClusters.values().stream()
                 .anyMatch(item -> item.id() != id && item.name().equalsIgnoreCase(request.name()));
@@ -57,19 +59,21 @@ public class SeaTunnelClusterService {
         store.persistSeaTunnelCluster(updated, encryptedPassword);
         store.seaTunnelClusters.put(id, updated);
         store.encryptedClusterPasswords.put(id, encryptedPassword);
-        audit.record("UPDATE_CLUSTER", "SEATUNNEL_CLUSTER", id, updated.name(), "admin");
+        audit.record("UPDATE_CLUSTER", "SEATUNNEL_CLUSTER", id, updated.name(), normalizeOperator(operator));
         return updated;
     }
 
-    public void delete(long id) {
+    public void delete(long id) { delete(id, "admin"); }
+    public void delete(long id, String operator) {
         SeaTunnelClusterView cluster = get(id);
         store.deleteSeaTunnelCluster(id);
         store.seaTunnelClusters.remove(id);
         store.encryptedClusterPasswords.remove(id);
-        audit.record("DELETE_CLUSTER", "SEATUNNEL_CLUSTER", id, cluster.name(), "admin");
+        audit.record("DELETE_CLUSTER", "SEATUNNEL_CLUSTER", id, cluster.name(), normalizeOperator(operator));
     }
 
-    public SeaTunnelClusterView check(long id) {
+    public SeaTunnelClusterView check(long id) { return check(id, "admin"); }
+    public SeaTunnelClusterView check(long id, String operator) {
         SeaTunnelClusterView current = get(id);
         String status;
         try (Socket socket = new Socket()) {
@@ -82,11 +86,12 @@ public class SeaTunnelClusterService {
                 current.sshUsername(), current.sshPort(), current.seatunnelHome(), current.description(), status, current.createdAt());
         store.persistSeaTunnelCluster(updated, store.encryptedClusterPasswords.getOrDefault(id, ""));
         store.seaTunnelClusters.put(id, updated);
-        audit.record("CHECK_CLUSTER", "SEATUNNEL_CLUSTER", id, status, "admin");
+        audit.record("CHECK_CLUSTER", "SEATUNNEL_CLUSTER", id, status, normalizeOperator(operator));
         return updated;
     }
 
-    public List<SeaTunnelClusterView> checkAll() { return list().stream().map(item -> check(item.id())).toList(); }
+    public List<SeaTunnelClusterView> checkAll() { return checkAll("admin"); }
+    public List<SeaTunnelClusterView> checkAll(String operator) { return list().stream().map(item -> check(item.id(), operator)).toList(); }
 
     private SeaTunnelClusterView get(long id) {
         SeaTunnelClusterView cluster = store.seaTunnelClusters.get(id);
@@ -95,4 +100,5 @@ public class SeaTunnelClusterService {
     }
     private int normalizeSshPort(int value) { return value <= 0 ? 22 : value; }
     private String blankToNull(String value) { return value == null || value.isBlank() ? null : value.trim(); }
+    private String normalizeOperator(String value) { return value == null || value.isBlank() ? "admin" : value.trim(); }
 }

@@ -4,6 +4,7 @@ import com.company.platform.common.NotFoundException;
 import com.company.platform.common.PlatformStore;
 import com.company.platform.common.Result;
 import com.company.platform.system.AuditService;
+import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -25,7 +26,8 @@ public class ClusterMetricsController {
     }
 
     @GetMapping("/cluster-metrics")
-    public Result<Map<String, Object>> metrics(@RequestParam String type, @RequestParam long id) {
+    public Result<Map<String, Object>> metrics(@RequestParam String type, @RequestParam long id,
+                                                HttpServletRequest servletRequest) {
         String name;
         String host;
         if ("dolphin".equalsIgnoreCase(type)) {
@@ -57,7 +59,12 @@ public class ClusterMetricsController {
         value.put("memoryUsedBytes", null);
         value.put("memoryUsage", null);
         value.put("collectedAt", Instant.now().toString());
-        audit.record("VIEW_CLUSTER_METRICS", "CLUSTER", id, name, "admin");
+        audit.record("VIEW_CLUSTER_METRICS", "CLUSTER", id, name, operator(servletRequest));
         return Result.ok(value);
+    }
+
+    private String operator(HttpServletRequest request) {
+        Object value = request.getAttribute("platform.operator");
+        return value == null ? "admin" : String.valueOf(value);
     }
 }
