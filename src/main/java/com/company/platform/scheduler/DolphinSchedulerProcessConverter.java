@@ -126,9 +126,14 @@ public final class DolphinSchedulerProcessConverter {
             return params;
         }
         if ("SQL".equals(type)) {
+            int datasourceId = config.path("datasourceId").asInt(0);
+            if (datasourceId <= 0) {
+                throw new IllegalArgumentException("SQL 节点“" + node.path("name").asText("platform-task")
+                        + "”必须在 configJson 中配置有效的 DolphinScheduler datasourceId");
+            }
             ObjectNode params = mapper.createObjectNode();
             params.put("type", config.path("type").asText("MYSQL"));
-            params.put("datasource", config.path("datasourceId").asInt(0));
+            params.put("datasource", datasourceId);
             params.put("sql", config.path("sql").asText(content));
             params.put("sqlType", config.path("sqlType").asInt(0));
             params.put("displayRows", config.path("displayRows").asInt(10));
