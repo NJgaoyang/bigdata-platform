@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  var state = { source: null, sources: [], databases: [], tables: [], columns: [], database: '', table: '', expandedDatabase: '', tableIndex: {}, tableIndexLoading: false, tableIndexReady: false };
+  var state = { source: null, sources: [], databases: [], tables: [], columns: [], lineage: [], lineageLoading: false, lineageError: '', database: '', table: '', expandedDatabase: '', tableIndex: {}, tableIndexLoading: false, tableIndexReady: false };
   var hashMatch = window.location.hash.match(/^#metadata(?:\?dataSourceId=([^&]+))?/);
   var id = new URLSearchParams(window.location.search).get('dataSourceId') || (hashMatch && hashMatch[1] ? decodeURIComponent(hashMatch[1]) : '') || window.localStorage.getItem('metadataDataSourceId') || '';
   var $ = function (selector) { return document.querySelector(selector); };
@@ -39,7 +39,6 @@
     return '<tr><td colspan="' + (columns || 4) + '" class="empty">' + esc(message || '暂无数据') + '</td></tr>';
   };
   var sourceType = function () { return String(value(state.source, 'type', 'STARROCKS')).toUpperCase(); };
-  var sourceStatus = function () { return String(value(state.source, 'status', '')).toUpperCase(); };
 
   function setText(selector, content) { var node = $(selector); if (node) node.textContent = content == null || content === '' ? '—' : String(content); }
 
@@ -86,7 +85,6 @@
     });
     setText('.workspace > aside .panel-head > span:last-child', state.databases.length);
     $('#dbList').innerHTML = items.length ? items.map(function (item) {
-      var databaseName = String(item.name || '').toLowerCase();
       var tableMatch = query && databaseTables(item.name).some(function (table) { return String(table.name || '').toLowerCase().indexOf(query) >= 0 || String(table.comment || '').toLowerCase().indexOf(query) >= 0; });
       var expanded = item.name === state.expandedDatabase || !!tableMatch;
       var nested = expanded ? '<div class="tree-tables">' + tableMarkup(item.name, tableMatch ? query : '') + '</div>' : '';
@@ -110,6 +108,66 @@
     }).join('') : empty(state.table ? '暂无字段元数据' : '请选择数据表', 4);
   }
 
+  function currentQualifiedTable() {
+    return state.table ? (state.database ? state.database + '.' + state.table : state.table) : '';
+  }
+
+  function tableMatches(left, right) {
+    var a = String(left || '').replace(/`/g, '').trim().toLowerCase();
+    var b = String(right || '').replace(/`/g, '').trim().toLowerCase();
+    return !!a && !!b && (a === b || a.endsWith('.' + b) || b.endsWith('.' + a));
+  }
+
+  function renderLineage() {
+    var host = $('#pane-lineage');
+    if (!host) return;
+    if (!state.table) {
+      host.innerHTML = '<div class="empty" style="padding-top:120px">请选择数据表</div>';
+      return;
+    }
+    if (state.lineageLoading) {
+      host.innerHTML = '<div class="empty" style="padding-top:120px">正在读取真实血缘数据…</div>';
+      return;
+    }
+    if (state.lineageError) {
+      host.innerHTML = '<div class="empty" style="padding-top:120px">血缘读取失败：' + esc(state.lineageError) + '</div>';
+      return;
+    }
+    if (!state.lineage.length) {
+      host.innerHTML = '<div class="empty" style="padding-top:120px">暂无已解析的真实血缘关系</div>';
+      return;
+    }
+    var current = currentQualifiedTable();
+    var rows = state.lineage.map(function (item) {
+      var source = String(item.sourceTable || '—');
+      var target = String(item.targetTable || '—');
+      var direction = tableMatches(target, current) ? '上游 → 当前' : tableMatches(source, current) ? '当前 → 下游' : '关联';
+      var file = item.fileId == null ? '—' : '文件 #' + item.fileId + (item.fileVersionId == null ? '' : ' / 版本 #' + item.fileVersionId);
+      return '<tr><td>' + esc(direction) + '</td><td>' + esc(source) + '</td><td>' + esc(target) + '</td><td>' + esc(item.relationType || 'SQL') + '</td><td>' + esc(file) + '</td></tr>';
+    }).join('');
+    host.innerHTML = '<div style="padding:16px 18px"><div style="margin-bottom:12px;color:#60748f;font-size:13px">当前表：' + esc(current) + ' · 数据来自平台持久化 SQL 血缘</div><table class="data-table"><thead><tr><th>方向</th><th>上游表</th><th>下游表</th><th>关系</th><th>来源</th></tr></thead><tbody>' + rows + '</tbody></table></div>';
+  }
+
+  function loadLineage(table) {
+    var expected = state.database ? state.database + '.' + table : table;
+    state.lineage = [];
+    state.lineageError = '';
+    state.lineageLoading = true;
+    renderLineage();
+    return api('/lineage/table?name=' + encodeURIComponent(expected)).then(function (items) {
+      if (!tableMatches(currentQualifiedTable(), expected)) return;
+      state.lineage = Array.isArray(items) ? items : [];
+      state.lineageLoading = false;
+      renderLineage();
+    }).catch(function (error) {
+      if (!tableMatches(currentQualifiedTable(), expected)) return;
+      state.lineage = [];
+      state.lineageLoading = false;
+      state.lineageError = error.message || '未知错误';
+      renderLineage();
+    });
+  }
+
   function renderDetail() {
     var table = state.tables.filter(function (item) { return item.name === state.table; })[0] || null;
     setText('#detailTitle', table ? table.name : '请选择数据表');
@@ -126,8 +184,7 @@
     renderColumns();
     var preview = $('#pane-preview');
     if (preview) preview.innerHTML = '<div class="preview-toolbar"><span class="preview-meta">后端未提供数据预览接口，仅展示真实元数据</span><span class="spacer"></span><button class="btn" id="previewRefresh">↻ 刷新</button></div><div class="preview-wrap"><div class="empty">暂无数据预览</div></div>';
-    var lineage = $('#pane-lineage');
-    if (lineage) lineage.innerHTML = '<div class="empty" style="padding-top:120px">暂无血缘数据</div>';
+    renderLineage();
     var refresh = $('#previewRefresh'); if (refresh) refresh.onclick = function () { notify('暂无数据预览'); };
   }
 
@@ -157,12 +214,12 @@
 
   function selectDatabase(database) {
     if (state.expandedDatabase === database) {
-      state.expandedDatabase = ''; state.database = ''; state.table = ''; state.tables = []; state.columns = [];
+      state.expandedDatabase = ''; state.database = ''; state.table = ''; state.tables = []; state.columns = []; state.lineage = []; state.lineageError = ''; state.lineageLoading = false;
       renderDatabases(); renderTables(); renderDetail();
       return;
     }
     state.expandedDatabase = database;
-    state.database = database; state.table = ''; state.tables = []; state.columns = [];
+    state.database = database; state.table = ''; state.tables = []; state.columns = []; state.lineage = []; state.lineageError = ''; state.lineageLoading = false;
     renderDatabases(); renderTables(); renderDetail();
     loadTablesForDatabase(database).then(function (tables) {
       state.tables = tables;
@@ -174,8 +231,13 @@
 
   function selectTable(table, database) {
     if (database) { state.database = database; state.expandedDatabase = database; state.tables = databaseTables(database); }
-    state.table = table; state.columns = []; renderTables(); renderDetail();
-    api('/metadata/columns?dataSourceId=' + encodeURIComponent(id) + '&database=' + encodeURIComponent(state.database) + '&table=' + encodeURIComponent(table)).then(function (columns) { state.columns = Array.isArray(columns) ? columns : []; renderDetail(); }).catch(function (error) { notify(error.message, true); renderDetail(); });
+    state.table = table; state.columns = []; state.lineage = []; state.lineageError = ''; state.lineageLoading = false; renderTables(); renderDetail();
+    api('/metadata/columns?dataSourceId=' + encodeURIComponent(id) + '&database=' + encodeURIComponent(state.database) + '&table=' + encodeURIComponent(table)).then(function (columns) {
+      if (state.table !== table) return;
+      state.columns = Array.isArray(columns) ? columns : [];
+      renderDetail();
+    }).catch(function (error) { notify(error.message, true); renderDetail(); });
+    loadLineage(table);
   }
 
   function selectSource(sourceId) {
@@ -184,13 +246,13 @@
     id = String(source.id);
     window.localStorage.setItem('metadataDataSourceId', id);
     state.source = source;
-    state.database = ''; state.table = ''; state.tables = []; state.columns = []; state.expandedDatabase = '';
+    state.database = ''; state.table = ''; state.tables = []; state.columns = []; state.lineage = []; state.lineageError = ''; state.lineageLoading = false; state.expandedDatabase = '';
     renderSourcePicker(); renderSource(); renderDatabases(); renderTables(); renderDetail();
     loadDatabases().catch(function (error) { notify(error.message, true); });
   }
 
   function loadDatabases() {
-    state.databases = []; state.database = ''; state.tables = []; state.table = ''; state.columns = []; state.expandedDatabase = ''; state.tableIndex = {}; state.tableIndexLoading = false; state.tableIndexReady = false;
+    state.databases = []; state.database = ''; state.tables = []; state.table = ''; state.columns = []; state.lineage = []; state.lineageError = ''; state.lineageLoading = false; state.expandedDatabase = ''; state.tableIndex = {}; state.tableIndexLoading = false; state.tableIndexReady = false;
     renderDatabases(); renderTables(); renderDetail(); renderSource();
     return api('/metadata/databases?dataSourceId=' + encodeURIComponent(id) + '&type=' + encodeURIComponent(sourceType())).then(function (databases) {
       state.databases = Array.isArray(databases) ? databases : [];
@@ -207,7 +269,6 @@
     $('#dbSearch').oninput = function () { renderDatabases(); if (String(this.value || '').trim()) preloadTableIndex(); };
     $('#tableSearch').oninput = renderTables;
     var metadataRefresh = $('#metadataRefresh'); if (metadataRefresh) metadataRefresh.onclick = window.refreshMetadata;
-    // 数据源管理已归入系统设置；返回时使用统一的 index hash 路由，避免再次打开元数据页。
     var goSource = function () { window.location.href = '/index.html?route=settings#settings'; };
     var backSourceTop = $('#backSourceTop'); if (backSourceTop) backSourceTop.onclick = goSource;
     var copy = $('.detail-actions .btn:nth-child(2)'); if (copy) copy.onclick = window.copyTableName;
@@ -244,7 +305,7 @@
       return loadDatabases();
     }).catch(function (error) {
       notify(error.message, true);
-      state.source = null; state.sources = []; state.databases = []; state.tables = []; state.columns = []; state.database = ''; state.table = ''; state.expandedDatabase = '';
+      state.source = null; state.sources = []; state.databases = []; state.tables = []; state.columns = []; state.lineage = []; state.lineageError = ''; state.lineageLoading = false; state.database = ''; state.table = ''; state.expandedDatabase = '';
       var breadcrumb = $('.breadcrumb');
       if (breadcrumb) breadcrumb.innerHTML = '元数据 / <span>查看元数据</span>';
       renderSourcePicker(); renderDatabases(); renderTables(); renderDetail();
