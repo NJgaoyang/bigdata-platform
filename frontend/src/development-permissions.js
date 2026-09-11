@@ -1,6 +1,7 @@
 import './development-version-flow.js';
 
 const ACCESS_STYLE_ID = 'development-permission-controls';
+let lastAccessSignature = '';
 
 const state = {
   identityLoaded: false,
@@ -156,7 +157,12 @@ function applyControls() {
     if (menu) menu.hidden = true;
   }
   applyEditorReadOnly(!canEdit);
-  window.platformDevelopmentVersionFlow?.refresh?.();
+
+  const signature = [activeScope, projectId ?? '', canManage, canEdit, canPublish, canPush, state.canRun].join('|');
+  if (signature !== lastAccessSignature) {
+    lastAccessSignature = signature;
+    window.dispatchEvent(new CustomEvent('platform-development-access-changed', { detail: window.platformDevelopmentAccess }));
+  }
 }
 
 function loadProjectAccess(projectId) {
