@@ -1,5 +1,7 @@
 package com.company.platform.health;
 
+import com.company.platform.cluster.SeaTunnelSshClient;
+import com.company.platform.common.PlatformStore;
 import com.company.platform.common.Result;
 import com.company.platform.config.PlatformProperties;
 import com.company.platform.scheduler.SchedulerGateway;
@@ -17,11 +19,16 @@ public class HealthController {
     private final PlatformProperties properties;
     private final JdbcTemplate jdbc;
     private final SchedulerGateway schedulerGateway;
+    private final PlatformStore store;
+    private final SeaTunnelSshClient seaTunnelSshClient;
 
-    public HealthController(PlatformProperties properties, JdbcTemplate jdbc, SchedulerGateway schedulerGateway) {
+    public HealthController(PlatformProperties properties, JdbcTemplate jdbc, SchedulerGateway schedulerGateway,
+                            PlatformStore store, SeaTunnelSshClient seaTunnelSshClient) {
         this.properties = properties;
         this.jdbc = jdbc;
         this.schedulerGateway = schedulerGateway;
+        this.store = store;
+        this.seaTunnelSshClient = seaTunnelSshClient;
     }
 
     @GetMapping("/api/health")
@@ -56,6 +63,10 @@ public class HealthController {
 
     private boolean checkSeaTunnel() {
         Path executable = Path.of(properties.getSeatunnel().getHome(), "bin", "seatunnel.sh");
-        return Files.isRegularFile(executable) && Files.isExecutable(executable);
+        if (Files.isRegularFile(executable) && Files.isExecutable(executable)) return true;
+        return store.seaTunnelClusters.values().stream().anyMatch(cluster -> {
+            try { return seaTunnelSshClient.executableAvailable(cluster.id()); }
+            catch (RuntimeException ignored) { return false; }
+        });
     }
 }
