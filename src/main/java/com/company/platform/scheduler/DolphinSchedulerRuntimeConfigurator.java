@@ -28,6 +28,8 @@ import java.util.Comparator;
 @Component
 public class DolphinSchedulerRuntimeConfigurator {
     private static final Logger log = LoggerFactory.getLogger(DolphinSchedulerRuntimeConfigurator.class);
+    private static final String DEFAULT_PROJECT = "bigdata-platform";
+    private static final String AUTO_PROJECT_DESCRIPTION = "Created automatically by BigData Platform";
     private final PlatformProperties properties;
     private final PlatformStore store;
     private final PasswordCipher cipher;
@@ -45,7 +47,7 @@ public class DolphinSchedulerRuntimeConfigurator {
         this.mapper = mapper;
         String configured = properties.getScheduler().getDolphinscheduler().getProjectCode();
         this.defaultProjectSelector = configured == null || configured.isBlank() || "0".equals(configured.trim())
-                ? "bigdata-platform" : configured.trim();
+                ? DEFAULT_PROJECT : configured.trim();
     }
 
     public synchronized void refresh(boolean resolveProject) {
@@ -101,12 +103,34 @@ public class DolphinSchedulerRuntimeConfigurator {
 
     private String resolveProjectCode(String baseUrl, String basePath, String username,
                                       String password, String token, String projectName) {
-        if (!notBlank(projectName) || "0".equals(projectName)) projectName = "bigdata-platform";
+        if (!notBlank(projectName) || "0".equals(projectName)) projectName = DEFAULT_PROJECT;
         String apiRoot = normalizeRoot(baseUrl) + normalizeBasePath(basePath);
         String key = apiRoot + "|" + username + "|" + projectName;
         if (key.equals(resolvedKey) && notBlank(resolvedProjectCode)) return resolvedProjectCode;
 
         String session = notBlank(token) ? token.trim() : login(apiRoot, username, password);
+        String code = findProjectCode(apiRoot, session, projectName);
+        if (code == null) {
+            log.info("DolphinScheduler project '{}' does not exist; creating it automatically", projectName);
+            try {
+                createProject(apiRoot, session, projectName);
+            } catch (IllegalStateException ex) {
+                // A concurrent platform instance may have created the same project after our lookup.
+                code = findProjectCode(apiRoot, session, projectName);
+                if (code == null) throw ex;
+            }
+            if (code == null) code = findProjectCode(apiRoot, session, projectName);
+            if (code == null) {
+                throw new IllegalStateException("DolphinScheduler 项目已请求创建，但仍无法查询到：" + projectName);
+            }
+            log.info("DolphinScheduler project '{}' created successfully, projectCode={}", projectName, code);
+        }
+        resolvedKey = key;
+        resolvedProjectCode = code;
+        return code;
+    }
+
+    private String findProjectCode(String apiRoot, String session, String projectName) {
         try {
             HttpRequest request = HttpRequest.newBuilder(URI.create(apiRoot + "/projects?pageNo=1&pageSize=100"))
                     .timeout(Duration.ofSeconds(15))
@@ -116,23 +140,38 @@ public class DolphinSchedulerRuntimeConfigurator {
             HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
             JsonNode root = parseOk(response, "DolphinScheduler 项目列表");
             JsonNode list = root.path("data").path("totalList");
-            if (list.isArray()) {
-                for (JsonNode item : list) {
-                    if (!projectName.equals(item.path("name").asText())) continue;
-                    String code = item.path("code").asText("");
-                    if (code.matches("\\d+")) {
-                        resolvedKey = key;
-                        resolvedProjectCode = code;
-                        return code;
-                    }
-                }
+            if (!list.isArray()) return null;
+            for (JsonNode item : list) {
+                if (!projectName.equals(item.path("name").asText())) continue;
+                String code = item.path("code").asText("");
+                if (code.matches("\\d+")) return code;
             }
-            throw new IllegalStateException("DolphinScheduler 未找到项目：" + projectName);
+            return null;
         } catch (InterruptedException ex) {
             Thread.currentThread().interrupt();
             throw new IllegalStateException("DolphinScheduler 项目查询被中断", ex);
         } catch (IOException ex) {
             throw new IllegalStateException("DolphinScheduler 项目查询失败：" + ex.getMessage(), ex);
+        }
+    }
+
+    private void createProject(String apiRoot, String session, String projectName) {
+        String form = "projectName=" + encode(projectName) + "&description=" + encode(AUTO_PROJECT_DESCRIPTION);
+        try {
+            HttpRequest request = HttpRequest.newBuilder(URI.create(apiRoot + "/projects"))
+                    .timeout(Duration.ofSeconds(15))
+                    .header("Accept", "application/json")
+                    .header("sessionId", session)
+                    .header("Content-Type", "application/x-www-form-urlencoded")
+                    .POST(HttpRequest.BodyPublishers.ofString(form, StandardCharsets.UTF_8))
+                    .build();
+            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            parseOk(response, "DolphinScheduler 创建项目 " + projectName);
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("DolphinScheduler 项目创建被中断", ex);
+        } catch (IOException ex) {
+            throw new IllegalStateException("DolphinScheduler 项目创建失败：" + ex.getMessage(), ex);
         }
     }
 
