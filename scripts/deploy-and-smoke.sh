@@ -15,9 +15,22 @@ mkdir -p "$RUN_DIR"
 echo "[deploy] repository: $ROOT_DIR"
 echo "[deploy] branch: $BRANCH"
 
-git fetch origin "$BRANCH"
+retry_git() {
+  local attempt
+  for attempt in 1 2 3; do
+    if git -c http.version=HTTP/1.1 "$@"; then
+      return 0
+    fi
+    echo "[deploy] git $1 failed (attempt $attempt/3); retrying..."
+    sleep $((attempt * 3))
+  done
+  echo "[deploy] git $1 failed after 3 attempts"
+  return 1
+}
+
+retry_git fetch origin "$BRANCH"
 git checkout "$BRANCH"
-git pull --ff-only origin "$BRANCH"
+retry_git pull --ff-only origin "$BRANCH"
 echo "[deploy] commit: $(git rev-parse --short HEAD) $(git log -1 --pretty=%s)"
 
 echo "[test] running backend tests"
