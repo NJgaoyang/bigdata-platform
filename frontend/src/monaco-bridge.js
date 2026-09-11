@@ -4,6 +4,7 @@ import '../node_modules/monaco-editor/min/vs/editor/editor.main.css';
 import './development-ui.css';
 import './integration-task-dialog-bootstrap.js';
 import './development-permissions.js';
+import './development-draft-state.js';
 import './development-workspace.js';
 import './settings-cluster-fix.js';
 
