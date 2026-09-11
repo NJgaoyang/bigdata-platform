@@ -5,7 +5,7 @@ spring:
   lifecycle:
     timeout-per-shutdown-phase: 30s
   datasource:
-    url: ${PLATFORM_DB_URL:jdbc:mysql://81.69.15.136:3306/bigdata_platform?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true}
+    url: ${PLATFORM_DB_URL:jdbc:mysql://172.17.0.12:3306/bigdata_platform?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true}
     username: ${PLATFORM_DB_USERNAME:root}
     password: ${PLATFORM_DB_PASSWORD}
     hikari:
@@ -33,9 +33,9 @@ platform:
   scheduler:
     type: dolphinscheduler
     dolphinscheduler:
-      base-url: ${DOLPHINSCHEDULER_BASE_URL}
+      base-url: ${DOLPHINSCHEDULER_BASE_URL:http://172.17.0.12:12345}
       username: ${DOLPHINSCHEDULER_USERNAME:admin}
-      project-code: ${DOLPHINSCHEDULER_PROJECT_CODE}
+      project-code: ${DOLPHINSCHEDULER_PROJECT_CODE:bigdata-platform}
       tenant-code: ${DOLPHINSCHEDULER_TENANT_CODE:bigdata}
       password: ${DOLPHINSCHEDULER_PASSWORD:}
       token: ${DOLPHINSCHEDULER_TOKEN:}
