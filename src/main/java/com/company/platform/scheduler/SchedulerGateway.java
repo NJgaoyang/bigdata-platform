@@ -21,6 +21,12 @@ public interface SchedulerGateway {
     default void scheduleState(String scheduleId, boolean online) { }
     default List<Map<String, Object>> listProcessInstances() { return List.of(); }
     default List<Map<String, Object>> listTaskInstances() { return List.of(); }
+    default List<Map<String, Object>> listTaskInstances(String processInstanceId) {
+        if (processInstanceId == null || processInstanceId.isBlank()) return listTaskInstances();
+        return listTaskInstances().stream()
+                .filter(item -> processInstanceId.equals(String.valueOf(item.get("processInstanceId"))))
+                .toList();
+    }
     default String taskLog(String taskInstanceId) { return "暂无任务日志"; }
     default boolean isRealMode() { return false; }
 

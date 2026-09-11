@@ -484,13 +484,19 @@
     var legend = operation.querySelector('.donut-layout .legend-list');
     if (legend) legend.innerHTML = [['成功', tasks.success, 'success'], ['运行中', tasks.running, 'running'], ['失败', tasks.failed, 'failed'], ['待运行', tasks.pending, 'pending']].map(function (item) { return '<div class="legend-item"><span><i class="dot" style="background:' + colors[item[2]] + '"></i>' + item[0] + '</span><b>' + number(item[1]) + '</b><small>' + (tasks.total ? ((item[1] / tasks.total) * 100).toFixed(1) : '0.0') + '%</small></div>'; }).join('');
     var recentBody = operation.querySelector('.ops-bp .data-table tbody');
-    if (recentBody) recentBody.innerHTML = operations.recentTasks.length ? operations.recentTasks.map(function (task) { return '<tr><td>' + escapeHtml(task.name) + '</td><td>' + escapeHtml(task.type) + '</td><td>' + when(task.startedAt) + '</td><td>' + escapeHtml(task.detail || '—') + '</td><td>' + stateTag(task.status) + '</td><td>—</td></tr>'; }).join('') : emptyRow(6, '暂无运行实例');
+    if (recentBody) recentBody.innerHTML = operations.recentTasks.length ? operations.recentTasks.map(function (task) {
+      var instanceId = String(task.id || '').replace(/^scheduler-/, '');
+      var running = stateKind(task.status) === 'running';
+      var actions = instanceId ? '<div class="ops-row-actions"><button type="button" class="ops-action primary" data-ops-action="detail" data-instance-id="' + escapeHtml(instanceId) + '">详情</button><button type="button" class="ops-action" data-ops-action="log" data-instance-id="' + escapeHtml(instanceId) + '">日志</button>' + (running ? '<button type="button" class="ops-action danger" data-ops-action="stop" data-instance-id="' + escapeHtml(instanceId) + '">终止</button>' : '<button type="button" class="ops-action" data-ops-action="rerun" data-instance-id="' + escapeHtml(instanceId) + '">重跑</button>') + '</div>' : '—';
+      return '<tr data-process-instance-id="' + escapeHtml(instanceId) + '"><td>' + escapeHtml(task.name) + '</td><td>' + escapeHtml(task.type) + '</td><td>' + when(task.startedAt) + '</td><td>' + escapeHtml(task.detail || '—') + '</td><td>' + stateTag(task.status) + '</td><td>' + actions + '</td></tr>';
+    }).join('') : emptyRow(6, '暂无运行实例');
     var alertBox = operation.querySelectorAll('.ops-bp')[1];
     if (alertBox) {
       var heading = alertBox.querySelector('.chart-title');
       alertBox.querySelectorAll('.alert-item').forEach(function (item) { item.remove(); });
       alertBox.insertAdjacentHTML('beforeend', operations.alerts.length ? operations.alerts.map(function (item) { return '<div class="alert-item">🔺 <b>' + escapeHtml(item.name) + '</b><small>' + escapeHtml(item.type) + '　' + when(item.occurredAt) + '</small></div>'; }).join('') : '<div class="alert-item muted">暂无告警信息</div>');
     }
+    if (window.platformOperationsEnhance) window.platformOperationsEnhance(operations);
   }
 
   function renderAssets(summary, lineages) {
@@ -2204,6 +2210,9 @@
   bindActions();
   window.addEventListener('platform:data-source-changed', function () {
     loadSources().then(function () { loadOverview(); loadIntegration(); notify('数据源已保存并刷新列表'); }).catch(function (error) { notify(error.message || '数据源已保存，但列表刷新失败', true); });
+  });
+  window.addEventListener('platform:operations-refresh', function () {
+    loadOperations().then(loadOverview).catch(function (error) { notify(error.message || '调度实例刷新失败', true); });
   });
   loadAll();
 })();

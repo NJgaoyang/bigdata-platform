@@ -72,7 +72,7 @@ public class DashboardService {
     }
 
     public OperationsDashboardView operations() {
-        List<RecentTask> recent = recentTasks();
+        List<RecentTask> recent = schedulerRecentTasks();
         TaskSummary summary = taskSummary(recent);
         List<AlertItem> alerts = recent.stream().filter(item -> isFailed(item.status()))
                 .map(item -> new AlertItem(item.id(), item.name(), item.type(), item.startedAt(), item.status())).toList();
@@ -165,6 +165,16 @@ public class DashboardService {
         }
         // Workflow definitions are configuration, not executions. Only real scheduler
         // instances belong in execution KPIs and recent-task timelines.
+        for (Map<String, Object> item : schedulerInstances()) {
+            result.add(new RecentTask("scheduler-" + item.getOrDefault("id", item.getOrDefault("processInstanceId", item.hashCode())),
+                    String.valueOf(item.getOrDefault("name", "调度实例")), "调度实例", String.valueOf(item.getOrDefault("status", "UNKNOWN")),
+                    asDateTime(item.get("startTime")), asDateTime(item.get("endTime")), String.valueOf(item.getOrDefault("duration", ""))));
+        }
+        return result.stream().sorted(Comparator.comparing(RecentTask::startedAt, Comparator.nullsLast(Comparator.reverseOrder()))).toList();
+    }
+
+    private List<RecentTask> schedulerRecentTasks() {
+        List<RecentTask> result = new ArrayList<>();
         for (Map<String, Object> item : schedulerInstances()) {
             result.add(new RecentTask("scheduler-" + item.getOrDefault("id", item.getOrDefault("processInstanceId", item.hashCode())),
                     String.valueOf(item.getOrDefault("name", "调度实例")), "调度实例", String.valueOf(item.getOrDefault("status", "UNKNOWN")),

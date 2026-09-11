@@ -208,8 +208,17 @@ public class DolphinSchedulerGatewayImpl implements DolphinSchedulerGateway {
         return properties.getScheduler().getDolphinscheduler().isRealEnabled();
     }
     @Override public List<Map<String, Object>> listTaskInstances() {
+        return listTaskInstances(null);
+    }
+
+    @Override public List<Map<String, Object>> listTaskInstances(String processInstanceId) {
         requireRealMode();
-        String body = sendForm("GET", path("/task-instances?pageNo=1&pageSize=100&taskExecuteType=BATCH"), Map.of());
+        StringBuilder query = new StringBuilder("/task-instances?pageNo=1&pageSize=200&taskExecuteType=BATCH");
+        if (processInstanceId != null && !processInstanceId.isBlank()) {
+            if (!processInstanceId.matches("\\d+")) throw new IllegalArgumentException("DolphinScheduler 流程实例 ID 必须为数字");
+            query.append("&processInstanceId=").append(encode(processInstanceId));
+        }
+        String body = sendForm("GET", path(query.toString()), Map.of());
         return parseInstanceList(body, "task");
     }
 
@@ -374,6 +383,13 @@ public class DolphinSchedulerGatewayImpl implements DolphinSchedulerGateway {
                 row.put("taskType", item.path("taskType").asText());
                 row.put("startTime", item.path("startTime").asText());
                 row.put("endTime", item.path("endTime").asText());
+                row.put("submitTime", item.path("submitTime").asText());
+                row.put("duration", item.path("duration").asText());
+                row.put("host", item.path("host").asText());
+                row.put("workerGroup", item.path("workerGroup").asText());
+                row.put("retryTimes", item.path("retryTimes").asInt(0));
+                row.put("taskCode", item.path("taskCode").asText());
+                row.put("taskDefinitionVersion", item.path("taskDefinitionVersion").asInt(0));
                 result.add(row);
             }
             return result;

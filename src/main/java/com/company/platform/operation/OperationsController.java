@@ -24,8 +24,8 @@ public class OperationsController {
     }
 
     @GetMapping("/task-instances")
-    public Result<List<Map<String, Object>>> tasks() {
-        return Result.ok(safeRead("task-instances", gateway::listTaskInstances));
+    public Result<List<Map<String, Object>>> tasks(@RequestParam(required = false) String processInstanceId) {
+        return Result.ok(safeRead("task-instances", () -> gateway.listTaskInstances(processInstanceId)));
     }
 
     @GetMapping("/failed-tasks")

@@ -102,6 +102,31 @@ class DashboardServiceTest {
         assertEquals(1, service.overview().tasks().success());
     }
 
+    @Test
+    void operationsDashboardContainsOnlyRealSchedulerInstances() {
+        PlatformStore store = new PlatformStore();
+        store.integrationTasks.put(3L, new IntegrationTaskView(3, "sync", "MYSQL", "STARROCKS", "FULL", "DRAFT", "{}"));
+        store.integrationInstances.put(4L, new IntegrationInstanceView(4, 3, "integration-run", "SUCCESS",
+                LocalDateTime.now(), LocalDateTime.now(), "done"));
+        SchedulerGateway gateway = new SchedulerGateway() {
+            @Override public PublishResult publish(PublishRequest request) { throw new UnsupportedOperationException(); }
+            @Override public RunResult run(String processCode) { throw new UnsupportedOperationException(); }
+            @Override public InstanceStatus status(String instanceId) { throw new UnsupportedOperationException(); }
+            @Override public void stop(String instanceId) { throw new UnsupportedOperationException(); }
+            @Override public RunResult rerun(String instanceId) { throw new UnsupportedOperationException(); }
+            @Override public RunResult backfill(String processCode, String start, String end, int parallelism) { throw new UnsupportedOperationException(); }
+            @Override public List<java.util.Map<String, Object>> listProcessInstances() {
+                return List.of(java.util.Map.of("id", "17", "name", "daily_orders", "status", "SUCCESS", "startTime", "2026-09-11 10:00:00", "endTime", "2026-09-11 10:00:03"));
+            }
+        };
+        DashboardService service = new DashboardService(store, gateway);
+
+        var operations = service.operations();
+        assertEquals(1, operations.tasks().total());
+        assertEquals(1, operations.tasks().success());
+        assertEquals("scheduler-17", operations.recentTasks().get(0).id());
+    }
+
     private static SchedulerGateway testGateway() {
         return new SchedulerGateway() {
             @Override public PublishResult publish(PublishRequest request) { throw new UnsupportedOperationException(); }
