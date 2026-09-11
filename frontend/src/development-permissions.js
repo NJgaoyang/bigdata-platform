@@ -1,3 +1,5 @@
+import './development-version-flow.js';
+
 const ACCESS_STYLE_ID = 'development-permission-controls';
 
 const state = {
@@ -71,17 +73,21 @@ function installStyles() {
   const style = document.createElement('style');
   style.id = ACCESS_STYLE_ID;
   style.textContent = `
-    #page-development:not([data-dev-can-edit="true"]) .dev-create-project,
     #page-development:not([data-dev-can-edit="true"]) .dev-create-file,
     #page-development:not([data-dev-can-edit="true"]) .dev-tab-add,
-    #page-development:not([data-dev-can-edit="true"]) .folder-actions,
     #page-development:not([data-dev-can-edit="true"]) .favorite-row-actions,
     #page-development:not([data-dev-can-edit="true"]) .favorite-folder-delete,
     #page-development:not([data-dev-can-edit="true"]) .favorite-file-delete,
     #page-development:not([data-dev-can-edit="true"]) .dev-save-file,
     #page-development:not([data-dev-can-edit="true"]) .dev-format-file { display:none !important; }
+    #page-development:not([data-dev-can-manage="true"]) .dev-create-project,
+    #page-development:not([data-dev-can-manage="true"]) .folder-actions { display:none !important; }
+    #page-development[data-dev-scope-current="all"] .dev-create-file,
+    #page-development[data-dev-scope-current="all"] .dev-tab-add,
+    #page-development[data-dev-scope-current="all"] .dev-save-file,
+    #page-development[data-dev-scope-current="all"] .dev-format-file { display:none !important; }
     #page-development:not([data-dev-can-publish="true"]) .dev-publish-file { display:none !important; }
-    #page-development:not([data-dev-can-save-to-project="true"]) .dev-save-to-project { display:none !important; }
+    #page-development:not([data-dev-can-push="true"]) .dev-save-to-project { display:none !important; }
     #page-development:not([data-dev-can-run="true"]) .dev-run-button { display:none !important; }
     #page-development[data-dev-readonly="true"] .code-shell { background:#fbfcfe; }
     #page-development[data-dev-readonly="true"] .dev-version-bar::after { content:'只读'; margin-left:auto; color:#8a97aa; font-size:11px; }
@@ -94,7 +100,7 @@ function setAttr(page, name, value) {
   if (page.dataset[name] !== next) page.dataset[name] = next;
 }
 
-function effectiveCanEdit(projectId, activeScope) {
+function effectiveCanManage(projectId, activeScope) {
   if (!state.moduleEdit) return false;
   if (activeScope === 'mine' || activeScope === 'favorites') return true;
   if (activeScope !== 'all' || projectId == null) return false;
@@ -112,14 +118,19 @@ function applyControls() {
   if (!page) return;
   const activeScope = scope();
   const projectId = currentProjectId();
-  const canEdit = effectiveCanEdit(projectId, activeScope);
-  const canPublish = activeScope === 'all' && canEdit;
-  const canSaveToProject = activeScope === 'mine' && state.moduleEdit;
+  const canManage = effectiveCanManage(projectId, activeScope);
+  // Project space is a review/publish area. SQL content is always read-only there;
+  // all code changes must happen in "我的开发" and then be pushed.
+  const canEdit = activeScope !== 'all' && canManage;
+  const canPublish = activeScope === 'all' && canManage;
+  const canPush = activeScope === 'mine' && state.moduleEdit;
 
   setAttr(page, 'devScopeCurrent', activeScope);
+  setAttr(page, 'devCanManage', canManage);
   setAttr(page, 'devCanEdit', canEdit);
   setAttr(page, 'devCanPublish', canPublish);
-  setAttr(page, 'devCanSaveToProject', canSaveToProject);
+  setAttr(page, 'devCanPush', canPush);
+  setAttr(page, 'devCanSaveToProject', canPush);
   setAttr(page, 'devCanRun', state.canRun);
   setAttr(page, 'devReadonly', !canEdit);
 
@@ -131,9 +142,12 @@ function applyControls() {
     scope: activeScope,
     projectId,
     canView: state.moduleView,
+    canManage,
     canEdit,
     canPublish,
-    canSaveToProject,
+    canPush,
+    // backwards compatibility for older modules while the button label changes
+    canSaveToProject: canPush,
     canRun: state.canRun
   };
 
@@ -142,6 +156,7 @@ function applyControls() {
     if (menu) menu.hidden = true;
   }
   applyEditorReadOnly(!canEdit);
+  window.platformDevelopmentVersionFlow?.refresh?.();
 }
 
 function loadProjectAccess(projectId) {
@@ -195,18 +210,22 @@ function loadIdentity() {
   });
 }
 
-function isMutationTarget(target) {
+function isContentMutationTarget(target) {
   return target.closest?.([
-    '#page-development .dev-create-project',
     '#page-development .dev-create-file',
     '#page-development .dev-tab-add',
-    '#page-development .folder-add',
-    '#page-development .folder-more',
     '#page-development .favorite-file-delete',
-    '#page-development .favorite-folder-delete',
-    '#dev-context-menu [data-action]',
     '#page-development .dev-save-file',
     '#page-development .dev-format-file'
+  ].join(','));
+}
+
+function isStructureMutationTarget(target) {
+  return target.closest?.([
+    '#page-development .dev-create-project',
+    '#page-development .folder-add',
+    '#page-development .folder-more',
+    '#page-development .favorite-folder-delete'
   ].join(','));
 }
 
@@ -218,20 +237,26 @@ function installGuards() {
     if (event.target.closest?.('#page-development .dev-publish-file') && !access.canPublish) {
       event.preventDefault(); event.stopImmediatePropagation(); notify('当前项目仅有查看权限，不能发布', true); return;
     }
-    if (event.target.closest?.('#page-development .dev-save-to-project') && !access.canSaveToProject) {
-      event.preventDefault(); event.stopImmediatePropagation(); notify('当前没有保存到项目空间的权限', true); return;
+    if (event.target.closest?.('#page-development .dev-save-to-project') && !access.canPush) {
+      event.preventDefault(); event.stopImmediatePropagation(); notify('当前没有推送到项目的权限', true); return;
     }
     if (event.target.closest?.('#page-development .dev-run-button') && !access.canRun) {
       event.preventDefault(); event.stopImmediatePropagation(); notify('当前账号没有 SQL 执行权限', true); return;
     }
-    if (isMutationTarget(event.target) && !access.canEdit) {
-      event.preventDefault(); event.stopImmediatePropagation(); notify('当前空间为只读，不能修改', true);
+    if (isContentMutationTarget(event.target) && !access.canEdit) {
+      event.preventDefault(); event.stopImmediatePropagation();
+      notify(access.scope === 'all' ? '项目空间版本只读，请创建开发版本后在“我的开发”中修改' : '当前空间为只读，不能修改', true);
+      return;
+    }
+    if (isStructureMutationTarget(event.target) && !access.canManage) {
+      event.preventDefault(); event.stopImmediatePropagation(); notify('当前空间为只读，不能修改目录', true);
     }
   }, true);
 
   document.addEventListener('contextmenu', (event) => {
     if (!event.target.closest?.('#page-development .live-folder, #page-development .live-file, #page-development .live-project')) return;
     const access = window.platformDevelopmentAccess || {};
+    // Project files are review-only; do not expose rename/delete actions from the context menu.
     if (!access.canEdit) { event.preventDefault(); event.stopImmediatePropagation(); }
   }, true);
 
@@ -240,92 +265,6 @@ function installGuards() {
     const access = window.platformDevelopmentAccess || {};
     if (!access.canEdit) { event.preventDefault(); event.stopImmediatePropagation(); }
   }, true);
-
-  document.addEventListener('submit', (event) => {
-    const form = event.target;
-    if (!(form instanceof HTMLFormElement) || form.id !== 'dev-project-save-form') return;
-    event.preventDefault();
-    event.stopImmediatePropagation();
-    saveToProject(form);
-  }, true);
-}
-
-function inferFileType(name) {
-  const lower = String(name || '').trim().toLowerCase();
-  if (lower.endsWith('.py')) return 'PYTHON';
-  if (lower.endsWith('.sh')) return 'SHELL';
-  return 'SQL';
-}
-
-function editorValue() {
-  if (window.platformMonaco?.getEditor?.()) return window.platformMonaco.getValue();
-  return developmentPage()?.querySelector('.codeview')?.textContent || '';
-}
-
-function closeSaveToProjectModal() {
-  const host = document.getElementById('dev-project-save-modal');
-  if (!host) return;
-  host.classList.remove('open');
-  host.setAttribute('aria-hidden', 'true');
-}
-
-function focusSavedProjectFile(file) {
-  const all = developmentPage()?.querySelector('.dev-segment[data-dev-scope="all"]');
-  if (all) all.click();
-  let attempts = 0;
-  const timer = window.setInterval(() => {
-    attempts += 1;
-    const row = developmentPage()?.querySelector('.live-file[data-id="' + file.id + '"]');
-    if (row) {
-      window.clearInterval(timer);
-      row.click();
-      return;
-    }
-    if (attempts >= 20) window.clearInterval(timer);
-  }, 100);
-}
-
-function saveToProject() {
-  const access = window.platformDevelopmentAccess || {};
-  if (!state.moduleEdit || scope() !== 'mine' || !access.canSaveToProject) {
-    notify('当前没有保存到项目空间的权限', true);
-    return;
-  }
-  const host = document.getElementById('dev-project-save-modal');
-  const folderSelect = document.getElementById('dev-project-save-folder');
-  const nameInput = document.getElementById('dev-project-save-name');
-  const descriptionInput = document.getElementById('dev-project-save-description');
-  const error = document.getElementById('dev-project-save-error');
-  const projectId = Number(host?.dataset.targetProjectId || 0);
-  const folderValue = String(folderSelect?.value || '');
-  const name = String(nameInput?.value || '').trim();
-  if (!projectId) { if (error) error.textContent = '暂无项目空间，请先创建一个项目'; return; }
-  if (!folderValue) { if (error) error.textContent = '请选择目标目录'; return; }
-  if (!name) { if (error) error.textContent = '请输入文件名称'; return; }
-
-  const folderId = folderValue === '__root__' ? null : Number(folderValue);
-  const submit = document.querySelector('.dev-project-save-submit');
-  if (submit) { submit.disabled = true; submit.textContent = '保存中…'; }
-  api('/development/files/save-to-project', {
-    method: 'POST',
-    body: {
-      projectId,
-      folderId,
-      name,
-      fileType: inferFileType(name),
-      content: editorValue(),
-      description: String(descriptionInput?.value || '').trim()
-    }
-  }).then((saved) => {
-    closeSaveToProjectModal();
-    state.projectAccess.delete(String(saved.projectId));
-    notify('已保存到项目空间，后续同名保存将追加版本');
-    focusSavedProjectFile(saved);
-  }).catch((requestError) => {
-    if (error) error.textContent = requestError.message || '保存失败';
-  }).finally(() => {
-    if (submit) { submit.disabled = false; submit.textContent = '保存到项目'; }
-  });
 }
 
 function installObserver() {
