@@ -204,7 +204,9 @@ public class DolphinSchedulerGatewayImpl implements DolphinSchedulerGateway {
         String body = sendForm("GET", path("/process-instances?pageNo=1&pageSize=100"), Map.of());
         return parseInstanceList(body, "process");
     }
-    @Override public boolean isRealMode() { return realEnabled(); }
+    @Override public boolean isRealMode() {
+        return properties.getScheduler().getDolphinscheduler().isRealEnabled();
+    }
     @Override public List<Map<String, Object>> listTaskInstances() {
         requireRealMode();
         String body = sendForm("GET", path("/task-instances?pageNo=1&pageSize=100&taskExecuteType=BATCH"), Map.of());
@@ -223,15 +225,16 @@ public class DolphinSchedulerGatewayImpl implements DolphinSchedulerGateway {
         } catch (IOException ex) { return body; }
     }
 
-    private boolean realEnabled() {
+    private void requireRealMode() {
         var config = properties.getScheduler().getDolphinscheduler();
-        if (!config.isRealEnabled()) return false;
-        if ((config.getPassword() == null || config.getPassword().isBlank()) && (config.getToken() == null || config.getToken().isBlank())) {
+        if (!config.isRealEnabled()) {
+            throw new IllegalStateException("DolphinScheduler 真实执行未启用，禁止创建模拟任务");
+        }
+        if ((config.getPassword() == null || config.getPassword().isBlank())
+                && (config.getToken() == null || config.getToken().isBlank())) {
             throw new IllegalStateException("DolphinScheduler 已开启真实模式，但未配置密码或 sessionId Token");
         }
-        return true;
     }
-    private void requireRealMode() { if (!realEnabled()) throw new IllegalStateException("DolphinScheduler 真实执行未启用，禁止创建模拟任务"); }
     private Map<String, String> baseForm() {
         Map<String, String> form = new LinkedHashMap<>();
         form.put("projectCode", properties.getScheduler().getDolphinscheduler().getProjectCode());
