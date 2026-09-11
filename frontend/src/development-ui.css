@@ -1,0 +1,759 @@
+/* Data development workspace visual refinement.
+ * Scope every rule to #page-development so the rest of Data Platform keeps its existing look.
+ */
+#page-development {
+  --dev-brand: #3478f6;
+  --dev-brand-hover: #2568df;
+  --dev-brand-soft: #eef5ff;
+  --dev-bg: #f5f7fa;
+  --dev-panel: #ffffff;
+  --dev-panel-soft: #fafbfd;
+  --dev-line: #e6ebf2;
+  --dev-line-strong: #d9e1eb;
+  --dev-text: #24364b;
+  --dev-text-2: #52657d;
+  --dev-text-3: #8997aa;
+  --dev-success: #159c70;
+  --dev-warning: #c47a1a;
+  background: #f4f6f9;
+}
+
+/* ----- whole IDE shell ----- */
+#page-development .dev-shell {
+  gap: 0;
+  background: var(--dev-panel);
+  border: 1px solid #dde5ef;
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 2px 12px rgba(27, 45, 69, .06);
+}
+
+#page-development .dev-panel {
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background: var(--dev-panel);
+}
+
+#page-development .dev-left {
+  flex: 0 0 280px;
+  width: 280px;
+  min-width: 220px;
+  background: #fbfcfe;
+  border-right: 1px solid var(--dev-line);
+}
+
+#page-development .dev-right {
+  flex: 0 0 310px;
+  width: 310px;
+  min-width: 240px;
+  background: #fbfcfe;
+  border-left: 1px solid var(--dev-line);
+}
+
+#page-development .dev-editor {
+  background: #fff;
+}
+
+/* ----- resize dividers ----- */
+#page-development .dev-divider-v {
+  width: 5px;
+  flex: 0 0 5px;
+  background: transparent;
+  border: 0;
+  position: relative;
+  transition: background .15s ease;
+}
+
+#page-development .dev-divider-v::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 2px;
+  width: 1px;
+  background: #e6ebf2;
+  transition: width .15s ease, left .15s ease, background .15s ease;
+}
+
+#page-development .dev-divider-v:hover,
+#page-development .dev-divider-v:active {
+  background: #edf4ff;
+}
+
+#page-development .dev-divider-v:hover::after,
+#page-development .dev-divider-v:active::after {
+  left: 1px;
+  width: 3px;
+  background: #8bb5fa;
+}
+
+#page-development .dev-divider-h {
+  height: 5px;
+  flex: 0 0 5px;
+  background: #fff;
+  border: 0;
+  border-top: 1px solid var(--dev-line);
+  border-bottom: 1px solid transparent;
+  transition: background .15s ease, border-color .15s ease;
+}
+
+#page-development .dev-divider-h:hover,
+#page-development .dev-divider-h:active {
+  background: #edf4ff;
+  border-color: #9abdf7;
+}
+
+/* ----- panel headings ----- */
+#page-development .panel-head {
+  min-height: 45px;
+  height: 45px;
+  padding: 0 12px 0 14px;
+  border-bottom: 1px solid var(--dev-line);
+  background: #fff;
+}
+
+#page-development .panel-head strong {
+  color: #273a52;
+  font-size: 13px;
+  font-weight: 650;
+  letter-spacing: .1px;
+}
+
+#page-development .panel-head .icon-btn {
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #72839a;
+  transition: background .15s ease, color .15s ease;
+}
+
+#page-development .panel-head .icon-btn:hover {
+  background: #edf4ff;
+  color: var(--dev-brand);
+}
+
+/* ----- mine / project / favorites segmented navigation ----- */
+#page-development .dev-segmented {
+  height: 48px;
+  padding: 8px 10px;
+  gap: 3px;
+  background: #fff;
+  border-bottom: 1px solid var(--dev-line);
+}
+
+#page-development .dev-segment {
+  height: 31px;
+  border-radius: 7px;
+  color: #64768d;
+  font-size: 12px;
+  font-weight: 500;
+  background: transparent;
+  transition: background .15s ease, color .15s ease, box-shadow .15s ease;
+}
+
+#page-development .dev-segment:hover {
+  background: #f3f6fa;
+  color: #315f9e;
+}
+
+#page-development .dev-segment.on {
+  color: #236bd4;
+  font-weight: 650;
+  background: #edf4ff;
+  box-shadow: inset 0 0 0 1px #dbeaff;
+}
+
+/* ----- resource tree ----- */
+#page-development .side-list {
+  padding: 7px 6px 14px;
+}
+
+#page-development .dev-scope-note {
+  margin: 0 4px 7px;
+  padding: 8px 9px;
+  border: 0;
+  border-radius: 7px;
+  background: #f5f8fc;
+  color: #8493a7;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+#page-development .dev-scope-note strong {
+  margin-bottom: 2px;
+  color: #405974;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+#page-development .side-row,
+#page-development .dev-file-row,
+#page-development .dev-folder-row,
+#page-development .live-file,
+#page-development .live-folder,
+#page-development .live-project {
+  min-height: 34px;
+  border-radius: 6px;
+  color: #52647a;
+  font-size: 12px;
+  transition: background .12s ease, color .12s ease;
+}
+
+#page-development .side-row:hover,
+#page-development .dev-file-row:hover,
+#page-development .dev-folder-row:hover,
+#page-development .live-file:hover,
+#page-development .live-folder:hover,
+#page-development .live-project:hover {
+  background: #f0f5fc;
+  color: #355777;
+}
+
+#page-development .side-row.on,
+#page-development .dev-file-row.on,
+#page-development .live-file.on,
+#page-development .live-project.on,
+#page-development .side-row[aria-current="true"] {
+  background: #eaf2ff;
+  color: #2469cc;
+  font-weight: 600;
+}
+
+#page-development .dev-resource-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#page-development .folder-toggle {
+  color: #9aa7b7;
+}
+
+#page-development .folder-actions,
+#page-development .favorite-row-actions {
+  opacity: 0;
+  transition: opacity .12s ease;
+}
+
+#page-development .dev-folder-row:hover .folder-actions,
+#page-development .dev-file-row:hover .favorite-row-actions,
+#page-development .favorite-folder:hover .folder-actions {
+  opacity: 1;
+}
+
+#page-development .dev-file-status {
+  font-size: 10px;
+  color: #96a3b4;
+}
+
+/* ----- file tabs ----- */
+#page-development .dev-tabs {
+  height: 42px;
+  min-height: 42px;
+  align-items: end;
+  gap: 1px;
+  padding: 0 8px;
+  background: #f5f7fa;
+  border-bottom: 1px solid var(--dev-line-strong);
+}
+
+#page-development .dev-tab {
+  position: relative;
+  height: 35px;
+  min-width: 120px;
+  max-width: 220px;
+  margin: 0;
+  padding: 0 9px 0 11px;
+  border: 0;
+  border-right: 1px solid #e5eaf0;
+  border-radius: 0;
+  background: transparent;
+  color: #6d7d91;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+#page-development .dev-tab:hover {
+  background: #eef2f7;
+  color: #415872;
+}
+
+#page-development .dev-tab.on {
+  background: #fff;
+  color: #285f9f;
+  border: 0;
+  border-right: 1px solid #e4e9ef;
+  font-weight: 650;
+}
+
+#page-development .dev-tab.on::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--dev-brand);
+}
+
+#page-development .dev-tab-close {
+  width: 18px;
+  height: 18px;
+  border-radius: 5px;
+  color: #9aa6b5;
+}
+
+#page-development .dev-tab-close:hover {
+  background: #edf1f6;
+  color: #596a7f;
+}
+
+#page-development .dev-tab-add {
+  min-width: 30px;
+  width: 30px;
+  height: 30px;
+  align-self: center;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #71829a;
+}
+
+#page-development .dev-tab-add:hover {
+  background: #eaf2ff;
+  color: var(--dev-brand);
+}
+
+#page-development .dev-tabs > .dev-create-file {
+  height: 29px;
+  align-self: center;
+  border-radius: 6px;
+  box-shadow: none;
+}
+
+/* ----- compact version/status bar ----- */
+#page-development .dev-version-bar {
+  min-height: 34px;
+  height: 34px;
+  gap: 8px;
+  padding: 0 11px;
+  background: #fff;
+  border-bottom: 1px solid #edf0f4;
+  color: #8794a6;
+  font-size: 11px;
+}
+
+#page-development .dev-version-item {
+  gap: 4px;
+}
+
+#page-development .dev-version-item b {
+  padding: 2px 6px;
+  border-radius: 5px;
+  background: #f3f6f9;
+  color: #435a75;
+  font-weight: 650;
+}
+
+#page-development .dev-version-owner,
+#page-development .dev-version-updated {
+  color: #8b98a9;
+}
+
+#page-development .dev-version-separator {
+  color: #d4dae2;
+}
+
+#page-development .dev-version-saved,
+#page-development .dev-version-published {
+  color: var(--dev-success);
+}
+
+#page-development .dev-version-warning {
+  padding: 3px 7px;
+  border-radius: 6px;
+  background: #fff7e9;
+  color: var(--dev-warning);
+}
+
+#page-development[data-dev-readonly="true"] .dev-version-bar::after {
+  padding: 2px 7px;
+  border: 1px solid #e0e5eb;
+  border-radius: 999px;
+  background: #f7f8fa;
+  color: #8b97a6;
+}
+
+/* ----- action toolbar ----- */
+#page-development .dev-toolbar {
+  height: 46px;
+  min-height: 46px;
+  gap: 5px;
+  padding: 0 10px;
+  background: #fff;
+  border-bottom: 1px solid var(--dev-line);
+  box-shadow: 0 1px 0 rgba(21, 39, 63, .02);
+}
+
+#page-development .dev-toolbar .mbtn {
+  height: 31px;
+  padding: 0 10px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: #53667d;
+  box-shadow: none;
+  font-size: 12px;
+  font-weight: 500;
+  transition: background .12s ease, color .12s ease, border-color .12s ease;
+}
+
+#page-development .dev-toolbar .mbtn:hover {
+  background: #f1f5fa;
+  color: #274b75;
+}
+
+#page-development .dev-toolbar .dev-run-button {
+  min-width: 68px;
+  padding: 0 13px;
+  border-color: var(--dev-brand);
+  background: var(--dev-brand);
+  color: #fff;
+  font-weight: 650;
+}
+
+#page-development .dev-toolbar .dev-run-button:hover {
+  border-color: var(--dev-brand-hover);
+  background: var(--dev-brand-hover);
+  color: #fff;
+}
+
+#page-development .dev-toolbar .dev-save-file,
+#page-development .dev-toolbar .dev-format-file {
+  border-color: #e0e6ee;
+  background: #fff;
+}
+
+#page-development .dev-toolbar .dev-publish-file,
+#page-development .dev-toolbar .dev-save-to-project {
+  color: #286bc7;
+}
+
+#page-development .dev-toolbar .dev-publish-file:hover,
+#page-development .dev-toolbar .dev-save-to-project:hover {
+  background: #edf4ff;
+  color: #1f60bc;
+}
+
+#page-development .dev-toolbar .dev-save-file.saved {
+  border-color: #bfe6d7;
+  background: #f0faf6;
+  color: var(--dev-success);
+}
+
+#page-development .dev-source-select {
+  width: 210px;
+  height: 31px;
+  border-color: #dce3ec;
+  border-radius: 6px;
+  background: #fff;
+  color: #435870;
+  font-size: 12px;
+}
+
+#page-development .dev-fullscreen {
+  width: 31px;
+  min-width: 31px;
+  padding: 0;
+  border-color: #e0e6ee !important;
+}
+
+/* ----- Monaco is the visual center ----- */
+#page-development .code-shell {
+  min-height: 220px;
+  background: #fff;
+  border: 0;
+  box-shadow: inset 0 -1px 0 #edf0f4;
+}
+
+#page-development .codeview,
+#page-development .monaco-editor-host {
+  background: #fff;
+}
+
+#page-development .monaco-editor-host .monaco-editor,
+#page-development .monaco-editor-host .overflow-guard,
+#page-development .monaco-editor-host .monaco-editor-background {
+  background: #fff !important;
+}
+
+#page-development .monaco-editor-host .margin {
+  background: #fafbfd !important;
+  border-right: 1px solid #eef1f5 !important;
+}
+
+#page-development .monaco-editor-host .line-numbers {
+  color: #a1adbb !important;
+}
+
+#page-development .monaco-editor-host .current-line ~ .line-numbers,
+#page-development .monaco-editor-host .line-numbers.active-line-number {
+  color: #5f7188 !important;
+}
+
+/* ----- result workspace ----- */
+#page-development .result-shell {
+  background: #fff;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+#page-development .result-toolbar {
+  min-height: 40px;
+  height: 40px;
+  padding: 0 9px 0 12px;
+  background: #fafbfd;
+  border-bottom: 1px solid var(--dev-line);
+}
+
+#page-development .result-tabs {
+  height: 100%;
+  gap: 16px;
+}
+
+#page-development .result-tab {
+  position: relative;
+  height: 100%;
+  padding: 0 2px;
+  border: 0;
+  background: transparent;
+  color: #728198;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+#page-development .result-tab.on {
+  color: #2b65ad;
+  font-weight: 650;
+}
+
+#page-development .result-tab.on::after {
+  content: '';
+  position: absolute;
+  left: 1px;
+  right: 1px;
+  bottom: 0;
+  height: 2px;
+  background: var(--dev-brand);
+}
+
+#page-development .result-tool {
+  height: 28px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #6f8096;
+  font-size: 11px;
+}
+
+#page-development .result-tool:hover {
+  background: #eef3f9;
+  color: #3d5d83;
+}
+
+#page-development .result-statusbar {
+  min-height: 31px;
+  height: 31px;
+  padding: 0 12px;
+  background: #fff;
+  border-bottom: 1px solid #eef1f5;
+  color: #8794a6;
+  font-size: 11px;
+}
+
+#page-development .result-status {
+  color: #6f8094;
+}
+
+#page-development .result-table-wrap {
+  background: #fff;
+}
+
+#page-development .result-table-wrap .data-table {
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+#page-development .result-table-wrap .data-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  height: 34px;
+  background: #f8fafc;
+  border-bottom: 1px solid #e5eaf0;
+  color: #53677f;
+  font-size: 11px;
+  font-weight: 650;
+}
+
+#page-development .result-table-wrap .data-table tbody td {
+  height: 33px;
+  border-bottom: 1px solid #f0f2f5;
+  color: #53647a;
+  font-size: 11px;
+}
+
+#page-development .result-table-wrap .data-table tbody tr:hover td {
+  background: #f8fbff;
+}
+
+#page-development .result-history-tools {
+  padding: 8px 10px;
+  background: #fff;
+  border-bottom: 1px solid #edf1f5;
+}
+
+/* ----- right table information panel ----- */
+#page-development .right-tabs {
+  height: 43px;
+  padding: 0 10px;
+  background: #fff;
+  border-bottom: 1px solid var(--dev-line);
+}
+
+#page-development .right-tabs button {
+  position: relative;
+  height: 43px;
+  padding: 0 8px;
+  border: 0;
+  background: transparent;
+  color: #748398;
+  font-size: 12px;
+}
+
+#page-development .right-tabs button.on {
+  color: #315f9f;
+  font-weight: 650;
+  border-bottom: 0;
+}
+
+#page-development .right-tabs button.on::after {
+  content: '';
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: 0;
+  height: 2px;
+  background: var(--dev-brand);
+}
+
+#page-development .dev-right .info-sec {
+  margin: 10px;
+  padding: 12px;
+  border: 1px solid #e7ecf2;
+  border-radius: 8px;
+  background: #fff;
+}
+
+#page-development .dev-right .info-sec + .info-sec {
+  margin-top: 0;
+}
+
+#page-development .dev-right .info-sec h3,
+#page-development .dev-right .info-sec h4,
+#page-development .dev-table-summary h3,
+#page-development .dev-field-info h4 {
+  margin: 0 0 9px;
+  color: #314860;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+#page-development .dev-table-summary h3 {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 13px;
+}
+
+#page-development .dev-right .muted {
+  color: #8a98a9;
+  line-height: 1.55;
+}
+
+#page-development .kvgrid {
+  grid-template-columns: 72px minmax(0, 1fr);
+  gap: 8px 10px;
+  color: #8492a4;
+  font-size: 11px;
+}
+
+#page-development .kvgrid b {
+  overflow: hidden;
+  color: #435873;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ----- compact empty states ----- */
+#page-development .dev-empty {
+  color: #94a1b2;
+  font-size: 11px;
+}
+
+/* ----- collapsed side panel buttons ----- */
+#page-development .dev-reopen {
+  border: 1px solid #dce4ed;
+  background: #fff;
+  color: #718196;
+  box-shadow: 0 2px 8px rgba(26, 45, 72, .08);
+}
+
+#page-development .dev-reopen:hover {
+  border-color: #b9cff2;
+  background: #f1f6ff;
+  color: var(--dev-brand);
+}
+
+/* ----- fullscreen should stay flat and workbench-like ----- */
+#page-development .result-shell.result-fullscreen-mode {
+  background: #fff;
+}
+
+/* ----- smaller screens ----- */
+@media (max-width: 1440px) {
+  #page-development .dev-left {
+    flex-basis: 250px;
+    width: 250px;
+  }
+  #page-development .dev-right {
+    flex-basis: 280px;
+    width: 280px;
+  }
+  #page-development .dev-version-owner {
+    display: none;
+  }
+  #page-development .dev-source-select {
+    width: 170px;
+  }
+}
+
+@media (max-width: 1180px) {
+  #page-development .dev-right {
+    flex-basis: 250px;
+    width: 250px;
+  }
+  #page-development .dev-version-updated {
+    display: none;
+  }
+  #page-development .dev-toolbar .mbtn {
+    padding-left: 8px;
+    padding-right: 8px;
+  }
+}
