@@ -57,7 +57,7 @@ public class PlatformProperties {
     public static class Seatunnel {
         private String version = "2.3.12";
         private String home = "/data/software/seatunnel";
-        private boolean realEnabled;
+        private boolean realEnabled = true;
         public String getVersion() { return version; }
         public void setVersion(String version) { this.version = version; }
         public String getHome() { return home; }
@@ -81,7 +81,7 @@ public class PlatformProperties {
         private String tenantCode = "bigdata";
         private String password;
         private String token;
-        private boolean realEnabled;
+        private boolean realEnabled = true;
         private int failRetryTimes = 3;
         private int failRetryInterval = 1;
         private String workerGroup = "default";
