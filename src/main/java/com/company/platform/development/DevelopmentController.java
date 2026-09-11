@@ -1,5 +1,6 @@
 package com.company.platform.development;
 
+import com.company.platform.common.ForbiddenException;
 import com.company.platform.common.Result;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
@@ -13,8 +14,12 @@ import java.util.Locale;
 public class DevelopmentController {
     private static final String FAVORITES_PROJECT_NAME = "我的收藏";
     private final DevelopmentService service;
+    private final DevelopmentVersionFlowService versionFlow;
 
-    public DevelopmentController(DevelopmentService service) { this.service = service; }
+    public DevelopmentController(DevelopmentService service, DevelopmentVersionFlowService versionFlow) {
+        this.service = service;
+        this.versionFlow = versionFlow;
+    }
 
     @GetMapping("/projects")
     public Result<List<DevProjectView>> projects(@RequestParam(defaultValue = "mine") String scope,
@@ -104,6 +109,9 @@ public class DevelopmentController {
     public Result<DevFileView> saveFile(@PathVariable long id,
                                          @Valid @RequestBody DevelopmentRequests.SaveFileRequest request,
                                          HttpServletRequest servletRequest) {
+        if (versionFlow.isManagedProjectFile(id)) {
+            throw new ForbiddenException("项目空间中的受控版本为只读，请在“我的开发”中修改后重新推送");
+        }
         return Result.ok(service.saveFile(id, request, operator(servletRequest)), "文件已保存");
     }
 
@@ -122,11 +130,17 @@ public class DevelopmentController {
     public Result<FileVersionView> createVersion(@PathVariable long id,
                                                   @Valid @RequestBody DevelopmentRequests.VersionRequest request,
                                                   HttpServletRequest servletRequest) {
+        if (versionFlow.isManagedProjectFile(id)) {
+            throw new ForbiddenException("项目空间中的受控版本为只读，请先创建开发版本");
+        }
         return Result.ok(service.createVersion(id, request, operator(servletRequest)), "文件版本已创建");
     }
 
     @PostMapping("/files/{id}/publish")
     public Result<DevFileView> publishFile(@PathVariable long id, HttpServletRequest servletRequest) {
+        if (versionFlow.isManagedProjectFile(id)) {
+            return Result.ok(versionFlow.publish(id, operator(servletRequest)), "项目版本已发布上线");
+        }
         return Result.ok(service.publishFile(id, operator(servletRequest)), "文件已发布上线");
     }
 
