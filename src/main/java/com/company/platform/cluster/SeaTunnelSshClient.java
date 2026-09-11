@@ -7,6 +7,8 @@ import com.jcraft.jsch.ChannelExec;
 import com.jcraft.jsch.ChannelSftp;
 import com.jcraft.jsch.JSch;
 import com.jcraft.jsch.Session;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 import java.io.ByteArrayInputStream;
@@ -22,6 +24,7 @@ import java.util.UUID;
  */
 @Component
 public class SeaTunnelSshClient {
+    private static final Logger log = LoggerFactory.getLogger(SeaTunnelSshClient.class);
     private final PlatformStore store;
     private final PasswordCipher cipher;
 
@@ -47,7 +50,13 @@ public class SeaTunnelSshClient {
     }
 
     public boolean executableAvailable(long clusterId) {
-        RuntimeCluster runtime = runtime(clusterId);
+        RuntimeCluster runtime;
+        try {
+            runtime = runtime(clusterId);
+        } catch (RuntimeException ex) {
+            log.warn("SeaTunnel 集群 {} 配置/密码读取失败: {}", clusterId, safeMessage(ex));
+            return false;
+        }
         Session session = null;
         ChannelExec channel = null;
         try {
@@ -58,11 +67,18 @@ public class SeaTunnelSshClient {
             channel.connect((int) Duration.ofSeconds(5).toMillis());
             long deadline = System.currentTimeMillis() + Duration.ofSeconds(5).toMillis();
             while (!channel.isClosed() && System.currentTimeMillis() < deadline) Thread.sleep(50);
-            return channel.isClosed() && channel.getExitStatus() == 0;
+            boolean available = channel.isClosed() && channel.getExitStatus() == 0;
+            if (!available) {
+                log.warn("SeaTunnel 集群 {} ({}) SSH 已连接，但 {} 不可执行或检查超时", runtime.id(), runtime.name(),
+                        runtime.seatunnelHome() + "/bin/seatunnel.sh");
+            }
+            return available;
         } catch (InterruptedException ex) {
             Thread.currentThread().interrupt();
+            log.warn("SeaTunnel 集群 {} ({}) SSH 检查被中断", runtime.id(), runtime.name());
             return false;
         } catch (Exception ex) {
+            log.warn("SeaTunnel 集群 {} ({}) SSH 检查失败: {}", runtime.id(), runtime.name(), safeMessage(ex));
             return false;
         } finally {
             if (channel != null) channel.disconnect();
@@ -109,6 +125,11 @@ public class SeaTunnelSshClient {
         session.setServerAliveInterval(15_000);
         session.connect((int) Duration.ofSeconds(10).toMillis());
         return session;
+    }
+
+    private String safeMessage(Exception ex) {
+        String message = ex.getMessage();
+        return message == null || message.isBlank() ? ex.getClass().getSimpleName() : message;
     }
 
     private String shellQuote(String value) {
