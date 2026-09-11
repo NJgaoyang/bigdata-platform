@@ -3,6 +3,7 @@ package com.company.platform.config;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.annotation.Profile;
 import org.springframework.context.event.EventListener;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
 /** Production profile guardrails. */
@@ -10,9 +11,11 @@ import org.springframework.stereotype.Component;
 @Profile("prod")
 public class ProductionStartupValidator {
     private final PlatformProperties properties;
+    private final JdbcTemplate jdbc;
 
-    public ProductionStartupValidator(PlatformProperties properties) {
+    public ProductionStartupValidator(PlatformProperties properties, JdbcTemplate jdbc) {
         this.properties = properties;
+        this.jdbc = jdbc;
     }
 
     @EventListener(ApplicationReadyEvent.class)
@@ -39,8 +42,9 @@ public class ProductionStartupValidator {
         requireText(ds.getProjectCode(), "DOLPHINSCHEDULER_PROJECT_CODE");
         requireText(ds.getTenantCode(), "DOLPHINSCHEDULER_TENANT_CODE");
         if ((ds.getPassword() == null || ds.getPassword().isBlank())
-                && (ds.getToken() == null || ds.getToken().isBlank())) {
-            throw new IllegalStateException("生产环境必须配置 DOLPHINSCHEDULER_PASSWORD 或 DOLPHINSCHEDULER_TOKEN");
+                && (ds.getToken() == null || ds.getToken().isBlank())
+                && !hasPersistedSchedulerCredentials()) {
+            throw new IllegalStateException("生产环境必须配置 DolphinScheduler 密码/Token，或在系统设置中保存可用的 DolphinScheduler 集群凭据");
         }
         if (ds.getFailRetryTimes() < 0 || ds.getFailRetryTimes() > 10) {
             throw new IllegalStateException("DOLPHINSCHEDULER_FAIL_RETRY_TIMES 必须在 0-10 之间");
@@ -49,6 +53,17 @@ public class ProductionStartupValidator {
             throw new IllegalStateException("DOLPHINSCHEDULER_FAIL_RETRY_INTERVAL 必须在 1-60 分钟之间");
         }
         requireText(ds.getWorkerGroup(), "DOLPHINSCHEDULER_WORKER_GROUP");
+    }
+
+    private boolean hasPersistedSchedulerCredentials() {
+        try {
+            Integer count = jdbc.queryForObject("SELECT COUNT(*) FROM dolphinscheduler_cluster "
+                    + "WHERE username IS NOT NULL AND TRIM(username)<>'' "
+                    + "AND password_encrypted IS NOT NULL AND TRIM(password_encrypted)<>''", Integer.class);
+            return count != null && count > 0;
+        } catch (RuntimeException ignored) {
+            return false;
+        }
     }
 
     private void requireText(String value, String key) {
