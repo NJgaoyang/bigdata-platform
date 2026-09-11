@@ -91,6 +91,10 @@ public class WorkflowPublishService {
 
         SchedulerGateway.PublishResult result = schedulerGateway.publish(
                 new SchedulerGateway.PublishRequest(workflow.workflowCode(), workflow.name(), version, definitionJson, workflow.dsProcessCode()));
+        // Creating/updating a process definition does not make it runnable in DolphinScheduler.
+        // The platform's "发布" action means the new version is ready for execution, so the
+        // DS definition must be released ONLINE before we persist PUBLISHED locally.
+        schedulerGateway.release(result.processCode(), true);
         WorkflowView published = new WorkflowView(workflow.id(), workflow.name(), workflow.workflowCode(), workflow.description(),
                 "PUBLISHED", version, workflow.nodes(), workflow.edges(), result.processCode());
         store.persistWorkflow(published);
@@ -108,8 +112,8 @@ public class WorkflowPublishService {
             }
         }
         String message = lineageWarning
-                ? "已按开发文件类型生成 DolphinScheduler 发布快照；部分 SQL 血缘解析失败，请检查日志"
-                : "已按开发文件类型生成 DolphinScheduler 发布快照";
+                ? "已发布并上线到 DolphinScheduler；部分 SQL 血缘解析失败，请检查日志"
+                : "已发布并上线到 DolphinScheduler";
         return new PublishResult(workflow.id(), version, result.processCode(), result.status(), message);
     }
 
