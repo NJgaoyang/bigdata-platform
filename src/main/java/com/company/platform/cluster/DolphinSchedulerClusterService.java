@@ -5,19 +5,28 @@ import com.company.platform.common.NotFoundException;
 import com.company.platform.common.PlatformStore;
 import com.company.platform.datasource.PasswordCipher;
 import com.company.platform.system.AuditService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.net.URI;
+import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.Comparator;
 import java.util.List;
+import java.util.regex.Pattern;
 
 @Service
 public class DolphinSchedulerClusterService {
+    private static final Logger log = LoggerFactory.getLogger(DolphinSchedulerClusterService.class);
+    private static final Pattern SUCCESS_CODE = Pattern.compile("\\\"code\\\"\\s*:\\s*0");
+    private static final Pattern SESSION_ID = Pattern.compile("\\\"sessionId\\\"\\s*:\\s*\\\"[^\\\"]+\\\"");
+
     private final PlatformStore store;
     private final PasswordCipher cipher;
     private final AuditService audit;
@@ -76,15 +85,7 @@ public class DolphinSchedulerClusterService {
     public DolphinSchedulerClusterView check(long id) { return check(id, "admin"); }
     public DolphinSchedulerClusterView check(long id, String operator) {
         DolphinSchedulerClusterView current = get(id);
-        String status = "UNREACHABLE";
-        try {
-            HttpRequest request = HttpRequest.newBuilder(URI.create(baseUrl(current) + "/ui"))
-                    .timeout(Duration.ofSeconds(5)).GET().build();
-            int code = httpClient.send(request, HttpResponse.BodyHandlers.discarding()).statusCode();
-            if (code >= 200 && code < 400) status = "HEALTHY";
-        } catch (Exception ignored) {
-            // The status is intentionally based on a real HTTP request to the configured DS endpoint.
-        }
+        String status = checkStatus(current);
         DolphinSchedulerClusterView updated = new DolphinSchedulerClusterView(current.id(), current.name(), current.host(), current.port(),
                 current.basePath(), current.version(), current.username(), current.installDir(), current.description(), status, current.createdAt());
         store.dolphinSchedulerClusters.put(id, updated);
@@ -95,6 +96,46 @@ public class DolphinSchedulerClusterService {
 
     public List<DolphinSchedulerClusterView> checkAll() { return checkAll("admin"); }
     public List<DolphinSchedulerClusterView> checkAll(String operator) { return list().stream().map(item -> check(item.id(), operator)).toList(); }
+
+    private String checkStatus(DolphinSchedulerClusterView cluster) {
+        try {
+            String username = cluster.username();
+            String encrypted = store.encryptedDolphinSchedulerPasswords.getOrDefault(cluster.id(), "");
+            if (username == null || username.isBlank() || encrypted.isBlank()) {
+                log.warn("DolphinScheduler 集群 {} ({}) 缺少用户名或密码，无法验证 API 登录", cluster.id(), cluster.name());
+                return "CONFIG_ERROR";
+            }
+            String password = cipher.decrypt(encrypted);
+            if (password.isBlank()) {
+                log.warn("DolphinScheduler 集群 {} ({}) 密码为空，无法验证 API 登录", cluster.id(), cluster.name());
+                return "CONFIG_ERROR";
+            }
+            String body = "userName=" + encode(username) + "&userPassword=" + encode(password);
+            HttpRequest request = HttpRequest.newBuilder(URI.create(baseUrl(cluster) + "/login"))
+                    .timeout(Duration.ofSeconds(8))
+                    .header("Content-Type", "application/x-www-form-urlencoded")
+                    .POST(HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8))
+                    .build();
+            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            String responseBody = response.body() == null ? "" : response.body();
+            if (response.statusCode() >= 200 && response.statusCode() < 300
+                    && SUCCESS_CODE.matcher(responseBody).find() && SESSION_ID.matcher(responseBody).find()) {
+                return "HEALTHY";
+            }
+            log.warn("DolphinScheduler 集群 {} ({}) 登录检测失败，HTTP={}，业务响应未通过认证", cluster.id(), cluster.name(), response.statusCode());
+            return "AUTH_FAILED";
+        } catch (IllegalStateException ex) {
+            log.warn("DolphinScheduler 集群 {} ({}) 配置/密码读取失败: {}", cluster.id(), cluster.name(), safeMessage(ex));
+            return "CONFIG_ERROR";
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            log.warn("DolphinScheduler 集群 {} ({}) 检测被中断", cluster.id(), cluster.name());
+            return "UNREACHABLE";
+        } catch (Exception ex) {
+            log.warn("DolphinScheduler 集群 {} ({}) API 检测失败: {}", cluster.id(), cluster.name(), safeMessage(ex));
+            return "UNREACHABLE";
+        }
+    }
 
     private DolphinSchedulerClusterView get(long id) {
         DolphinSchedulerClusterView cluster = store.dolphinSchedulerClusters.get(id);
@@ -112,6 +153,11 @@ public class DolphinSchedulerClusterService {
     private String normalizePath(String value) {
         String path = value == null || value.isBlank() ? "/dolphinscheduler" : value.trim();
         return "/" + path.replaceAll("^/+|/+$", "");
+    }
+    private String encode(String value) { return URLEncoder.encode(value == null ? "" : value, StandardCharsets.UTF_8); }
+    private String safeMessage(Exception ex) {
+        String message = ex.getMessage();
+        return message == null || message.isBlank() ? ex.getClass().getSimpleName() : message;
     }
     private String blankToNull(String value) { return value == null || value.isBlank() ? null : value.trim(); }
     private String normalizeOperator(String value) { return value == null || value.isBlank() ? "admin" : value.trim(); }
