@@ -1,185 +1,176 @@
 (function () {
   'use strict';
 
-  var state = { instanceId: '', process: null, tasks: [], selectedTaskId: '', timer: null, open: false, loading: false };
-  var escapeHtml = function (value) { return String(value == null ? '' : value).replace(/[&<>'"]/g, function (char) { return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' })[char]; }); };
+  var state = {
+    dashboard: null, tab: 'process', processes: [], tasks: [], failed: [],
+    selectedProcessId: '', selectedProcess: null, processTasks: [], selectedTaskId: '',
+    search: '', status: 'all', page: 1, pageSize: 10, poll: null, loading: false
+  };
+  var page;
+  function esc(value) { return String(value == null ? '' : value).replace(/[&<>"']/g, function (c) { return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]; }); }
   function request(url, options) {
     options = options || {};
-    var token = window.localStorage.getItem('platform_access_token');
+    var token = localStorage.getItem('platform_access_token');
     options.headers = Object.assign({ Accept: 'application/json' }, options.headers || {});
     if (token) options.headers.Authorization = 'Bearer ' + token;
     if (options.body) options.headers['Content-Type'] = 'application/json';
-    return window.fetch('/api' + url, options).then(function (response) {
+    return fetch('/api' + url, options).then(function (response) {
       return response.json().catch(function () { return {}; }).then(function (payload) {
         if (!response.ok || payload.success === false) throw new Error(payload.message || '接口请求失败');
         return payload.data;
       });
     });
   }
-  function notify(message, error) {
+  function notify(message, isError) {
     var toast = document.getElementById('toast');
     if (!toast) return;
-    var icon = toast.querySelector('i'); if (icon) icon.className = error ? 'ri-error-warning-fill' : 'ri-checkbox-circle-fill';
+    var icon = toast.querySelector('i'); if (icon) icon.className = isError ? 'ri-error-warning-fill' : 'ri-checkbox-circle-fill';
     var label = toast.querySelector('span'); if (label) label.textContent = message;
     toast.classList.add('show'); clearTimeout(notify.timer); notify.timer = setTimeout(function () { toast.classList.remove('show'); }, 2800);
   }
-  function statusKind(status) {
-    var value = String(status || '').toUpperCase();
-    if (/SUCCESS|FINISH/.test(value)) return 'success';
-    if (/FAIL|ERROR|KILL|STOP/.test(value)) return 'failed';
-    if (/RUNNING|SUBMITTED|WAITING|READY|DELAY|DISPATCH/.test(value)) return 'running';
+  function kind(status) {
+    var v = String(status || '').toUpperCase();
+    if (/SUCCESS|FINISH/.test(v)) return 'success';
+    if (/FAIL|ERROR|KILL|STOP/.test(v)) return 'failed';
+    if (/RUNNING|SUBMITTED|READY|DISPATCH|DELAY/.test(v)) return 'running';
     return 'pending';
   }
-  function statusLabel(status) {
-    var kind = statusKind(status);
-    if (kind === 'success') return '成功';
-    if (kind === 'failed') return /STOP|KILL/.test(String(status || '').toUpperCase()) ? '已终止' : '失败';
-    if (kind === 'running') return '运行中';
-    return '等待中';
+  function label(status) {
+    var k = kind(status), raw = String(status || '').toUpperCase();
+    if (k === 'success') return '成功';
+    if (k === 'failed') return /STOP|KILL/.test(raw) ? '已终止' : '失败';
+    if (k === 'running') return '运行中';
+    return '等待';
   }
+  function badge(status) { return '<span class="ops-v2-status ' + kind(status) + '"><i></i>' + label(status) + '</span>'; }
   function time(value) { return value ? String(value).replace('T', ' ').slice(0, 19) : '—'; }
-  function elapsed(start, end, fallback) {
-    if (fallback) return String(fallback);
-    var a = start ? new Date(String(start).replace(' ', 'T')).getTime() : NaN;
-    var b = end ? new Date(String(end).replace(' ', 'T')).getTime() : Date.now();
-    if (!Number.isFinite(a) || !Number.isFinite(b) || b < a) return '—';
-    var seconds = Math.floor((b - a) / 1000), h = Math.floor(seconds / 3600), m = Math.floor((seconds % 3600) / 60), s = seconds % 60;
-    return h ? h + 'h ' + m + 'm ' + s + 's' : m ? m + 'm ' + s + 's' : s + 's';
+  function stamp(value) { var n = Date.parse(String(value || '').replace(' ', 'T')); return Number.isFinite(n) ? n : 0; }
+  function duration(row) {
+    if (row && row.duration && String(row.duration) !== '0') return String(row.duration);
+    var a = stamp(row && row.startTime), b = stamp(row && row.endTime) || (kind(row && row.status) === 'running' ? Date.now() : 0);
+    if (!a || !b || b < a) return '—';
+    var sec = Math.floor((b-a)/1000), h=Math.floor(sec/3600), m=Math.floor((sec%3600)/60), s=sec%60;
+    return h ? h+'时'+m+'分'+s+'秒' : m ? m+'分'+s+'秒' : s+'秒';
   }
-  function ensureDrawer() {
-    var host = document.getElementById('ops-instance-backdrop');
-    if (host) return host;
-    host = document.createElement('div');
-    host.id = 'ops-instance-backdrop'; host.className = 'ops-instance-backdrop'; host.setAttribute('aria-hidden', 'true');
-    host.innerHTML = '<aside class="ops-instance-drawer" role="dialog" aria-modal="true" aria-labelledby="ops-instance-title">' +
-      '<div class="ops-instance-head"><div class="ops-instance-title"><h2 id="ops-instance-title">实例详情</h2><p>真实数据来自 DolphinScheduler</p></div><span class="spacer"></span><span class="ops-auto-refresh"><i></i>运行中每 3 秒刷新</span><button type="button" class="ops-instance-close" aria-label="关闭">×</button></div>' +
-      '<div class="ops-instance-body"><div class="ops-instance-summary"></div><div class="ops-instance-toolbar"><span class="ops-toolbar-note">查看流程实例下真实 Task Instance 的执行状态与 Worker 日志</span><button type="button" data-ops-drawer-action="refresh"><i class="ri-refresh-line"></i> 刷新</button><button type="button" data-ops-drawer-action="rerun"><i class="ri-restart-line"></i> 重跑</button><button type="button" class="danger" data-ops-drawer-action="stop"><i class="ri-stop-fill"></i> 终止</button></div>' +
-      '<section class="ops-section tasks"><div class="ops-section-head">任务执行过程 <small class="ops-task-count">0 个任务</small></div><div class="ops-task-list"><div class="ops-task-empty">正在读取任务实例…</div></div></section>' +
-      '<section class="ops-section logs"><div class="ops-section-head">任务日志 <small>Worker Log</small></div><div class="ops-log-wrap"><div class="ops-log-toolbar"><div class="ops-log-task"><b>请选择任务节点</b><small>点击上方任务即可查看真实执行日志</small></div><button type="button" data-ops-log-action="refresh"><i class="ri-refresh-line"></i> 刷新</button><button type="button" data-ops-log-action="copy"><i class="ri-file-copy-line"></i> 复制</button><button type="button" data-ops-log-action="fullscreen"><i class="ri-fullscreen-line"></i> 全屏</button></div><div class="ops-log-empty">请选择一个任务节点查看日志</div></div></section></div></aside>';
-    document.body.appendChild(host);
-    host.querySelector('.ops-instance-close').onclick = closeDrawer;
-    host.onclick = function (event) { if (event.target === host) closeDrawer(); };
-    host.addEventListener('click', onDrawerClick);
-    return host;
+  function byNewest(a,b) { return (stamp(b.startTime || b.submitTime) || Number(b.id)||0) - (stamp(a.startTime || a.submitTime) || Number(a.id)||0); }
+  function processId(row) { return String((row && (row.id || row.processInstanceId)) || ''); }
+  function active(row) { return kind(row && row.status) === 'running'; }
+  function pct(part,total) { return total ? ((Number(part||0)/Number(total))*100).toFixed(1)+'%' : '—'; }
+
+  function renderKpis() {
+    var d=state.dashboard || {}, t=d.tasks || {};
+    ['total','success','failed','running','pending'].forEach(function (key) { var el=page.querySelector('[data-ops-kpi="'+key+'"]'); if (el) el.textContent=Number(t[key]||0).toLocaleString(); });
+    ['success','failed','running'].forEach(function (key) { var el=page.querySelector('[data-ops-rate="'+key+'"]'); if (el) el.textContent=(key==='running'?'运行中 ':'')+(key==='success'?'成功率 ':key==='failed'?'失败率 ':'')+pct(t[key],t.total); });
+    var health=page.querySelector('.ops-v2-health'), healthText=page.querySelector('[data-ops-scheduler-state]');
+    if (health) health.classList.toggle('down', d.schedulerAvailable === false);
+    if (healthText) healthText.textContent=d.schedulerAvailable === false ? 'DolphinScheduler 不可用' : 'DolphinScheduler 正常';
+    var updated=page.querySelector('[data-ops-updated]'); if (updated) updated.textContent='最后更新：'+time(d.generatedAt || new Date().toISOString());
+    var failedCount=page.querySelector('[data-ops-failed-count]'); if (failedCount) failedCount.textContent=Number(t.failed||0);
   }
-  function closeDrawer() {
-    clearTimeout(state.timer); state.timer = null; state.open = false;
-    var host = ensureDrawer(); host.classList.remove('open', 'log-fullscreen'); host.setAttribute('aria-hidden', 'true');
+  function rowsForTab() {
+    var rows = state.tab === 'task' ? state.tasks : state.tab === 'failed' ? state.failed : state.processes;
+    var q=state.search.trim().toLowerCase(), sk=state.status;
+    return rows.filter(function (row) {
+      var hay=[row.id,row.processInstanceId,row.name,row.taskType,row.processDefinitionCode].join(' ').toLowerCase();
+      return (!q || hay.indexOf(q)>=0) && (sk==='all' || kind(row.status)===sk);
+    }).sort(byNewest);
   }
-  function renderSummary() {
-    var host = ensureDrawer(), box = host.querySelector('.ops-instance-summary'), p = state.process || {};
-    box.innerHTML = '<div class="ops-summary-card primary"><span>流程实例</span><b title="' + escapeHtml(p.name || '调度实例') + '">' + escapeHtml(p.name || '调度实例') + '</b></div>' +
-      '<div class="ops-summary-card"><span>实例 ID</span><b>#' + escapeHtml(state.instanceId || '—') + '</b></div>' +
-      '<div class="ops-summary-card"><span>状态</span><b class="ops-state ' + statusKind(p.status) + '">' + statusLabel(p.status) + '</b></div>' +
-      '<div class="ops-summary-card"><span>耗时</span><b>' + escapeHtml(elapsed(p.startTime, p.endTime, p.duration)) + '</b></div>';
-    var stop = host.querySelector('[data-ops-drawer-action="stop"]'); if (stop) stop.hidden = statusKind(p.status) !== 'running';
-    var rerun = host.querySelector('[data-ops-drawer-action="rerun"]'); if (rerun) rerun.hidden = statusKind(p.status) === 'running';
-  }
-  function renderTasks() {
-    var host = ensureDrawer(), list = host.querySelector('.ops-task-list'), count = host.querySelector('.ops-task-count');
-    if (count) count.textContent = state.tasks.length + ' 个任务';
-    if (!state.tasks.length) { list.innerHTML = '<div class="ops-task-empty">该流程实例暂未生成 Task Instance</div>'; return; }
-    list.innerHTML = state.tasks.map(function (task, index) {
-      var id = String(task.id || ''); var on = id === String(state.selectedTaskId);
-      var meta = [task.taskType || '任务', time(task.startTime), task.workerGroup ? 'Worker Group: ' + task.workerGroup : '', task.host ? 'Host: ' + task.host : ''].filter(Boolean).join(' · ');
-      return '<button type="button" class="ops-task-row ' + (on ? 'on' : '') + '" data-ops-task-id="' + escapeHtml(id) + '"><span class="ops-task-index">' + (index + 1) + '</span><span class="ops-task-main"><span class="ops-task-name"><b>' + escapeHtml(task.name || ('Task #' + id)) + '</b></span><span class="ops-task-meta">' + escapeHtml(meta) + '</span></span><span class="ops-task-state"><b class="ops-state ' + statusKind(task.status) + '">' + statusLabel(task.status) + '</b><span class="ops-task-duration">' + escapeHtml(elapsed(task.startTime, task.endTime, task.duration)) + '</span></span></button>';
+  function renderTable() {
+    var head=page.querySelector('[data-ops-table-head]'), body=page.querySelector('[data-ops-table-body]'); if (!head||!body) return;
+    var isProcess=state.tab==='process', cols=isProcess?7:7;
+    head.innerHTML=isProcess?'<tr><th>实例 ID</th><th>工作流名称</th><th>状态</th><th>开始时间</th><th>结束时间</th><th>运行时长</th><th>操作</th></tr>':'<tr><th>任务实例 ID</th><th>任务名称</th><th>任务类型</th><th>状态</th><th>开始时间</th><th>运行时长</th><th>操作</th></tr>';
+    var all=rowsForTab(), maxPage=Math.max(1,Math.ceil(all.length/state.pageSize)); if (state.page>maxPage) state.page=maxPage;
+    var rows=all.slice((state.page-1)*state.pageSize,state.page*state.pageSize);
+    if (!rows.length) body.innerHTML='<tr><td colspan="'+cols+'" class="ops-v2-empty">暂无符合条件的真实调度数据</td></tr>';
+    else if (isProcess) body.innerHTML=rows.map(function (row) {
+      var id=processId(row), selected=id===state.selectedProcessId;
+      return '<tr class="'+(selected?'selected':'')+'" data-process-row="'+esc(id)+'"><td class="ops-v2-id">#'+esc(id)+'</td><td><b>'+esc(row.name||'—')+'</b></td><td>'+badge(row.status)+'</td><td>'+time(row.startTime)+'</td><td>'+time(row.endTime)+'</td><td>'+esc(duration(row))+'</td><td><div class="ops-v2-row-actions"><button data-ops-action="detail" data-instance-id="'+esc(id)+'">详情</button><button data-ops-action="log" data-instance-id="'+esc(id)+'">日志</button>'+(active(row)?'<button class="danger" data-ops-action="stop" data-instance-id="'+esc(id)+'">终止</button>':'<button data-ops-action="rerun" data-instance-id="'+esc(id)+'">重跑</button>')+'</div></td></tr>';
     }).join('');
+    else body.innerHTML=rows.map(function (row) {
+      var id=String(row.id||''), pid=String(row.processInstanceId||'');
+      return '<tr><td class="ops-v2-id">#'+esc(id)+'</td><td><b>'+esc(row.name||'—')+'</b><small class="ops-v2-sub">流程实例 #'+esc(pid||'—')+'</small></td><td>'+esc(row.taskType||'—')+'</td><td>'+badge(row.status)+'</td><td>'+time(row.startTime)+'</td><td>'+esc(duration(row))+'</td><td><div class="ops-v2-row-actions"><button data-ops-task-log="'+esc(id)+'" data-process-id="'+esc(pid)+'">日志</button>'+(pid?'<button data-ops-action="detail" data-instance-id="'+esc(pid)+'">流程详情</button>':'')+'</div></td></tr>';
+    }).join('');
+    page.querySelector('[data-ops-total]').textContent='共 '+all.length+' 条';
+    page.querySelector('[data-ops-page]').textContent=state.page+' / '+maxPage;
+    page.querySelector('[data-ops-prev]').disabled=state.page<=1; page.querySelector('[data-ops-next]').disabled=state.page>=maxPage;
   }
-  function renderLoading() {
-    var host = ensureDrawer();
-    host.querySelector('.ops-instance-summary').innerHTML = '<div class="ops-summary-card primary"><span>流程实例</span><b>正在读取真实实例…</b></div>';
-    host.querySelector('.ops-task-list').innerHTML = '<div class="ops-task-empty">正在读取 DolphinScheduler Task Instance…</div>';
+  function renderInfo() {
+    var p=state.selectedProcess || {}, info=page.querySelector('[data-ops-info]');
+    page.querySelector('[data-ops-detail-name]').innerHTML=esc(p.name||('流程实例 #'+state.selectedProcessId))+' '+badge(p.status);
+    info.innerHTML='<div><span>实例 ID</span><b>#'+esc(state.selectedProcessId||'—')+'</b></div><div><span>状态</span><b>'+badge(p.status)+'</b></div><div><span>开始时间</span><b>'+time(p.startTime)+'</b></div><div><span>结束时间</span><b>'+time(p.endTime)+'</b></div><div><span>运行时长</span><b>'+esc(duration(p))+'</b></div><div><span>流程定义 Code</span><b>'+esc(p.processDefinitionCode||'—')+'</b></div>';
+    var stop=page.querySelector('[data-ops-detail-action="stop"]'), rerun=page.querySelector('[data-ops-detail-action="rerun"]');
+    if (stop) stop.hidden=!active(p); if (rerun) rerun.hidden=active(p);
   }
-  function loadLog(taskId, forceBottom) {
+  function taskOrder() { return state.processTasks.slice().sort(function(a,b){ return (stamp(a.startTime||a.submitTime)||Number(a.id)||0)-(stamp(b.startTime||b.submitTime)||Number(b.id)||0); }); }
+  function renderProcessTasks() {
+    var rows=taskOrder(), progress=page.querySelector('[data-ops-progress]'), body=page.querySelector('[data-ops-task-body]');
+    page.querySelector('[data-ops-task-count]').textContent=rows.length+' 个任务';
+    if (!rows.length) { progress.innerHTML='<div class="ops-v2-empty-inline">暂未生成 Task Instance</div>'; body.innerHTML='<tr><td colspan="6" class="ops-v2-empty">暂无任务实例</td></tr>'; return; }
+    progress.innerHTML=rows.map(function (task,index) {
+      return '<button class="ops-v2-step '+kind(task.status)+' '+(String(task.id)===state.selectedTaskId?'on':'')+'" data-ops-task-select="'+esc(task.id)+'"><span class="ops-v2-step-icon">'+(kind(task.status)==='success'?'✓':kind(task.status)==='failed'?'×':kind(task.status)==='running'?'▶':'○')+'</span><b>'+esc(task.name||('Task #'+task.id))+'</b><small>'+esc(task.taskType||'任务')+'</small><em>'+label(task.status)+' · '+esc(duration(task))+'</em></button>'+(index<rows.length-1?'<span class="ops-v2-step-line"></span>':'');
+    }).join('');
+    body.innerHTML=rows.map(function (task) { return '<tr class="'+(String(task.id)===state.selectedTaskId?'selected':'')+'"><td><b>'+esc(task.name||('Task #'+task.id))+'</b></td><td>'+esc(task.taskType||'—')+'</td><td>'+badge(task.status)+'</td><td>'+time(task.startTime)+'</td><td>'+esc(duration(task))+'</td><td><button class="ops-v2-link" data-ops-task-select="'+esc(task.id)+'">查看日志</button></td></tr>'; }).join('');
+  }
+  function renderDetailVisibility() {
+    var empty=page.querySelector('[data-ops-detail-empty]'), content=page.querySelector('[data-ops-detail]'), has=!!state.selectedProcessId;
+    empty.hidden=has; content.hidden=!has;
+  }
+  function loadLog(taskId, scrollBottom) {
     if (!taskId) return Promise.resolve();
-    state.selectedTaskId = String(taskId); renderTasks();
-    var host = ensureDrawer(), task = state.tasks.find(function (item) { return String(item.id) === String(taskId); }) || {};
-    var label = host.querySelector('.ops-log-task');
-    if (label) label.innerHTML = '<b>' + escapeHtml(task.name || ('Task #' + taskId)) + '</b><small>Task Instance #' + escapeHtml(taskId) + ' · ' + escapeHtml(task.taskType || '任务') + ' · ' + statusLabel(task.status) + '</small>';
-    var wrap = host.querySelector('.ops-log-wrap'); var old = wrap.querySelector('.ops-log, .ops-log-empty');
-    if (old) old.outerHTML = '<div class="ops-log-empty">正在读取 Worker 日志…</div>';
-    return request('/operations/task-instances/' + encodeURIComponent(taskId) + '/log').then(function (log) {
-      var current = wrap.querySelector('.ops-log, .ops-log-empty');
-      if (current) current.outerHTML = '<pre class="ops-log"></pre>';
-      var pre = wrap.querySelector('.ops-log'); pre.textContent = log || '暂无任务日志';
-      if (forceBottom || pre.scrollHeight - pre.scrollTop - pre.clientHeight < 80) pre.scrollTop = pre.scrollHeight;
-    }).catch(function (error) {
-      var current = wrap.querySelector('.ops-log, .ops-log-empty');
-      if (current) current.outerHTML = '<div class="ops-log-empty">' + escapeHtml(error.message || '日志读取失败') + '</div>';
+    state.selectedTaskId=String(taskId); renderProcessTasks();
+    var task=state.processTasks.find(function(t){return String(t.id)===state.selectedTaskId;})||{};
+    page.querySelector('[data-ops-log-title]').textContent='实时日志 · '+(task.name||('Task #'+taskId));
+    page.querySelector('[data-ops-log-subtitle]').textContent='Task Instance ID: '+taskId+' · '+label(task.status);
+    var pre=page.querySelector('[data-ops-log]'); pre.textContent='正在读取真实 Worker 日志…';
+    return request('/operations/task-instances/'+encodeURIComponent(taskId)+'/log').then(function(log){ pre.textContent=log||'暂无任务日志'; if(scrollBottom) pre.scrollTop=pre.scrollHeight; }).catch(function(e){pre.textContent=e.message||'日志读取失败';});
+  }
+  function loadDetail(instanceId, autoLog) {
+    if (!instanceId) return Promise.resolve(); state.selectedProcessId=String(instanceId); renderDetailVisibility(); renderTable();
+    return Promise.all([request('/operations/process-instances'),request('/operations/task-instances?processInstanceId='+encodeURIComponent(instanceId))]).then(function(values){
+      state.processes=values[0]||state.processes; state.selectedProcess=state.processes.find(function(p){return processId(p)===state.selectedProcessId;})||{id:state.selectedProcessId,status:'UNKNOWN'}; state.processTasks=values[1]||[];
+      renderInfo(); renderProcessTasks(); renderTable();
+      if (state.selectedTaskId && !state.processTasks.some(function(t){return String(t.id)===state.selectedTaskId;})) state.selectedTaskId='';
+      if (autoLog && !state.selectedTaskId && state.processTasks.length) state.selectedTaskId=String(taskOrder().slice(-1)[0].id);
+      if (state.selectedTaskId) return loadLog(state.selectedTaskId, false);
+    }).finally(schedulePoll);
+  }
+  function schedulePoll() {
+    clearTimeout(state.poll); state.poll=null; if (!state.selectedProcessId) return;
+    var should=active(state.selectedProcess)||state.processTasks.some(active); if (!should) return;
+    state.poll=setTimeout(function(){ loadDetail(state.selectedProcessId, false).then(function(){ if(page.querySelector('[data-ops-auto-log]').checked && state.selectedTaskId) loadLog(state.selectedTaskId, true); }); },3000);
+  }
+  function loadTabData() {
+    var url=state.tab==='task'?'/operations/task-instances':state.tab==='failed'?'/operations/failed-tasks':'/operations/process-instances';
+    return request(url).then(function(rows){ if(state.tab==='task') state.tasks=rows||[]; else if(state.tab==='failed') state.failed=rows||[]; else state.processes=rows||[]; renderTable(); }).catch(function(e){notify(e.message||'调度数据加载失败',true);});
+  }
+  function refreshAll() {
+    if (state.loading) return Promise.resolve(); state.loading=true;
+    return Promise.all([request('/dashboard/operations'),request('/operations/process-instances')]).then(function(values){ state.dashboard=values[0]||{}; state.processes=values[1]||[]; renderKpis(); return loadTabData(); }).then(function(){ if(state.selectedProcessId) return loadDetail(state.selectedProcessId,false); }).catch(function(e){notify(e.message||'刷新失败',true);}).finally(function(){state.loading=false;});
+  }
+  function mutate(action,id) {
+    var text=action==='stop'?'终止':'重跑'; if(!confirm('确定'+text+' DolphinScheduler 流程实例 #'+id+' 吗？')) return;
+    request('/operations/process-instances/'+encodeURIComponent(id)+'/'+action,{method:'POST'}).then(function(){notify(text+'指令已提交'); setTimeout(refreshAll,600);}).catch(function(e){notify(e.message||text+'失败',true);});
+  }
+  function copyLog() {
+    var value=page.querySelector('[data-ops-log]').textContent||''; if(!value) return;
+    if(navigator.clipboard&&navigator.clipboard.writeText) navigator.clipboard.writeText(value).then(function(){notify('日志已复制');});
+    else { var t=document.createElement('textarea');t.value=value;document.body.appendChild(t);t.select();document.execCommand('copy');t.remove();notify('日志已复制'); }
+  }
+  function bind() {
+    page=document.getElementById('page-operations'); if(!page||page.dataset.opsV2Bound==='true') return; page.dataset.opsV2Bound='true';
+    page.addEventListener('click',function(e){
+      var tab=e.target.closest('[data-ops-tab]'); if(tab){state.tab=tab.dataset.opsTab;state.page=1;page.querySelectorAll('[data-ops-tab]').forEach(function(x){x.classList.toggle('on',x===tab);});loadTabData();return;}
+      var action=e.target.closest('[data-ops-action]'); if(action){var id=action.dataset.instanceId,a=action.dataset.opsAction;if(a==='detail'||a==='log')loadDetail(id,a==='log');else mutate(a,id);return;}
+      var task=e.target.closest('[data-ops-task-select]'); if(task){loadLog(task.dataset.opsTaskSelect,true);return;}
+      var globalTask=e.target.closest('[data-ops-task-log]'); if(globalTask){var pid=globalTask.dataset.processId,id=globalTask.dataset.opsTaskLog;if(pid)loadDetail(pid,false).then(function(){loadLog(id,true);});return;}
+      var da=e.target.closest('[data-ops-detail-action]'); if(da){var a2=da.dataset.opsDetailAction;if(a2==='refresh')loadDetail(state.selectedProcessId,false);else mutate(a2,state.selectedProcessId);return;}
+      var la=e.target.closest('[data-ops-log-action]'); if(la){var a3=la.dataset.opsLogAction;if(a3==='refresh'&&state.selectedTaskId)loadLog(state.selectedTaskId,true);else if(a3==='copy')copyLog();else if(a3==='fullscreen')page.classList.toggle('ops-log-fullscreen');return;}
+      if(e.target.closest('[data-ops-refresh]'))refreshAll(); else if(e.target.closest('[data-ops-reset]')){state.search='';state.status='all';state.page=1;page.querySelector('[data-ops-search]').value='';page.querySelector('[data-ops-status]').value='all';renderTable();} else if(e.target.closest('[data-ops-prev]')){state.page=Math.max(1,state.page-1);renderTable();} else if(e.target.closest('[data-ops-next]')){state.page++;renderTable();}
     });
+    page.querySelector('[data-ops-search]').addEventListener('input',function(e){state.search=e.target.value;state.page=1;renderTable();});
+    page.querySelector('[data-ops-status]').addEventListener('change',function(e){state.status=e.target.value;state.page=1;renderTable();});
+    page.querySelector('[data-ops-page-size]').addEventListener('change',function(e){state.pageSize=Number(e.target.value)||10;state.page=1;renderTable();});
   }
-  function scheduleRefresh() {
-    clearTimeout(state.timer); state.timer = null;
-    if (!state.open) return;
-    var active = statusKind((state.process || {}).status) === 'running' || state.tasks.some(function (task) { return statusKind(task.status) === 'running'; });
-    if (active) state.timer = setTimeout(function () { refresh(false); }, 3000);
-  }
-  function refresh(initial, autoLog) {
-    if (!state.instanceId || state.loading) return Promise.resolve();
-    state.loading = true; if (initial) renderLoading();
-    return Promise.all([request('/operations/process-instances'), request('/operations/task-instances?processInstanceId=' + encodeURIComponent(state.instanceId))]).then(function (values) {
-      state.process = (values[0] || []).find(function (item) { return String(item.id || item.processInstanceId) === String(state.instanceId); }) || { id: state.instanceId, name: '流程实例 #' + state.instanceId, status: 'UNKNOWN' };
-      state.tasks = (values[1] || []).slice().sort(function (a, b) { return String(a.startTime || a.id || '').localeCompare(String(b.startTime || b.id || '')); });
-      renderSummary(); renderTasks();
-      var selectedExists = state.tasks.some(function (task) { return String(task.id) === String(state.selectedTaskId); });
-      if (!selectedExists && autoLog && state.tasks.length) state.selectedTaskId = String(state.tasks[state.tasks.length - 1].id);
-      if (state.selectedTaskId) return loadLog(state.selectedTaskId, !!initial);
-    }).catch(function (error) { notify(error.message || '实例详情读取失败', true); }).finally(function () { state.loading = false; scheduleRefresh(); });
-  }
-  function openDrawer(instanceId, autoLog) {
-    if (!instanceId) return;
-    state.instanceId = String(instanceId); state.process = null; state.tasks = []; state.selectedTaskId = ''; state.open = true;
-    var host = ensureDrawer(); host.classList.add('open'); host.classList.remove('log-fullscreen'); host.setAttribute('aria-hidden', 'false');
-    refresh(true, !!autoLog);
-  }
-  function mutate(action, instanceId) {
-    var label = action === 'stop' ? '终止' : '重跑';
-    if (!window.confirm('确定' + label + ' DolphinScheduler 流程实例 #' + instanceId + ' 吗？')) return;
-    request('/operations/process-instances/' + encodeURIComponent(instanceId) + '/' + action, { method: 'POST' }).then(function () {
-      notify(label + '指令已提交'); window.dispatchEvent(new CustomEvent('platform:operations-refresh'));
-      if (state.open && String(state.instanceId) === String(instanceId)) setTimeout(function () { refresh(false); }, 600);
-    }).catch(function (error) { notify(error.message || label + '失败', true); });
-  }
-  function onDrawerClick(event) {
-    var task = event.target.closest('[data-ops-task-id]'); if (task) { loadLog(task.dataset.opsTaskId, true); return; }
-    var action = event.target.closest('[data-ops-drawer-action]');
-    if (action) {
-      var type = action.dataset.opsDrawerAction;
-      if (type === 'refresh') refresh(false);
-      else if (type === 'stop' || type === 'rerun') mutate(type, state.instanceId);
-      return;
-    }
-    var logAction = event.target.closest('[data-ops-log-action]'); if (!logAction) return;
-    var type = logAction.dataset.opsLogAction, host = ensureDrawer();
-    if (type === 'refresh') { if (state.selectedTaskId) loadLog(state.selectedTaskId, true); }
-    else if (type === 'copy') {
-      var pre = host.querySelector('.ops-log'); if (!pre) return notify('暂无可复制的日志', true);
-      var value = pre.textContent || '';
-      if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(value).then(function () { notify('日志已复制'); });
-      else { var area = document.createElement('textarea'); area.value = value; document.body.appendChild(area); area.select(); document.execCommand('copy'); area.remove(); notify('日志已复制'); }
-    } else if (type === 'fullscreen') host.classList.toggle('log-fullscreen');
-  }
-  function bindRowActions() {
-    var page = document.getElementById('page-operations'); if (!page || page.dataset.opsRuntimeBound === 'true') return;
-    page.dataset.opsRuntimeBound = 'true';
-    page.addEventListener('click', function (event) {
-      var button = event.target.closest('[data-ops-action]'); if (!button) return;
-      var id = button.dataset.instanceId, action = button.dataset.opsAction;
-      if (action === 'detail') openDrawer(id, false);
-      else if (action === 'log') openDrawer(id, true);
-      else if (action === 'stop' || action === 'rerun') mutate(action, id);
-    });
-  }
-  function bindQuickActions() {
-    document.querySelectorAll('#page-operations .quickbox').forEach(function (button) {
-      var label = button.textContent.trim();
-      if (label === '实例搜索') button.onclick = function () { var id = window.prompt('请输入 DolphinScheduler Process Instance ID'); if (id) openDrawer(id, false); };
-      else if (label === '查看日志') button.onclick = function () { var id = window.prompt('请输入 DolphinScheduler Process Instance ID'); if (id) openDrawer(id, true); };
-      else if (label === '重跑实例') button.onclick = function () { var id = window.prompt('请输入 DolphinScheduler Process Instance ID'); if (id) mutate('rerun', id); };
-      else if (label === '终止实例') button.onclick = function () { var id = window.prompt('请输入 DolphinScheduler Process Instance ID'); if (id) mutate('stop', id); };
-    });
-  }
-  window.platformOperationsEnhance = function () { bindRowActions(); bindQuickActions(); };
-  window.platformOperationsOpen = openDrawer;
-  ensureDrawer(); bindRowActions(); bindQuickActions();
+  window.platformOperationsEnhance=function(dashboard){ bind(); state.dashboard=dashboard||state.dashboard||{}; renderKpis(); if(!state.processes.length) refreshAll(); else renderTable(); };
+  document.addEventListener('DOMContentLoaded',function(){ bind(); });
 })();
