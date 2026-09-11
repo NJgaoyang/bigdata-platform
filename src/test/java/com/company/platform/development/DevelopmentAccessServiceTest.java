@@ -28,6 +28,8 @@ class DevelopmentAccessServiceTest {
         store.users.clear();
         store.userPermissions.clear();
         store.projectPermissions.clear();
+        store.users.put(21L, new UserView(21L, "alice", "Alice", "USER", "ACTIVE", LocalDateTime.now(), null));
+        store.userPermissions.put(21L, Set.of("DATA_DEVELOPMENT_VIEW", "DATA_DEVELOPMENT_EDIT"));
         development = new DevelopmentService(store);
         access = new DevelopmentAccessService(store, development, new PlatformProperties());
     }
