@@ -7,6 +7,7 @@ import com.company.platform.lineage.SqlLineageParser;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -23,10 +24,14 @@ class WorkflowPublishServiceTest {
         WorkflowView workflow = workflowService.create(new WorkflowRequests.WorkflowRequest("sales_daily", "demo",
                 List.of(new WorkflowRequests.NodeRequest("daily sales", NodeType.SHELL, versionId, null, 0, 0)), List.of()));
         AtomicReference<SchedulerGateway.PublishRequest> published = new AtomicReference<>();
+        AtomicBoolean releasedOnline = new AtomicBoolean(false);
         SchedulerGateway gateway = new SchedulerGateway() {
             @Override public PublishResult publish(PublishRequest request) {
                 published.set(request);
                 return new PublishResult("test-process-1", request.version(), "PUBLISHED");
+            }
+            @Override public void release(String processCode, boolean online) {
+                if ("test-process-1".equals(processCode) && online) releasedOnline.set(true);
             }
             @Override public RunResult run(String processCode) { return new RunResult("test-instance-1", "RUNNING"); }
             @Override public InstanceStatus status(String instanceId) { return new InstanceStatus(instanceId, "RUNNING", ""); }
@@ -40,5 +45,6 @@ class WorkflowPublishServiceTest {
                 new LineageService(store, new SqlLineageParser()));
         assertEquals("PUBLISHED", service.publish(workflow.id()).status());
         assertTrue(published.get().definitionJson().contains("\"type\":\"SQL\""));
+        assertTrue(releasedOnline.get(), "publish must release the DolphinScheduler definition ONLINE");
     }
 }
