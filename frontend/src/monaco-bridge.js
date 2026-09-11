@@ -3,6 +3,7 @@ import editorWorker from '../node_modules/monaco-editor/esm/vs/editor/editor.wor
 import '../node_modules/monaco-editor/min/vs/editor/editor.main.css';
 import './development-ui.css';
 import './operations-ui.css';
+import './operations-runtime.js';
 import './integration-task-dialog-bootstrap.js';
 import './development-permissions.js';
 import './development-draft-state.js';
