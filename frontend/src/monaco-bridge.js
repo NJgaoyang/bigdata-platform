@@ -2,6 +2,7 @@ import * as monaco from '../node_modules/monaco-editor/esm/vs/editor/editor.api.
 import editorWorker from '../node_modules/monaco-editor/esm/vs/editor/editor.worker.js?worker';
 import '../node_modules/monaco-editor/min/vs/editor/editor.main.css';
 import './integration-task-dialog-bootstrap.js';
+import './development-permissions.js';
 import './development-workspace.js';
 import './settings-cluster-fix.js';
 
