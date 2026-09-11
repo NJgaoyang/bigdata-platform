@@ -279,12 +279,16 @@ function syncCreateButton() {
     toolbar.insertBefore(button, check);
   }
   if (!button) return;
+
   const settingsVisible = !!document.querySelector('[data-settings-panel="clusters"]:not([hidden])');
-  button.hidden = !type || !settingsVisible || !(window.platformAuth && window.platformAuth.isAdmin);
-  if (!button.hidden) {
+  const shouldHide = !type || !settingsVisible || !(window.platformAuth && window.platformAuth.isAdmin);
+  if (button.hidden !== shouldHide) button.hidden = shouldHide;
+
+  if (!shouldHide) {
     const label = button.querySelector('span');
-    if (label) label.textContent = type === 'dolphin' ? '新增 DolphinScheduler 集群' : '新增 SeaTunnel 集群';
-    button.dataset.clusterType = type;
+    const nextLabel = type === 'dolphin' ? '新增 DolphinScheduler 集群' : '新增 SeaTunnel 集群';
+    if (label && label.textContent !== nextLabel) label.textContent = nextLabel;
+    if (button.dataset.clusterType !== type) button.dataset.clusterType = type;
   }
 }
 
@@ -320,7 +324,15 @@ function installInteractions() {
   }, true);
 
   const root = document.getElementById('page-settings') || document.body;
-  const observer = new MutationObserver(() => syncCreateButton());
+  let syncQueued = false;
+  const observer = new MutationObserver(() => {
+    if (syncQueued) return;
+    syncQueued = true;
+    window.requestAnimationFrame(() => {
+      syncQueued = false;
+      syncCreateButton();
+    });
+  });
   observer.observe(root, { subtree: true, childList: true, attributes: true, attributeFilter: ['class', 'hidden', 'style'] });
 }
 
