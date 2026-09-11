@@ -1,7 +1,7 @@
 import { createRouter, createWebHistory } from "vue-router";
 import OverviewView from "./views/OverviewView.vue";
 import DevelopmentView from "./views/DevelopmentView.vue";
-import IntegrationView from "./views/IntegrationView.vue";
+import IntegrationView from "./views/IntegrationProductionView.vue";
 import ExploreView from "./views/ExploreView.vue";
 import LineageView from "./views/LineageView.vue";
 import WorkflowView from "./views/WorkflowView.vue";
@@ -14,7 +14,7 @@ const router = createRouter({
   history: createWebHistory(),
   routes: [
     { path: "/login", component: LoginView },
-    { path: "/", redirect: "/development" },
+    { path: "/", redirect: "/overview" },
     { path: "/overview", component: OverviewView },
     { path: "/integration", component: IntegrationView, meta: { permission: "DATA_INTEGRATION" } },
     { path: "/development", component: DevelopmentView, meta: { permission: "DATA_DEVELOPMENT" } },
@@ -32,7 +32,7 @@ router.beforeEach(async (to) => {
   if (!token || !permission) return true;
   try {
     const session = (await platformApi.me()).data.data;
-    if (session.permissions?.includes(permission)) return true;
+    if (session.permissions?.includes(permission) || session.superAdmin) return true;
     return { path: "/overview", query: { reason: "permission" } };
   } catch {
     localStorage.removeItem("platform_access_token");
