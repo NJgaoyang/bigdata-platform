@@ -31,7 +31,7 @@ platform:
   seatunnel:
     real-enabled: ${SEATUNNEL_REAL_ENABLED:true}
   scheduler:
-    type: dolphinscheduler
+    type: ${PLATFORM_SCHEDULER_TYPE:local}
     dolphinscheduler:
       base-url: ${DOLPHINSCHEDULER_BASE_URL:http://172.17.0.12:12345}
       username: ${DOLPHINSCHEDULER_USERNAME:admin}

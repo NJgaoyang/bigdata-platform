@@ -34,25 +34,20 @@ public class ProductionStartupValidator {
         if (!properties.getSeatunnel().isRealEnabled()) {
             throw new IllegalStateException("生产环境必须开启 SEATUNNEL_REAL_ENABLED=true，禁止使用模拟同步");
         }
-        PlatformProperties.Dolphinscheduler ds = properties.getScheduler().getDolphinscheduler();
-        if (!ds.isRealEnabled()) {
-            throw new IllegalStateException("生产环境必须开启 DOLPHINSCHEDULER_REAL_ENABLED=true，禁止使用模拟调度");
+        String schedulerType = properties.getScheduler().getType() == null ? "local" : properties.getScheduler().getType().trim().toLowerCase();
+        if (!"local".equals(schedulerType) && !"dolphinscheduler".equals(schedulerType)) {
+            throw new IllegalStateException("PLATFORM_SCHEDULER_TYPE 仅支持 local / dolphinscheduler");
         }
-        requireText(ds.getBaseUrl(), "DOLPHINSCHEDULER_BASE_URL");
-        requireText(ds.getProjectCode(), "DOLPHINSCHEDULER_PROJECT_CODE");
-        requireText(ds.getTenantCode(), "DOLPHINSCHEDULER_TENANT_CODE");
-        if ((ds.getPassword() == null || ds.getPassword().isBlank())
-                && (ds.getToken() == null || ds.getToken().isBlank())
-                && !hasPersistedSchedulerCredentials()) {
-            throw new IllegalStateException("生产环境必须配置 DolphinScheduler 密码/Token，或在系统设置中保存可用的 DolphinScheduler 集群凭据");
+        if ("dolphinscheduler".equals(schedulerType)) {
+            PlatformProperties.Dolphinscheduler ds = properties.getScheduler().getDolphinscheduler();
+            if (!ds.isRealEnabled()) throw new IllegalStateException("DolphinScheduler 兼容模式必须开启 DOLPHINSCHEDULER_REAL_ENABLED=true");
+            requireText(ds.getBaseUrl(), "DOLPHINSCHEDULER_BASE_URL");
+            requireText(ds.getProjectCode(), "DOLPHINSCHEDULER_PROJECT_CODE");
+            requireText(ds.getTenantCode(), "DOLPHINSCHEDULER_TENANT_CODE");
+            if ((ds.getPassword() == null || ds.getPassword().isBlank()) && (ds.getToken() == null || ds.getToken().isBlank()) && !hasPersistedSchedulerCredentials()) {
+                throw new IllegalStateException("DolphinScheduler 兼容模式必须配置密码/Token，或保存可用的集群凭据");
+            }
         }
-        if (ds.getFailRetryTimes() < 0 || ds.getFailRetryTimes() > 10) {
-            throw new IllegalStateException("DOLPHINSCHEDULER_FAIL_RETRY_TIMES 必须在 0-10 之间");
-        }
-        if (ds.getFailRetryInterval() < 1 || ds.getFailRetryInterval() > 60) {
-            throw new IllegalStateException("DOLPHINSCHEDULER_FAIL_RETRY_INTERVAL 必须在 1-60 分钟之间");
-        }
-        requireText(ds.getWorkerGroup(), "DOLPHINSCHEDULER_WORKER_GROUP");
     }
 
     private boolean hasPersistedSchedulerCredentials() {

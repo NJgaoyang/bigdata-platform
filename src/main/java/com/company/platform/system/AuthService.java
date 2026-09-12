@@ -122,10 +122,13 @@ public class AuthService {
 
     private boolean isDataSourcePath(String path) { return path.startsWith("/api/data-sources") || path.startsWith("/api/datasources"); }
     private String permissionFor(String path) {
-        if (path.startsWith("/api/integration")) return "DATA_INTEGRATION";
+        if (path.startsWith("/api/integration") || path.startsWith("/api/realtime")) return "DATA_INTEGRATION";
+        if (path.startsWith("/api/flink")) return "SYSTEM_SETTINGS";
         if (path.startsWith("/api/development") || path.startsWith("/api/projects") || path.startsWith("/api/folders") || path.startsWith("/api/files")) return "DATA_DEVELOPMENT";
         if (path.startsWith("/api/query") || path.startsWith("/api/metadata")) return "METADATA";
-        if (path.startsWith("/api/lineage")) return "DATA_ASSETS";
+        if (path.startsWith("/api/lineage") || path.startsWith("/api/assets")) return "DATA_ASSETS";
+        if (path.startsWith("/api/metrics")) return "METRICS";
+        if (path.startsWith("/api/release")) return "RELEASE";
         if (path.startsWith("/api/workflows") || path.startsWith("/api/scheduler")) return "WORKFLOW";
         if (path.startsWith("/api/operations")) return "OPERATIONS";
         if (path.startsWith("/api/system")) return "SYSTEM_SETTINGS";

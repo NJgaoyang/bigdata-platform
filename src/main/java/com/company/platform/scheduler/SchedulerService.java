@@ -65,7 +65,7 @@ public class SchedulerService {
         try {
             String scheduleId = gateway.upsertSchedule(processCode, current.cronExpression(), current.timezone(),
                     true, normalizeFailureStrategy(current.failureStrategy()), current.parallelism(), current.workerGroup(), current.alertGroup());
-            if (scheduleId == null || scheduleId.isBlank()) throw new IllegalStateException("DolphinScheduler 未返回有效调度编号");
+            if (scheduleId == null || scheduleId.isBlank()) throw new IllegalStateException("平台调度未返回有效调度编号");
             gateway.scheduleState(scheduleId, true);
             ScheduleConfigView online = new ScheduleConfigView(current.id() == 0 ? store.nextId() : current.id(), workflowId,
                     current.cronExpression(), current.timezone(), true, normalizeFailureStrategy(current.failureStrategy()),
@@ -115,7 +115,7 @@ public class SchedulerService {
     private void validateCron(String cron) {
         if (cron == null || cron.isBlank()) throw new BadRequestException("Cron 表达式不能为空");
         int fields = cron.trim().split("\\s+").length;
-        if (fields < 6 || fields > 7) throw new BadRequestException("DolphinScheduler Cron 必须使用 6 或 7 个字段的 Quartz 格式");
+        if (fields < 6 || fields > 7) throw new BadRequestException("Cron 必须使用 6 或 7 个字段的 Quartz 格式");
     }
 
     private void validateTimezone(String timezone) {

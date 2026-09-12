@@ -1,0 +1,14 @@
+<script setup lang="ts">
+import { computed, onMounted, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
+import { ElMessage } from 'element-plus'
+import PageHeader from '../../components/PageHeader.vue'
+import StatusBadge from '../../components/StatusBadge.vue'
+import { assetApi, type AssetItem } from '../../api/domain'
+const route=useRoute();const loading=ref(true),rows=ref<AssetItem[]>([]),keyword=ref(''),typeFilter=ref('')
+const mode=computed(()=>route.path.endsWith('/favorites')?'favorites':'catalog')
+const filtered=computed(()=>rows.value.filter(r=>(!typeFilter.value||r.type===typeFilter.value)&&(!keyword.value||`${r.name} ${r.description||''} ${r.source||''}`.toLowerCase().includes(keyword.value.toLowerCase()))))
+async function load(){loading.value=true;try{rows.value=mode.value==='favorites'?await assetApi.favorites():await assetApi.catalog()}catch(e){ElMessage.error(e instanceof Error?e.message:'资产加载失败')}finally{loading.value=false}}
+async function toggle(r:AssetItem){try{r.favorite?await assetApi.unfavorite(r.ref):await assetApi.favorite(r.type,r.ref);ElMessage.success(r.favorite?'已取消收藏':'已收藏');await load()}catch(e){ElMessage.error(e instanceof Error?e.message:'操作失败')}}
+watch(()=>route.path,load);onMounted(load)
+</script><template><div class="ds-page"><PageHeader :title="mode==='catalog'?'资产目录':'我的收藏'" :subtitle="mode==='catalog'?'从统一目录发现数据表、数据集与已认证指标。':'快速访问自己收藏的数据资产。'"/><div class="ds-card"><div class="ds-toolbar"><el-input v-model="keyword" placeholder="搜索资产名称 / 描述" clearable style="width:260px"/><el-select v-model="typeFilter" clearable placeholder="全部类型" style="width:150px"><el-option label="数据表" value="TABLE"/><el-option label="数据集" value="DATASET"/><el-option label="认证指标" value="METRIC"/></el-select><div class="ds-spacer"/><el-button @click="load" :loading="loading">刷新</el-button></div><el-skeleton v-if="loading" :rows="7" animated/><div v-else-if="!filtered.length" class="ds-empty"><div><div class="ds-empty__title">{{mode==='favorites'?'暂无收藏资产':'暂无可用资产'}}</div><div>{{mode==='favorites'?'可在资产目录收藏常用资源。':'元数据、数据集或认证指标创建后会出现在这里。'}}</div></div></div><table v-else class="ds-table"><thead><tr><th>资产</th><th>类型</th><th>来源</th><th>Owner</th><th>状态</th><th>详情</th><th>操作</th></tr></thead><tbody><tr v-for="r in filtered" :key="r.ref"><td><span class="ds-resource">{{r.name}}</span><div class="sub">{{r.description||r.ref}}</div></td><td>{{r.type}}</td><td>{{r.source||'—'}}</td><td>{{r.owner||'—'}}</td><td><StatusBadge :status="r.status"/></td><td>{{r.detail||'—'}}</td><td><span class="ds-link" @click="toggle(r)">{{r.favorite?'取消收藏':'收藏'}}</span></td></tr></tbody></table></div></div></template><style scoped>.sub{margin-top:3px;color:#98a2b3;font-size:10px}</style>

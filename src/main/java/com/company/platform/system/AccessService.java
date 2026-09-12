@@ -21,7 +21,7 @@ public class AccessService {
     public AccessService(PlatformStore store, AuditService audit) { this.store = store; this.audit = audit; }
     @Autowired public void setAuthService(AuthService auth) { this.auth = auth; }
 
-    public static final Set<String> MODULES = Set.of("WORKBENCH", "METADATA", "DATA_INTEGRATION", "DATA_DEVELOPMENT", "WORKFLOW", "OPERATIONS", "DATA_ASSETS", "SYSTEM_SETTINGS");
+    public static final Set<String> MODULES = Set.of("WORKBENCH", "METADATA", "DATA_INTEGRATION", "DATA_DEVELOPMENT", "WORKFLOW", "OPERATIONS", "METRICS", "DATA_ASSETS", "RELEASE", "SYSTEM_SETTINGS");
     public static final Set<String> LEGACY_MODULE_PERMISSIONS = Set.of("DATA_INTEGRATION", "DATA_DEVELOPMENT", "DATA_EXPLORE", "DATA_LINEAGE", "SCHEDULER", "OPERATIONS", "SYSTEM_SETTINGS");
     public static final String PERMISSION_MARKER = "_CONFIGURED";
     public static final String DATA_DEVELOPMENT_PROJECT_ALL = "DATA_DEVELOPMENT_PROJECT_ALL";
@@ -149,7 +149,10 @@ public class AccessService {
     }
 
     private String normalizeStatus(String status) { return "DISABLED".equalsIgnoreCase(status) ? "DISABLED" : "ACTIVE"; }
-    private String normalizeRole(String roleCode) { return "ADMIN".equalsIgnoreCase(roleCode) ? "ADMIN" : "USER"; }
+    private String normalizeRole(String roleCode) {
+        String value = roleCode == null ? "USER" : roleCode.trim().toUpperCase();
+        return Set.of("ADMIN", "DEVELOPER", "RELEASE_MANAGER", "VIEWER", "USER").contains(value) ? value : "USER";
+    }
     private boolean isBuiltInAdmin(UserView user) { return user != null && "admin".equalsIgnoreCase(user.username().trim()); }
 
     public Set<String> effectivePermissions(long userId) { return effectivePermissions(store.userPermissions.getOrDefault(userId, Set.of())); }

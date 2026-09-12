@@ -53,7 +53,7 @@ public class WorkflowPublishService {
         List<FileVersionView> sqlVersions = new ArrayList<>();
 
         for (WorkflowNodeView node : workflow.nodes()) {
-            if (node.nodeType() != NodeType.SEATUNNEL && node.fileVersionId() == null) {
+            if (node.nodeType() != NodeType.SEATUNNEL && node.nodeType() != NodeType.CONDITION && node.fileVersionId() == null) {
                 throw new BadRequestException("节点“" + node.name() + "”没有绑定开发文件版本");
             }
             String snapshot = "";
@@ -63,7 +63,7 @@ public class WorkflowPublishService {
                 if (fileVersion == null) throw new BadRequestException("节点“" + node.name() + "”绑定的文件版本不存在");
                 DevFileView devFile = store.files.get(fileVersion.fileId());
                 if (devFile == null) throw new BadRequestException("节点“" + node.name() + "”绑定的开发文件不存在");
-                effectiveType = resolveTaskType(devFile.fileType(), devFile.name());
+                effectiveType = node.nodeType() == NodeType.CONDITION ? NodeType.CONDITION : resolveTaskType(devFile.fileType(), devFile.name());
                 snapshot = Base64.getEncoder().encodeToString(fileVersion.content().getBytes(StandardCharsets.UTF_8));
                 if (effectiveType == NodeType.SQL) sqlVersions.add(fileVersion);
             }
@@ -116,8 +116,8 @@ public class WorkflowPublishService {
             }
         }
         String message = lineageWarning
-                ? "已发布并上线到 DolphinScheduler；部分 SQL 血缘解析失败，请检查日志"
-                : "已发布并上线到 DolphinScheduler";
+                ? "已发布到平台调度；部分 SQL 血缘解析失败，请检查日志"
+                : "已发布到平台调度";
         return new PublishResult(workflow.id(), version, effectiveProcessCode, result.status(), message);
     }
 

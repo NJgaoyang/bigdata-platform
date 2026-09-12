@@ -18,6 +18,18 @@ spring:
     locations: classpath:db/migration
   jackson:
     default-property-inclusion: non_null
+  quartz:
+    job-store-type: jdbc
+    jdbc:
+      initialize-schema: never
+    properties:
+      org.quartz.scheduler.instanceName: DataSphereScheduler
+      org.quartz.scheduler.instanceId: AUTO
+      org.quartz.jobStore.isClustered: true
+      org.quartz.jobStore.clusterCheckinInterval: 20000
+      org.quartz.jobStore.driverDelegateClass: org.quartz.impl.jdbcjobstore.StdJDBCDelegate
+      org.quartz.jobStore.tablePrefix: QRTZ_
+      org.quartz.jobStore.useProperties: true
 
 mybatis:
   mapper-locations: classpath:mapper/*.xml
@@ -26,7 +38,7 @@ mybatis:
 
 platform:
   features:
-    realtime-sync: false
+    realtime-sync: true
   security:
     enabled: ${PLATFORM_AUTH_ENABLED:false}
     admin-username: ${PLATFORM_ADMIN_USERNAME:admin}
@@ -43,7 +55,7 @@ platform:
     home: ${SEATUNNEL_HOME:/data/software/seatunnel}
     real-enabled: ${SEATUNNEL_REAL_ENABLED:false}
   scheduler:
-    type: dolphinscheduler
+    type: ${PLATFORM_SCHEDULER_TYPE:local}
     dolphinscheduler:
       base-url: ${DOLPHINSCHEDULER_BASE_URL:http://127.0.0.1:12345}
       version: "3.1.9"

@@ -66,7 +66,7 @@ public class PlatformProperties {
         public void setRealEnabled(boolean realEnabled) { this.realEnabled = realEnabled; }
     }
     public static class Scheduler {
-        private String type = "dolphinscheduler";
+        private String type = "local";
         private final Dolphinscheduler dolphinscheduler = new Dolphinscheduler();
         public String getType() { return type; }
         public void setType(String type) { this.type = type; }

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-BRANCH="${PLATFORM_BRANCH:-fix/dev202609101-production-ready}"
+BRANCH="${PLATFORM_BRANCH:-$(git branch --show-current)}"
 BASE_URL="${PLATFORM_BASE_URL:-http://127.0.0.1:8080}"
 APP_JAR="${PLATFORM_JAR:-target/bigdata-platform-0.1.0-SNAPSHOT.jar}"
 LOG_FILE="${PLATFORM_LOG:-platform.log}"
@@ -152,8 +152,12 @@ wait_http "$BASE_URL/"
 echo "[smoke] root page OK"
 curl -fsS --max-time 10 "${AUTH_ARGS[@]}" "$BASE_URL/api/dashboard/overview" >/dev/null
 echo "[smoke] dashboard overview OK"
-curl -fsS --max-time 10 "${AUTH_ARGS[@]}" "$BASE_URL/api/dashboard/operations" >/dev/null
-echo "[smoke] dashboard operations OK"
+curl -fsS --max-time 10 "${AUTH_ARGS[@]}" "$BASE_URL/api/operations/summary" >/dev/null
+echo "[smoke] operations summary OK"
+curl -fsS --max-time 10 "${AUTH_ARGS[@]}" "$BASE_URL/api/release/policy" >/dev/null
+echo "[smoke] release policy OK"
+curl -fsS --max-time 10 "${AUTH_ARGS[@]}" "$BASE_URL/api/metrics/overview" >/dev/null
+echo "[smoke] metrics overview OK"
 
 if [[ "${SEATUNNEL_REAL_ENABLED:-true}" == "true" ]]; then
   SEATUNNEL_HOME_VALUE="${SEATUNNEL_HOME:-/data/software/seatunnel}"
@@ -164,12 +168,18 @@ if [[ "${SEATUNNEL_REAL_ENABLED:-true}" == "true" ]]; then
   fi
 fi
 
-if [[ "${DOLPHINSCHEDULER_REAL_ENABLED:-true}" == "true" ]]; then
-  if [[ -z "${DOLPHINSCHEDULER_PASSWORD:-}" && -z "${DOLPHINSCHEDULER_TOKEN:-}" ]]; then
-    echo "[smoke] DolphinScheduler env credentials are empty; persisted cluster credentials may be used"
-  else
-    echo "[smoke] DolphinScheduler env credentials are configured"
+SCHEDULER_TYPE="${PLATFORM_SCHEDULER_TYPE:-local}"
+if [[ "$SCHEDULER_TYPE" == "local" ]]; then
+  echo "[smoke] DataSphere Local Scheduler enabled"
+elif [[ "$SCHEDULER_TYPE" == "dolphinscheduler" ]]; then
+  if [[ "${DOLPHINSCHEDULER_REAL_ENABLED:-false}" != "true" ]]; then
+    echo "[smoke] ERROR: DolphinScheduler compatibility mode requires DOLPHINSCHEDULER_REAL_ENABLED=true"
+    exit 1
   fi
+  echo "[smoke] DolphinScheduler compatibility mode enabled"
+else
+  echo "[smoke] ERROR: unsupported PLATFORM_SCHEDULER_TYPE=$SCHEDULER_TYPE"
+  exit 1
 fi
 
 echo "[done] deployment and smoke tests passed"

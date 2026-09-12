@@ -29,6 +29,7 @@
         <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-web</artifactId></dependency>
         <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-validation</artifactId></dependency>
         <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-jdbc</artifactId></dependency>
+        <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-quartz</artifactId></dependency>
         <dependency><groupId>org.flywaydb</groupId><artifactId>flyway-core</artifactId></dependency>
         <dependency><groupId>org.flywaydb</groupId><artifactId>flyway-mysql</artifactId></dependency>
         <dependency>
@@ -61,14 +62,14 @@
                         <phase>prepare-package</phase>
                         <configuration>
                             <target>
-                                <exec executable="npm" dir="${project.basedir}/frontend" failonerror="true">
+                                <exec executable="npm" dir="${project.basedir}/frontend-v2" failonerror="true">
                                     <arg value="ci"/>
                                 </exec>
-                                <exec executable="npm" dir="${project.basedir}/frontend" failonerror="true">
+                                <exec executable="npm" dir="${project.basedir}/frontend-v2" failonerror="true">
                                     <arg value="run"/><arg value="build"/>
                                 </exec>
                                 <copy todir="${project.build.outputDirectory}/static" overwrite="true">
-                                    <fileset dir="${project.basedir}/frontend/dist"/>
+                                    <fileset dir="${project.basedir}/frontend-v2/dist"/>
                                 </copy>
                             </target>
                         </configuration>
