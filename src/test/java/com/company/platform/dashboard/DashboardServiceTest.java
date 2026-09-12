@@ -3,13 +3,17 @@ package com.company.platform.dashboard;
 import com.company.platform.common.PlatformStore;
 import com.company.platform.datasource.DataSourceType;
 import com.company.platform.datasource.DataSourceView;
+import com.company.platform.development.DevFileView;
+import com.company.platform.development.DevProjectView;
 import com.company.platform.integration.IntegrationInstanceView;
+import com.company.platform.integration.IntegrationTableView;
 import com.company.platform.integration.IntegrationTaskView;
 import com.company.platform.lineage.LineageView;
 import com.company.platform.scheduler.SchedulerGateway;
 import org.junit.jupiter.api.Test;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -27,15 +31,7 @@ class DashboardServiceTest {
                 LocalDateTime.now(), LocalDateTime.now(), "completed"));
         store.lineages.put(5L, new LineageView(5, "ods_user", "dwd_user", "SQL", 1L, 1L));
 
-        DashboardService service = new DashboardService(store, new SchedulerGateway() {
-            @Override public PublishResult publish(PublishRequest request) { throw new UnsupportedOperationException(); }
-            @Override public RunResult run(String processCode) { throw new UnsupportedOperationException(); }
-            @Override public InstanceStatus status(String instanceId) { throw new UnsupportedOperationException(); }
-            @Override public void stop(String instanceId) { throw new UnsupportedOperationException(); }
-            @Override public RunResult rerun(String instanceId) { throw new UnsupportedOperationException(); }
-            @Override public RunResult backfill(String processCode, String start, String end, int parallelism) { throw new UnsupportedOperationException(); }
-        });
-
+        DashboardService service = new DashboardService(store, testGateway());
         var overview = service.overview();
         assertEquals(2, overview.sources().total());
         assertEquals(1, overview.sources().healthy());
@@ -43,5 +39,102 @@ class DashboardServiceTest {
         assertEquals(2, service.assets().tables());
         assertTrue(overview.platform().schedulerAvailable());
         assertTrue(overview.trend().stream().mapToLong(DashboardService.TrendPoint::count).sum() >= 1);
+    }
+
+    @Test
+    void assetSyncStatusIsCalculatedPerIntegrationTask() {
+        PlatformStore store = new PlatformStore();
+        store.integrationTaskTables.put(10L, List.of(new IntegrationTableView(101, 10, "src", "a", "ods", "a", "")));
+        store.integrationTaskTables.put(20L, List.of(new IntegrationTableView(201, 20, "src", "b", "ods", "b", "")));
+        store.integrationInstances.put(30L, new IntegrationInstanceView(30, 10, "ok", "FINISHED",
+                LocalDateTime.now(), LocalDateTime.now(), "done"));
+        DashboardService service = new DashboardService(store, testGateway());
+
+        var assets = service.assets().items();
+        assertEquals("已同步", assets.stream().filter(item -> item.name().equals("ods.a")).findFirst().orElseThrow().status());
+        assertEquals("待同步", assets.stream().filter(item -> item.name().equals("ods.b")).findFirst().orElseThrow().status());
+    }
+
+    @Test
+    void lineageAndSuccessfulSyncDoNotPretendToBeGovernance() {
+        PlatformStore store = new PlatformStore();
+        store.lineages.clear();
+        store.integrationTaskTables.clear();
+        store.integrationInstances.clear();
+        store.lineages.put(10L, new LineageView(10L, "ods.orders", "dwd.orders", "SQL", 1L, 2L));
+        store.integrationTaskTables.put(20L, List.of(new IntegrationTableView(201, 20, "src", "orders", "ods", "synced_orders", "")));
+        store.integrationInstances.put(30L, new IntegrationInstanceView(30, 20, "real-execution", "SUCCESS",
+                LocalDateTime.now(), LocalDateTime.now(), "done"));
+        DashboardService service = new DashboardService(store, testGateway());
+
+        var assets = service.assets();
+        assertEquals(0, assets.governed());
+        assertEquals("已关联", assets.items().stream().filter(item -> item.name().equals("dwd.orders")).findFirst().orElseThrow().status());
+        assertEquals("已同步", assets.items().stream().filter(item -> item.name().equals("ods.synced_orders")).findFirst().orElseThrow().status());
+    }
+
+    @Test
+    void overviewReturnsOnlyCurrentUsersPersistedFavorites() {
+        PlatformStore store = new PlatformStore();
+        store.projects.clear();
+        store.files.clear();
+        store.projects.put(10L, new DevProjectView(10, "我的收藏", "个人工作区", "ACTIVE", "alice"));
+        store.projects.put(20L, new DevProjectView(20, "我的收藏", "个人工作区", "ACTIVE", "bob"));
+        store.files.put(101L, new DevFileView(101, 10, null, "alice-order.sql", "SQL", "SELECT 1", "订单收藏", "DRAFT", 1));
+        store.files.put(201L, new DevFileView(201, 20, null, "bob-order.sql", "SQL", "SELECT 2", "其他用户收藏", "DRAFT", 1));
+        DashboardService service = new DashboardService(store, testGateway());
+
+        var favorites = service.overview("alice").favorites();
+        assertEquals(1, favorites.size());
+        assertEquals("alice-order.sql", favorites.get(0).name());
+        assertEquals("SQL", favorites.get(0).type());
+        assertEquals("订单收藏", favorites.get(0).detail());
+    }
+
+    @Test
+    void taskStatusesAreAggregatedCaseInsensitively() {
+        PlatformStore store = new PlatformStore();
+        store.integrationTasks.put(3L, new IntegrationTaskView(3, "user_sync", "MYSQL", "STARROCKS", "FULL", "DRAFT", "{}"));
+        store.integrationInstances.put(4L, new IntegrationInstanceView(4, 3, "execution-4", "success",
+                LocalDateTime.now(), LocalDateTime.now(), "completed"));
+        DashboardService service = new DashboardService(store, testGateway());
+
+        assertEquals(1, service.overview().tasks().success());
+    }
+
+    @Test
+    void operationsDashboardContainsOnlyRealSchedulerInstances() {
+        PlatformStore store = new PlatformStore();
+        store.integrationTasks.put(3L, new IntegrationTaskView(3, "sync", "MYSQL", "STARROCKS", "FULL", "DRAFT", "{}"));
+        store.integrationInstances.put(4L, new IntegrationInstanceView(4, 3, "integration-run", "SUCCESS",
+                LocalDateTime.now(), LocalDateTime.now(), "done"));
+        SchedulerGateway gateway = new SchedulerGateway() {
+            @Override public PublishResult publish(PublishRequest request) { throw new UnsupportedOperationException(); }
+            @Override public RunResult run(String processCode) { throw new UnsupportedOperationException(); }
+            @Override public InstanceStatus status(String instanceId) { throw new UnsupportedOperationException(); }
+            @Override public void stop(String instanceId) { throw new UnsupportedOperationException(); }
+            @Override public RunResult rerun(String instanceId) { throw new UnsupportedOperationException(); }
+            @Override public RunResult backfill(String processCode, String start, String end, int parallelism) { throw new UnsupportedOperationException(); }
+            @Override public List<java.util.Map<String, Object>> listProcessInstances() {
+                return List.of(java.util.Map.of("id", "17", "name", "daily_orders", "status", "SUCCESS", "startTime", "2026-09-11 10:00:00", "endTime", "2026-09-11 10:00:03"));
+            }
+        };
+        DashboardService service = new DashboardService(store, gateway);
+
+        var operations = service.operations();
+        assertEquals(1, operations.tasks().total());
+        assertEquals(1, operations.tasks().success());
+        assertEquals("scheduler-17", operations.recentTasks().get(0).id());
+    }
+
+    private static SchedulerGateway testGateway() {
+        return new SchedulerGateway() {
+            @Override public PublishResult publish(PublishRequest request) { throw new UnsupportedOperationException(); }
+            @Override public RunResult run(String processCode) { throw new UnsupportedOperationException(); }
+            @Override public InstanceStatus status(String instanceId) { throw new UnsupportedOperationException(); }
+            @Override public void stop(String instanceId) { throw new UnsupportedOperationException(); }
+            @Override public RunResult rerun(String instanceId) { throw new UnsupportedOperationException(); }
+            @Override public RunResult backfill(String processCode, String start, String end, int parallelism) { throw new UnsupportedOperationException(); }
+        };
     }
 }

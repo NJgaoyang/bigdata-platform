@@ -3,316 +3,33 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Data Platform · 元数据浏览器</title>
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/remixicon@4.6.0/fonts/remixicon.css" media="print" onload="this.media='all'" />
+<title>Data Platform · 元数据</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/remixicon@4.6.0/fonts/remixicon.css" media="print" onload="this.media='all'"/>
 <style>
-*{box-sizing:border-box}
-:root{
-  --nav:#2d3d54;--primary:#3478f6;--primary2:#6d63ff;--success:#22bf86;--danger:#ef4b45;
-  --warning:#f5a623;--text:#111827;--sub:#526888;--muted:#8190a8;--line:#e9eef6;
-  --bg:#f4f7fb;--card:#fff;--shadow:0 8px 30px rgba(33,65,113,.07);
-}
-html,body{height:100%}
-body{
-  margin:0;min-width:1100px;background:
-    radial-gradient(circle at 62% 0,rgba(91,143,249,.08),transparent 27%),
-    linear-gradient(180deg,#f4f8fe,#f6f8fb 44%,#f4f7fb);
-  color:var(--text);
-  font-family:Inter,"PingFang SC","Microsoft YaHei","Segoe UI",Arial,sans-serif;
-  -webkit-font-smoothing:antialiased;
-}
-/* The platform uses a flat, compact visual language on every module page. */
-*,*::before,*::after{box-shadow:none!important;text-shadow:none!important;backdrop-filter:none!important;-webkit-backdrop-filter:none!important}
-body.metadata-loading .page{visibility:hidden}
-button,input,select{font:inherit}button{cursor:pointer}
-.topbar{
-  height:76px;background:linear-gradient(110deg,#3b4d67,#2d3d54);color:#fff;
-  display:flex;align-items:center;padding:0 36px;border-radius:0 0 10px 10px;
-  box-shadow:0 6px 20px #0c142324;
-}
-.brand{display:flex;align-items:center;gap:12px;min-width:235px}
-.logo{
-  width:43px;height:43px;border-radius:12px;position:relative;
-  background:linear-gradient(135deg,#397df7,#7464ff);transform:rotate(45deg);
-  box-shadow:0 7px 18px rgba(62,96,255,.32);
-}
-.logo:after{
-  content:"";position:absolute;width:19px;height:19px;border-radius:7px;
-  right:-5px;bottom:10px;background:linear-gradient(135deg,#4ebcff,#6255ff)
-}
-.brand-name{font-size:20px;font-weight:720;line-height:1}
-.brand-sub{font-size:12px;color:#ffffff85;margin-top:6px}
-.nav{height:100%;display:flex;flex:1 1 auto;min-width:0;max-width:760px;gap:clamp(8px,.8vw,14px)}
-.nav button{
-  position:relative;flex:1 1 0;width:auto;min-width:68px;padding:0 4px;text-align:center;
-  border:0;background:none;color:#ffffffc5;font-size:15px
-}
-.nav button:hover,.nav .on{color:#fff}.nav .on{font-weight:650}
-.nav .on:after{
-  content:"";position:absolute;left:8px;right:8px;bottom:0;height:3px;border-radius:3px 3px 0 0;
-  background:linear-gradient(90deg,#4f91ff,#7667ff);box-shadow:0 0 12px #4f91ff88
-}
-.actions{margin-left:auto;display:flex;align-items:center;gap:13px}
-.global-search{
-  width:232px;height:38px;border-radius:9px;background:#ffffff12;border:1px solid #ffffff0a;
-  display:flex;align-items:center;padding:0 12px;color:#ffffff59;font-size:12px
-}
-.ib{border:0;background:none;color:#f4f7fb;width:34px;height:34px;border-radius:8px;font-size:18px}
-.ib:hover{background:#ffffff14}
-.avatar{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;color:#1f66d3;font-weight:650;background:linear-gradient(145deg,#d8eaff,#f3f8ff)}
-.user{display:flex;align-items:center;gap:9px}.user small{display:block;color:#ffffff94;margin-top:4px}
-
-/* Keep the metadata browser header identical to the shared application header. */
-.topbar{position:sticky;top:0;z-index:20}
-.topbar .logo{transform:rotate(45deg);border-radius:10px;box-shadow:none}
-.topbar .actions{gap:13px}
-.topbar .search{width:232px;height:38px;border-radius:9px;background:#ffffff12;border:1px solid #ffffff0a;display:flex;align-items:center;padding:0 12px;gap:8px;color:#fff}
-.topbar .search input{min-width:0;flex:1;border:0;outline:0;background:none;color:#fff;font-size:12px;padding:0}
-.topbar .search input::placeholder{color:#ffffff59}
-.topbar .key{font-size:10px;color:#ffffff4d;background:#ffffff0a;padding:2px 5px;border-radius:4px}
-.topbar .ib{display:grid;place-items:center;font-size:20px;position:relative}
-.topbar .badge{position:absolute;top:-2px;right:-1px;min-width:15px;height:15px;display:grid;place-items:center;border-radius:10px;background:#f04f4b;font-size:9px;border:2px solid var(--nav);margin-left:0;padding:0}
-.profile{display:flex;align-items:center;gap:10px}.pname{line-height:1}.prole{font-size:11px;color:#ffffff94;margin-top:5px}
-
-.page{max-width:1920px;margin:0 auto;padding:22px 35px 28px}
-.page-toolbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;min-height:28px}
-.breadcrumb{font-size:12px;color:#8593a8;margin:0}
-.breadcrumb span{color:#3478f6}
-.header{
-  min-height:98px;border:1px solid #e5ecf5;border-radius:14px;background:rgba(255,255,255,.9);
-  box-shadow:var(--shadow);display:flex;align-items:center;padding:17px 20px;position:relative;overflow:hidden
-}
-.header:after{
-  content:"";position:absolute;right:100px;top:-80px;width:360px;height:220px;
-  background:radial-gradient(circle,rgba(78,130,255,.16),transparent 68%);pointer-events:none
-}
-.source-icon{
-  width:54px;height:54px;border-radius:14px;display:grid;place-items:center;margin-right:15px;
-  background:linear-gradient(135deg,#e7f0ff,#f2f6ff);color:#2b73e5;font-size:26px;font-weight:800
-}
-.header h1{font-size:23px;margin:0 0 7px}
-.subtitle{color:#73839c;font-size:13px}
-.badge{display:inline-flex;align-items:center;height:24px;padding:0 8px;border-radius:7px;font-size:11px;margin-left:8px}
-.badge.ok{background:#def7ec;color:#0b9b68}.badge.blue{background:#e8f1ff;color:#176be1}
-.header-actions{margin-left:auto;display:flex;gap:9px;z-index:1}
-.btn{
-  height:36px;border:1px solid #dce5ef;background:#fff;color:#37506f;padding:0 14px;border-radius:8px;
-  display:inline-flex;align-items:center;gap:7px
-}
-.btn:hover{border-color:#9dbbfa;color:#2771df}
-.btn.primary{background:linear-gradient(135deg,#3478f6,#4d7df1);border-color:#3478f6;color:#fff;box-shadow:0 6px 15px #3478f62b}
-.btn.soft{background:#eef4ff;border-color:#e1ebfc;color:#2670df}
-
-.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin:14px 0}
-.kpi{
-  height:88px;background:rgba(255,255,255,.93);border:1px solid #e5ebf4;border-radius:11px;
-  box-shadow:var(--shadow);display:flex;align-items:center;padding:0 17px
-}
-.kpi i{
-  width:40px;height:40px;border-radius:10px;display:grid;place-items:center;margin-right:12px;
-  background:#eaf2ff;color:#2877ea;font-style:normal;font-weight:700
-}
-.kpi label{display:block;color:#74839a;font-size:12px;margin-bottom:5px}
-.kpi b{font-size:22px}.kpi small{color:#8c99ab;margin-left:8px}
-
-.workspace{
-  display:grid;grid-template-columns:minmax(220px,2fr) minmax(0,8fr);gap:14px;
-  height:calc(100vh - 220px);min-height:570px
-}
-.workspace>aside.card{background:linear-gradient(180deg,#ffffff 0%,#fbfdff 100%);border-color:#dce6f2}.workspace>aside.card .panel-head{height:58px;padding:0 17px}.workspace>aside.card .panel-head strong{font-size:16px;color:#263d5c}.workspace>aside.card .side-search{padding:12px}.workspace>aside.card .search{height:38px;border-radius:9px;background:#f8faff}.workspace>aside.card .db-list{height:calc(100% - 62px);padding:10px 12px}.workspace>aside.card .db-tree-row{min-height:45px;padding:0 11px;border:1px solid transparent}.workspace>aside.card .db-tree-row.on{border-color:#cfe0fb;background:#eaf3ff}.workspace>aside.card .tree-tables{margin-left:18px;padding-left:10px;background:#f8fbff;border-left:2px solid #d9e7fb;border-radius:0 0 8px 8px}.workspace>aside.card .tree-table-list{max-height:calc(100vh - 480px)}
-.source-select{height:36px;min-width:230px;border:1px solid #d8e3ef;border-radius:8px;background:#fff;color:#37506f;padding:0 11px;outline:0}.source-select:focus{border-color:#78a5f5;box-shadow:0 0 0 2px #3478f614}
-.card{background:#fff;border:1px solid #e5ebf4;border-radius:11px;box-shadow:var(--shadow);min-height:0;overflow:hidden}
-.panel-head{height:49px;border-bottom:1px solid #edf1f6;display:flex;align-items:center;padding:0 14px}
-.panel-head strong{font-size:15px}.spacer{margin-left:auto}
-.search{height:34px;border:1px solid #dce4ee;border-radius:7px;padding:0 10px;outline:0;width:100%;color:#40536f;background:#fff}
-.search:focus{border-color:#8aadf6;box-shadow:0 0 0 2px #3478f612}
-.side-search{padding:10px;border-bottom:1px solid #f0f3f7}
-.db-list,.table-list{overflow:auto;height:calc(100% - 104px);padding:6px}
-.db-list{padding:8px 10px}
-.db-tree-item+.db-tree-item{border-top:1px solid #edf1f5}
-.db-tree-row{min-height:43px}
-.db-tree-row .chevron{width:14px;color:#7c8ca1;font-size:12px;transition:transform .15s ease}
-.db-tree-row.expanded .chevron{transform:rotate(90deg)}
-.tree-tables{margin:0 0 8px 22px;padding:5px 0 3px 12px;border-left:1px solid #dce6f2;background:#fbfdff}
-.tree-tables .search{height:32px;width:calc(100% - 10px);margin:0 5px 5px}
-.tree-table-list{max-height:calc(100vh - 500px);overflow:auto;padding-right:4px}
-.tree-table-list .table-row{padding:9px 7px;border-bottom:1px solid #edf1f5}
-.tree-table-list .table-name{font-size:13px}
-.tree-table-list .table-desc{margin-left:21px}
-.row{
-  min-height:39px;border-radius:7px;display:flex;align-items:center;gap:8px;padding:0 10px;color:#475d7a;cursor:pointer
-}
-.row:hover{background:#f5f8fc}.row.on{background:#e9f2ff;color:#176be1;font-weight:650}
-.row .count{margin-left:auto;color:#8d99aa;font-size:11px}
-.db-dot{width:8px;height:8px;border-radius:50%;background:#397df3}
-.table-row{
-  padding:10px 11px;border-bottom:1px solid #edf1f5;cursor:pointer
-}
-.table-row:hover{background:#fbfdff}.table-row.on{background:#eef4ff}
-.table-name{font-weight:650;color:#2a3f5e;display:flex;align-items:center;gap:8px}
-.table-row.on .table-name{color:#176be1}
-.table-desc{color:#8a97aa;font-size:11px;margin:6px 0 0 22px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.type{font-size:10px;color:#6c7d94;background:#f0f3f7;border-radius:5px;padding:2px 5px;margin-left:auto}
-
-.detail{display:flex;flex-direction:column}
-.tables-card{display:none}
-.detail-head{height:72px;border-bottom:1px solid #edf1f6;display:flex;align-items:center;padding:0 17px}
-.detail-title{font-size:18px;font-weight:720}.detail-sub{color:#8592a5;font-size:11px;margin-top:5px}
-.detail-actions{margin-left:auto;display:flex;gap:7px}
-.tabs{height:45px;border-bottom:1px solid #edf1f5;display:flex;align-items:end;padding-left:15px;gap:22px}
-.tab{height:45px;border:0;background:none;color:#66758b;position:relative;padding:0 2px}
-.tab.on{color:#2670df;font-weight:650}.tab.on:after{content:"";position:absolute;left:0;right:0;bottom:0;height:2px;background:#3478f6}
-.tab-pane{display:none;overflow:auto;flex:1}.tab-pane.on{display:block}
-
-.info-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;padding:15px}
-.info-box{background:#f7f9fc;border:1px solid #edf1f5;border-radius:9px;padding:11px 12px}
-.info-box label{display:block;color:#8694a7;font-size:11px;margin-bottom:6px}.info-box b{font-size:13px}
-.desc{margin:0 15px 15px;border:1px solid #edf1f5;border-radius:9px;padding:13px;color:#65758d;line-height:1.7;background:#fbfcfe}
-
-.data-table{width:100%;border-collapse:collapse;table-layout:fixed;font-size:12px}
-.data-table th{height:36px;background:#f6f8fb;color:#61728b;text-align:left;padding:0 10px;font-weight:600;position:sticky;top:0}
-.data-table td{height:40px;border-bottom:1px solid #edf1f5;padding:0 10px;color:#344965;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.data-table tr:hover td{background:#fbfdff}
-.nullable{display:inline-flex;height:22px;align-items:center;padding:0 7px;border-radius:6px;background:#eff2f6;color:#6d798c;font-size:10px}
-.nullable.no{background:#fff1e8;color:#cf7414}
-.field-name{font-family:Consolas,Monaco,monospace;color:#1c66ca}
-.field-icon{color:#2e76e6;margin-right:5px}
-
-.preview-toolbar{height:49px;display:flex;align-items:center;padding:0 13px;border-bottom:1px solid #edf1f5;gap:8px}
-.preview-meta{color:#8391a5;font-size:11px}.preview-toolbar .spacer{margin-left:auto}
-.preview-wrap{overflow:auto;height:calc(100% - 49px)}
-.lineage{height:100%;min-height:390px;position:relative;background:linear-gradient(#edf2f8 1px,transparent 1px),linear-gradient(90deg,#edf2f8 1px,transparent 1px),#fbfdff;background-size:22px 22px}
-.node{
-  position:absolute;width:176px;background:#fff;border:1px solid #dbe5f1;border-radius:9px;box-shadow:0 6px 17px rgba(31,50,80,.08);padding:11px
-}
-.node b{display:block;margin-bottom:6px}.node small{color:#8190a5}
-.node.center{left:41%;top:41%;border:2px solid #3478f6;background:#eef4ff}
-.node.a{left:9%;top:20%}.node.b{left:9%;top:61%}.node.c{right:7%;top:20%}.node.d{right:7%;top:61%}
-svg.lines{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
-svg.lines path{fill:none;stroke:#8ca6cc;stroke-width:2}
-
-.empty{padding:28px;text-align:center;color:#8c99aa}
-/* Keep database bullets and labels aligned on the same center line. */
-.db-tree-row{align-items:center;line-height:1}
-.db-tree-row .chevron{display:inline-flex;align-items:center;justify-content:center;line-height:1}
-.db-tree-row .db-dot{flex:0 0 8px}
-/* The database tree uses one compact search field for databases and tables. */
-.workspace>aside.card{display:flex;flex-direction:column}
-.workspace>aside.card .side-search{padding:8px 10px;flex:0 0 auto}
-.workspace>aside.card .search{height:32px;font-size:13px;padding:0 9px}
-.workspace>aside.card .db-list{height:auto;flex:1;min-height:0;padding:0}
-.workspace>aside.card .tree-tables{margin:0;padding:0 0 0 14px}
-.workspace>aside.card .tree-table-list{max-height:none;padding:0}
-.workspace>aside.card .tree-table-list .table-row{padding:8px 9px}
-.workspace>aside.card .tree-table-list .table-name{font-size:12px}
-.toast{
-  position:fixed;right:24px;top:90px;background:#fff;border:1px solid #dfe6ef;border-radius:9px;
-  box-shadow:0 12px 30px rgba(30,47,75,.15);padding:10px 14px;opacity:0;transform:translateY(-7px);transition:.2s
-}
-.toast.on{opacity:1;transform:none}
-@media(max-width:1450px){
-  .page{padding-left:22px;padding-right:22px}
-  .workspace{grid-template-columns:minmax(210px,2fr) minmax(0,8fr)}
-  .kpis{gap:10px}
-}
-@media(max-width:1180px){
-  .workspace{grid-template-columns:minmax(190px,2fr) minmax(0,8fr)}
-  .kpis{grid-template-columns:repeat(2,1fr)}
-}
+*{box-sizing:border-box}html,body{height:100%}body{margin:0;min-width:1120px;background:#f5f7fa;color:#24364d;font-family:Inter,"PingFang SC","Microsoft YaHei","Segoe UI",Arial,sans-serif;-webkit-font-smoothing:antialiased}button,input,select{font:inherit}.topbar{height:74px;background:linear-gradient(110deg,#3b4d67,#2d3d54);color:#fff;display:flex;align-items:center;padding:0 36px;border-radius:0 0 10px 10px;box-shadow:0 6px 20px #0c142324;position:sticky;top:0;z-index:20}.brand{display:flex;align-items:center;gap:12px;min-width:235px}.logo{width:42px;height:42px;border-radius:10px;position:relative;background:linear-gradient(135deg,#397df7,#7464ff);transform:rotate(45deg)}.logo:after{content:"";position:absolute;width:18px;height:18px;border-radius:6px;right:-5px;bottom:10px;background:linear-gradient(135deg,#4ebcff,#6255ff)}.brand-name{font-size:20px;font-weight:720;line-height:1}.brand-sub{font-size:12px;color:#ffffff85;margin-top:6px}.nav{height:100%;display:flex;flex:1 1 auto;min-width:0;max-width:760px;gap:clamp(4px,.45vw,8px)}.nav button{position:relative;flex:1 1 0;min-width:62px;padding:0 2px;border:0;background:none;color:#ffffffc5;font-size:14px;cursor:pointer}.nav button:hover,.nav button.on{color:#fff}.nav button.on{font-weight:650}.nav button.on:after{content:"";position:absolute;left:10px;right:10px;bottom:0;height:3px;border-radius:3px 3px 0 0;background:linear-gradient(90deg,#4f91ff,#7667ff)}.top-actions{margin-left:auto;display:flex;align-items:center;gap:12px}.global-search{width:220px;height:36px;border:1px solid #ffffff12;border-radius:8px;background:#ffffff10;display:flex;align-items:center;gap:8px;padding:0 11px;color:#ffffff70;font-size:12px}.icon-btn{width:34px;height:34px;border:0;border-radius:8px;background:transparent;color:#eef4ff;font-size:18px;display:grid;place-items:center}.profile{display:flex;align-items:center;gap:9px}.avatar{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;background:#edf5ff;color:#2468cc;font-weight:700}.pname{font-size:13px}.prole{margin-top:3px;color:#ffffff8a;font-size:10px}
+.metadata-page{height:calc(100vh - 74px);padding:16px 24px 22px;display:flex;flex-direction:column;gap:12px}.page-head{height:52px;flex:0 0 52px;display:flex;align-items:center;gap:12px}.breadcrumb{font-size:12px;color:#8491a4}.breadcrumb b{color:#2c405c;font-weight:650}.head-spacer{flex:1}.source-select{height:34px;min-width:240px;border:1px solid #d7e0eb;border-radius:7px;background:#fff;color:#344b69;padding:0 10px;outline:none}.source-select:focus{border-color:#79a7f5;box-shadow:0 0 0 2px #e9f1ff}.btn{height:34px;padding:0 12px;border:1px solid #d7e0eb;border-radius:7px;background:#fff;color:#4c617c;display:inline-flex;align-items:center;gap:6px;cursor:pointer}.btn:hover{border-color:#9ebcf1;color:#2569cf}.btn.primary{background:#3478f6;border-color:#3478f6;color:#fff}.source-state{height:26px;padding:0 9px;border-radius:999px;background:#f1f4f8;color:#758296;font-size:11px;display:inline-flex;align-items:center;gap:5px}.source-state.ok{background:#e9f8f2;color:#148a64}.source-state.bad{background:#fff0ef;color:#c84e49}.source-state i{font-size:12px}
+.metadata-shell{flex:1;min-height:0;display:grid;grid-template-columns:300px minmax(0,1fr);gap:12px}.pane{min-height:0;background:#fff;border:1px solid #e2e8f0;border-radius:10px;overflow:hidden;display:flex;flex-direction:column}.pane-head{height:50px;flex:0 0 50px;border-bottom:1px solid #edf1f5;display:flex;align-items:center;padding:0 14px}.pane-head strong{font-size:14px;color:#263b56}.count{margin-left:auto;color:#8d99a9;font-size:11px}.pane-search{padding:10px;border-bottom:1px solid #f0f3f7}.search{width:100%;height:34px;border:1px solid #dce4ed;border-radius:7px;background:#fbfcfe;padding:0 10px;color:#344b69;outline:none}.search:focus{background:#fff;border-color:#8fb1ef}.tree{flex:1;min-height:0;overflow:auto;padding:6px}.tree-db{margin-bottom:2px}.tree-db-row,.tree-table-row{display:flex;align-items:center;gap:8px;border-radius:7px;cursor:pointer;color:#405773}.tree-db-row{min-height:40px;padding:7px 8px}.tree-table-row{min-height:34px;padding:5px 8px 5px 36px;font-size:11px}.tree-db-row:hover,.tree-table-row:hover{background:#f6f8fb}.tree-db-row.on,.tree-table-row.on{background:#eaf2ff;color:#2168cf}.tree-chevron{width:16px;height:16px;display:grid;place-items:center;color:#8794a6;font-size:14px;transition:transform .15s}.tree-db.expanded>.tree-db-row .tree-chevron{transform:rotate(90deg)}.tree-icon{width:24px;height:24px;border-radius:6px;display:grid;place-items:center;background:#f0f4f9;color:#527196;flex:0 0 auto}.tree-db-row.on .tree-icon,.tree-table-row.on .tree-icon{background:#dbeaff;color:#246ed8}.tree-main{min-width:0;flex:1}.tree-title{display:block;font-size:12px;font-weight:620;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.tree-sub{display:block;margin-top:3px;font-size:9px;color:#8b98aa;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.tree-children{display:none;padding-bottom:3px}.tree-db.expanded>.tree-children{display:block}.tree-table-row .tree-icon{width:20px;height:20px;background:transparent}.tree-loading{padding:8px 10px 8px 38px;color:#8e9aaa;font-size:10px}.empty{padding:34px 18px;text-align:center;color:#95a1b0;font-size:12px;line-height:1.7}.empty i{display:block;font-size:28px;color:#c3ccd7;margin-bottom:8px}
+.detail{min-width:0}.detail-head{min-height:76px;flex:0 0 76px;border-bottom:1px solid #edf1f5;display:flex;align-items:center;padding:0 18px;gap:12px}.detail-symbol{width:40px;height:40px;border-radius:10px;background:#eaf2ff;color:#2c72dd;display:grid;place-items:center;font-size:20px}.detail-title{font-size:17px;font-weight:700;color:#253b57}.detail-path{margin-top:5px;font-size:11px;color:#8996a7}.detail-tags{margin-left:auto;display:flex;gap:7px}.tag{height:23px;padding:0 8px;border-radius:6px;background:#f1f4f8;color:#718095;font-size:10px;display:inline-flex;align-items:center}.tabs{height:44px;flex:0 0 44px;border-bottom:1px solid #edf1f5;display:flex;align-items:flex-end;padding-left:18px;gap:24px}.tabs.hidden{display:none}.tab{height:44px;border:0;background:none;color:#68788f;padding:0 2px;position:relative;cursor:pointer}.tab.on{color:#286ed7;font-weight:650}.tab.on:after{content:"";position:absolute;left:0;right:0;bottom:0;height:2px;background:#3478f6}.detail-body{flex:1;min-height:0;overflow:auto}.tab-pane{display:none;min-height:100%}.tab-pane.on{display:block}.overview{padding:16px 18px 22px}.facts{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}.fact{min-height:70px;border:1px solid #e8edf3;border-radius:8px;background:#fbfcfe;padding:11px 12px}.fact label{display:block;color:#8995a5;font-size:10px;margin-bottom:7px}.fact strong{display:block;color:#304863;font-size:12px;font-weight:650;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.section{margin-top:15px;border:1px solid #e8edf3;border-radius:8px;overflow:hidden}.section-title{height:38px;background:#fafbfd;border-bottom:1px solid #edf1f5;display:flex;align-items:center;padding:0 12px;font-size:12px;font-weight:650;color:#3e5571}.section-body{padding:12px;color:#65758b;font-size:12px;line-height:1.7;min-height:48px}.source-grid{display:grid;grid-template-columns:120px 1fr 120px 1fr;gap:0}.source-grid span,.source-grid b{padding:10px 12px;border-bottom:1px solid #edf1f5;font-size:11px}.source-grid span{color:#8995a5;background:#fbfcfe}.source-grid b{font-weight:550;color:#405772;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.source-grid>*:nth-last-child(-n+4){border-bottom:0}
+.db-browser{padding:16px 18px 22px}.db-browser-head{display:flex;align-items:center;gap:10px;margin-bottom:12px}.db-browser-head .search{width:280px;margin-left:auto}.data-table{width:100%;border-collapse:collapse;table-layout:fixed;font-size:11px}.data-table th{height:38px;background:#f7f9fb;color:#65758b;text-align:left;padding:0 12px;font-weight:600;position:sticky;top:0;z-index:1}.data-table td{height:40px;border-bottom:1px solid #edf1f5;padding:0 12px;color:#3d536f;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.data-table tr:hover td{background:#fbfdff}.click-row{cursor:pointer}.field-name{font-family:Consolas,Monaco,monospace;color:#2168c9}.nullable{font-size:9px;border-radius:5px;padding:2px 6px;background:#edf7f2;color:#16845f}.nullable.no{background:#fff1e9;color:#bf6a16}.lineage-wrap{padding:16px 18px}.lineage-tip{margin-bottom:12px;padding:9px 11px;border:1px solid #dce8f8;border-radius:7px;background:#f6f9fe;color:#617994;font-size:11px}.direction{font-size:10px;border-radius:5px;padding:2px 6px;background:#edf3fc;color:#4071b6}.loading{opacity:.55;pointer-events:none}.toast{position:fixed;right:24px;top:88px;z-index:1000;min-width:220px;max-width:420px;padding:11px 14px;border:1px solid #dfe6ef;border-radius:8px;background:#fff;color:#405772;font-size:12px;box-shadow:0 12px 28px rgba(30,47,75,.13);opacity:0;transform:translateY(-8px);transition:.18s;pointer-events:none}.toast.on{opacity:1;transform:none}.toast.error{border-color:#f0c9c6;color:#bd4b47}.skeleton{padding:20px;color:#8f9baa;font-size:12px}
+@media(max-width:1360px){.metadata-page{padding-left:16px;padding-right:16px}.metadata-shell{grid-template-columns:270px minmax(0,1fr)}.facts{grid-template-columns:repeat(2,minmax(0,1fr))}.topbar{padding:0 24px}.brand{min-width:205px}.global-search{display:none}}
+.fact-value{display:flex;align-items:center;gap:7px;min-width:0}.fact-value strong{min-width:0;flex:1}.fact-action{width:24px;height:24px;flex:0 0 24px;border:0;border-radius:6px;background:#edf3ff;color:#3478f6;display:grid;place-items:center;cursor:pointer}.fact-action:hover{background:#dfeaff}.table-profile-facts .fact strong{font-size:15px;color:#263f5d}.owner-fact .fact-value strong{font-size:15px;color:#263f5d}
+.preview-wrap{padding:14px 16px 20px;min-width:0}.preview-toolbar{height:40px;display:flex;align-items:center;gap:10px;margin-bottom:10px}.preview-toolbar .preview-tip{font-size:11px;color:#8190a4}.preview-toolbar .spacer{flex:1}.preview-limit{height:32px;border:1px solid #dce4ed;border-radius:7px;background:#fff;color:#405772;padding:0 8px}.preview-table-shell{width:100%;overflow:auto;border:1px solid #e6ebf1;border-radius:8px}.preview-table-shell .data-table th,.preview-table-shell .data-table td{min-width:140px}.preview-null{color:#a5afbc;font-style:italic}.preview-error{margin:26px auto;max-width:480px;padding:22px;border:1px solid #f1d9d6;border-radius:9px;background:#fff8f7;color:#a95550;text-align:center;font-size:12px;line-height:1.8}.preview-error i{display:block;font-size:28px;margin-bottom:8px}.preview-empty{padding:40px 20px;text-align:center;color:#8e9aaa;font-size:12px}
 </style>
 </head>
-<body class="metadata-loading">
-<header class="topbar">
-  <div class="brand">
-    <div class="logo"></div>
-    <div><div class="brand-name">Data Platform</div><div class="brand-sub">让数据创造更大价值</div></div>
-  </div>
-  <nav class="nav">
-    <button data-page="workbench">工作台</button><button data-page="source" class="on">元数据</button><button data-page="integration">数据集成</button>
-    <button data-page="development">数据开发</button><button data-page="workflow">工作流</button><button data-page="operations">调度运维</button><button data-page="assets">数据资产</button><button data-page="settings" style="display:none">系统设置</button>
-  </nav>
-  <div class="actions">
-    <label class="search" id="search"><i class="ri-search-line"></i><input placeholder="搜索任务、表、文件…" readonly><span class="key">⌘K</span></label>
-    <button class="ib" data-a="通知"><i class="ri-notification-3-line"></i><span class="badge">3</span></button><button class="ib" data-a="帮助中心"><i class="ri-question-line"></i></button>
-    <div class="profile"><div class="avatar">E</div><div class="pmeta"><div class="pname">Eric</div><div class="prole">管理员</div></div><i class="ri-arrow-down-s-line"></i></div>
-  </div>
-</header>
-
-<main class="page">
-  <div class="page-toolbar"><div class="breadcrumb">元数据 / <span>查看元数据</span></div><div style="display:flex;align-items:center;gap:8px"><select class="source-select" id="metadataSourceSelect" aria-label="选择数据源"><option value="">正在加载数据源…</option></select><button class="btn" id="metadataRefresh" type="button">↻ 刷新</button></div></div>
-  <section class="workspace">
-    <aside class="card">
-      <div class="side-search"><input class="search" id="dbSearch" placeholder="搜索数据库或数据表"></div>
-      <div class="db-list" id="dbList"></div>
-    </aside>
-
-    <section class="card tables-card">
-      <div class="panel-head"><strong id="tablesTitle">dwd · 数据表</strong><span class="spacer"></span><span id="tableCount" style="color:#8896a8"></span></div>
-      <div class="side-search"><input class="search" id="tableSearch" placeholder="搜索表名或描述"></div>
-      <div class="table-list" id="tableList"></div>
-    </section>
-
-    <section class="card detail">
-      <div class="detail-head">
-        <div>
-          <div class="detail-title" id="detailTitle">dwd_order_detail</div>
-          <div class="detail-sub" id="detailSub">订单明细事实表 · TABLE · dwd</div>
-        </div>
-      </div>
-      <div class="tabs">
-        <button class="tab on" data-tab="overview" onclick="selectTab('overview')">概览</button>
-        <button class="tab" data-tab="fields" onclick="selectTab('fields')">字段</button>
-        <button class="tab" data-tab="preview" onclick="selectTab('preview')">数据预览</button>
-        <button class="tab" data-tab="lineage" onclick="selectTab('lineage')">血缘</button>
-      </div>
-
-      <div class="tab-pane on" id="pane-overview">
-        <div class="info-grid">
-          <div class="info-box"><label>数据库</label><b id="ovDb">dwd</b></div>
-          <div class="info-box"><label>对象类型</label><b id="ovType">—</b></div>
-          <div class="info-box"><label>字段数量</label><b id="ovFields">12</b></div>
-          <div class="info-box"><label>预估行数</label><b id="ovRows">128,450,328</b></div>
-          <div class="info-box"><label>存储大小</label><b id="ovSize">18.6 GB</b></div>
-          <div class="info-box"><label>最近更新时间</label><b id="ovUpdated">—</b></div>
-        </div>
-        <div class="desc">
-          <b style="color:#2a3d58">表说明</b><br>
-          <span id="ovComment">基于订单系统的明细数据构建的事实表，包含订单、用户、商品、支付、渠道等核心信息，供订单主题分析使用。</span>
-        </div>
-      </div>
-
-      <div class="tab-pane" id="pane-fields">
-        <table class="data-table">
-          <thead><tr><th style="width:21%">字段名</th><th style="width:18%">数据类型</th><th style="width:12%">可空</th><th>描述</th></tr></thead>
-          <tbody id="fieldBody"></tbody>
-        </table>
-      </div>
-
-      <div class="tab-pane" id="pane-preview">
-        <div class="preview-toolbar">
-          <span class="preview-meta">仅展示前 100 行 · 数据实时读取，不缓存</span>
-          <span class="spacer"></span>
-          <button class="btn" onclick="notify('暂无数据预览')">↻ 刷新</button>
-          <button class="btn" onclick="notify('暂无可导出数据')">导出 CSV</button>
-        </div>
-        <div class="preview-wrap">
-          <table class="data-table">
-            <thead><tr><th>order_id</th><th>user_id</th><th>product_id</th><th>order_amount</th><th>pay_status</th><th>channel</th><th>pay_time</th><th>dt</th></tr></thead>
-            <tbody><tr><td colspan="8" class="empty">暂无数据预览</td></tr></tbody>
-          </table>
-        </div>
-      </div>
-
-      <div class="tab-pane" id="pane-lineage">
-        <div class="lineage">
-          <div class="empty" style="padding-top:120px">暂无血缘数据</div>
-        </div>
-      </div>
+<body>
+<header class="topbar"><div class="brand"><div class="logo"></div><div><div class="brand-name">Data Platform</div><div class="brand-sub">让数据创造更大价值</div></div></div><nav class="nav"><button data-page="workbench">工作台</button><button data-page="source" class="on">元数据</button><button data-page="integration">数据集成</button><button data-page="development">数据开发</button><button data-page="workflow">工作流</button><button data-page="operations">调度运维</button><button data-page="assets">数据资产</button><button data-page="settings" style="display:none">系统设置</button></nav><div class="top-actions"><div class="global-search"><i class="ri-search-line"></i><span>搜索表、字段、任务…</span></div><button class="icon-btn"><i class="ri-question-line"></i></button><div class="profile"><div class="avatar">U</div><div><div class="pname">用户</div><div class="prole">数据平台</div></div></div></div></header>
+<main class="metadata-page">
+  <div class="page-head"><div class="breadcrumb">元数据 / <b id="crumbSource">数据源</b> / <span id="crumbObject">浏览</span></div><div class="head-spacer"></div><span class="source-state" id="sourceState"><i class="ri-checkbox-blank-circle-fill"></i><span>未检测</span></span><select class="source-select" id="metadataSourceSelect"><option value="">加载数据源…</option></select><button class="btn" id="testConnection"><i class="ri-pulse-line"></i>检测连接</button><button class="btn primary" id="metadataRefresh"><i class="ri-refresh-line"></i>刷新元数据</button></div>
+  <section class="metadata-shell">
+    <aside class="pane"><div class="pane-head"><strong>元数据目录</strong><span class="count" id="databaseCount">0 个数据库</span></div><div class="pane-search"><input class="search" id="catalogSearch" placeholder="搜索数据库或数据表"></div><div class="tree" id="catalogTree"><div class="skeleton">正在加载数据库…</div></div></aside>
+    <section class="pane detail">
+      <div class="detail-head"><div class="detail-symbol" id="detailSymbol"><i class="ri-database-2-line"></i></div><div><div class="detail-title" id="detailTitle">请选择数据库</div><div class="detail-path" id="detailPath">从左侧元数据目录选择数据库或数据表</div></div><div class="detail-tags"><span class="tag" id="detailType">—</span><span class="tag" id="detailFieldCount">—</span></div></div>
+      <div class="tabs hidden" id="detailTabs"><button class="tab on" data-tab="overview">概览</button><button class="tab" data-tab="fields">字段</button><button class="tab" data-tab="preview">数据预览</button><button class="tab" data-tab="lineage">血缘</button></div>
+      <div class="detail-body"><div class="tab-pane on" id="pane-overview"><div class="empty"><i class="ri-database-2-line"></i>请选择数据库</div></div><div class="tab-pane" id="pane-fields"><div class="empty">请选择数据表</div></div><div class="tab-pane" id="pane-preview"><div class="empty">请选择数据表</div></div><div class="tab-pane" id="pane-lineage"><div class="empty">请选择数据表</div></div></div>
     </section>
   </section>
 </main>
 <div class="toast" id="toast"></div>
-
-<script src="/metadata-live.js?v=20260909-4"></script>
+<script src="/metadata-live.js?v=20260912-04"></script>
 </body>
 </html>

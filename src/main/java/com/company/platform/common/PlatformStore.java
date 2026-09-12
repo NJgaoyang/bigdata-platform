@@ -21,6 +21,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.context.event.EventListener;
+import org.springframework.core.Ordered;
+import org.springframework.core.annotation.Order;
 import com.company.platform.workflow.WorkflowView;
 import com.company.platform.workflow.WorkflowNodeView;
 import com.company.platform.workflow.WorkflowEdgeView;
@@ -83,6 +85,7 @@ public class PlatformStore {
     }
 
     @EventListener(ApplicationReadyEvent.class)
+    @Order(Ordered.HIGHEST_PRECEDENCE)
     public void loadPersistedCoreData() {
         if (jdbc == null) return;
         try {
@@ -111,12 +114,14 @@ public class PlatformStore {
                         createdAt == null ? LocalDateTime.now() : createdAt.toLocalDateTime()));
                 advanceId(id);
             });
-            jdbc.query("SELECT id,project_id,folder_id,name,file_type,content,description,status,current_version FROM dev_file", rs -> {
+            jdbc.query("SELECT id,project_id,folder_id,name,file_type,content,description,status,current_version,updated_at FROM dev_file", rs -> {
                 long id = rs.getLong("id");
                 Long folder = rs.getObject("folder_id", Long.class);
+                var updatedAt = rs.getTimestamp("updated_at");
                 files.put(id, new DevFileView(id, rs.getLong("project_id"), folder, rs.getString("name"),
                         rs.getString("file_type"), rs.getString("content"), rs.getString("description"),
-                        rs.getString("status"), rs.getInt("current_version")));
+                        rs.getString("status"), rs.getInt("current_version"),
+                        updatedAt == null ? null : updatedAt.toLocalDateTime()));
                 advanceId(id);
             });
             jdbc.query("SELECT id,file_id,version_no,content,checksum,publish_flag FROM dev_file_version", rs -> {

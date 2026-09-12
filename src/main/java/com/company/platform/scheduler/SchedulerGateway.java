@@ -14,9 +14,19 @@ public interface SchedulerGateway {
     default void release(String processCode, boolean online) { }
     default String upsertSchedule(String processCode, String cronExpression, String timezone, boolean enabled,
                                   String failureStrategy, int parallelism) { return ""; }
+    default String upsertSchedule(String processCode, String cronExpression, String timezone, boolean enabled,
+                                  String failureStrategy, int parallelism, String workerGroup, String alertGroup) {
+        return upsertSchedule(processCode, cronExpression, timezone, enabled, failureStrategy, parallelism);
+    }
     default void scheduleState(String scheduleId, boolean online) { }
     default List<Map<String, Object>> listProcessInstances() { return List.of(); }
     default List<Map<String, Object>> listTaskInstances() { return List.of(); }
+    default List<Map<String, Object>> listTaskInstances(String processInstanceId) {
+        if (processInstanceId == null || processInstanceId.isBlank()) return listTaskInstances();
+        return listTaskInstances().stream()
+                .filter(item -> processInstanceId.equals(String.valueOf(item.get("processInstanceId"))))
+                .toList();
+    }
     default String taskLog(String taskInstanceId) { return "暂无任务日志"; }
     default boolean isRealMode() { return false; }
 

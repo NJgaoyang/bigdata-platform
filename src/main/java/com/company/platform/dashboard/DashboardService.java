@@ -2,11 +2,12 @@ package com.company.platform.dashboard;
 
 import com.company.platform.common.PlatformStore;
 import com.company.platform.datasource.DataSourceView;
+import com.company.platform.development.DevFileView;
+import com.company.platform.development.DevProjectView;
 import com.company.platform.integration.IntegrationInstanceView;
 import com.company.platform.integration.IntegrationTableView;
 import com.company.platform.integration.IntegrationTaskView;
 import com.company.platform.scheduler.SchedulerGateway;
-import com.company.platform.workflow.WorkflowView;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
@@ -18,34 +19,30 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
-/**
- * Produces stable, UI-oriented read models from the platform's persisted runtime state.
- * It deliberately does not fabricate task or metadata values: unavailable external
- * scheduler data is represented by an empty collection and an explicit mode flag.
- */
+/** Read models built only from persisted/runtime facts; no sample task counts are synthesized. */
 @Service
 public class DashboardService {
     private static final DateTimeFormatter DAY = DateTimeFormatter.ofPattern("MM/dd");
     private static final DateTimeFormatter HOUR = DateTimeFormatter.ofPattern("HH:mm");
+    private static final String FAVORITES_PROJECT_NAME = "我的收藏";
     private final PlatformStore store;
     private final SchedulerGateway scheduler;
 
-    public DashboardService(PlatformStore store, SchedulerGateway scheduler) {
-        this.store = store;
-        this.scheduler = scheduler;
-    }
+    public DashboardService(PlatformStore store, SchedulerGateway scheduler) { this.store = store; this.scheduler = scheduler; }
 
-    public OverviewView overview() {
+    public OverviewView overview() { return overview("admin"); }
+
+    public OverviewView overview(String username) {
         SourceDashboardView sources = sources();
         List<RecentTask> recent = recentTasks();
         TaskSummary tasks = taskSummary(recent);
         boolean schedulerOnline = schedulerAvailable();
-        return new OverviewView(
-                new PlatformStatus(schedulerOnline ? "UP" : "DOWN", scheduler.isRealMode() ? "real" : "unavailable",
-                        sources.healthy(), sources.total(), schedulerOnline),
-                tasks, sources, recent.stream().limit(12).toList(), List.of(), trend(recent), generatedAt());
+        return new OverviewView(new PlatformStatus(schedulerOnline ? "UP" : "DOWN", scheduler.isRealMode() ? "real" : "unavailable",
+                sources.healthy(), sources.total(), schedulerOnline), tasks, sources, recent.stream().limit(12).toList(),
+                favorites(username), trend(recent), generatedAt());
     }
 
     public SourceDashboardView sources() {
@@ -61,9 +58,7 @@ public class DashboardService {
                 (int) values.stream().filter(DataSourceView::metadataVisible).count(), types, items);
     }
 
-    public IntegrationDashboardView integration() {
-        return integration("seven");
-    }
+    public IntegrationDashboardView integration() { return integration("seven"); }
 
     public IntegrationDashboardView integration(String range) {
         List<IntegrationTaskView> tasks = store.integrationTasks.values().stream()
@@ -77,34 +72,53 @@ public class DashboardService {
     }
 
     public OperationsDashboardView operations() {
-        List<RecentTask> recent = recentTasks();
+        List<RecentTask> recent = schedulerRecentTasks();
         TaskSummary summary = taskSummary(recent);
         List<AlertItem> alerts = recent.stream().filter(item -> isFailed(item.status()))
-                .map(item -> new AlertItem(item.id(), item.name(), item.type(), item.startedAt(), item.status()))
-                .toList();
+                .map(item -> new AlertItem(item.id(), item.name(), item.type(), item.startedAt(), item.status())).toList();
         return new OperationsDashboardView(summary, schedulerAvailable(), scheduler.isRealMode() ? "real" : "unavailable",
                 recent.stream().limit(12).toList(), alerts.stream().limit(12).toList(), trend(recent), generatedAt());
     }
 
     public AssetDashboardView assets() {
         Map<String, AssetItem> items = new LinkedHashMap<>();
-        java.util.Set<String> governed = new java.util.LinkedHashSet<>();
-        boolean hasSuccessfulSync = store.integrationInstances.values().stream().anyMatch(item -> isSuccess(item.status()));
-        for (List<IntegrationTableView> taskTables : store.integrationTaskTables.values()) {
-            for (IntegrationTableView table : taskTables) {
+        Set<Long> successfulTaskIds = store.integrationInstances.values().stream()
+                .filter(item -> isSuccess(item.status())).map(IntegrationInstanceView::taskId).collect(Collectors.toSet());
+        for (Map.Entry<Long, List<IntegrationTableView>> entry : store.integrationTaskTables.entrySet()) {
+            boolean taskSucceeded = successfulTaskIds.contains(entry.getKey());
+            for (IntegrationTableView table : entry.getValue()) {
                 putAsset(items, table.sourceDatabase(), table.sourceTable(), "SOURCE", "已登记");
-                String targetKey = putAsset(items, table.targetDatabase(), table.targetTable(), "TARGET", hasSuccessfulSync ? "已同步" : "待同步");
-                if (hasSuccessfulSync) governed.add(targetKey);
+                putAsset(items, table.targetDatabase(), table.targetTable(), "TARGET", taskSucceeded ? "已同步" : "待同步");
             }
         }
+        // A parsed lineage relation only proves that a dependency was discovered. It does
+        // not prove that a governance rule, quality policy or stewardship workflow ran.
+        // Keep lineage and synchronization facts separate from governance facts until a
+        // real governance execution model is persisted by the platform.
         store.lineages.values().forEach(lineage -> {
-            putQualifiedAsset(items, lineage.sourceTable(), "LINEAGE_SOURCE", "已登记");
-            String targetKey = putQualifiedAsset(items, lineage.targetTable(), "LINEAGE_TARGET", "已治理");
-            governed.add(targetKey);
+            putQualifiedAsset(items, lineage.sourceTable(), "LINEAGE_SOURCE", "已关联");
+            putQualifiedAsset(items, lineage.targetTable(), "LINEAGE_TARGET", "已关联");
         });
         List<AssetItem> assets = items.values().stream().sorted(Comparator.comparing(AssetItem::name, String.CASE_INSENSITIVE_ORDER)).toList();
         return new AssetDashboardView(assets.size(), assets.size(), store.dataSources.values().stream().filter(DataSourceView::metadataVisible).count(),
-                governed.size(), store.lineages.size(), assets, generatedAt());
+                0, store.lineages.size(), assets, generatedAt());
+    }
+
+    private List<FavoriteItem> favorites(String username) {
+        String owner = username == null || username.isBlank() ? "admin" : username.trim();
+        Set<Long> favoriteProjectIds = store.projects.values().stream()
+                .filter(project -> FAVORITES_PROJECT_NAME.equalsIgnoreCase(project.name() == null ? "" : project.name().trim()))
+                .filter(project -> owner.equalsIgnoreCase(project.ownerName() == null ? "" : project.ownerName().trim()))
+                .map(DevProjectView::id)
+                .collect(Collectors.toSet());
+        if (favoriteProjectIds.isEmpty()) return List.of();
+        return store.files.values().stream()
+                .filter(file -> favoriteProjectIds.contains(file.projectId()))
+                .sorted(Comparator.comparing(DevFileView::name, String.CASE_INSENSITIVE_ORDER))
+                .map(file -> new FavoriteItem("development-file-" + file.id(), file.name(),
+                        file.fileType() == null || file.fileType().isBlank() ? "FILE" : file.fileType(),
+                        file.description() == null || file.description().isBlank() ? "开发文件" : file.description()))
+                .toList();
     }
 
     private String putAsset(Map<String, AssetItem> items, String database, String table, String origin, String status) {
@@ -124,7 +138,7 @@ public class DashboardService {
 
     private String layer(String database) {
         String value = database == null ? "" : database.toLowerCase(Locale.ROOT);
-        return java.util.Set.of("ods", "dwd", "dws", "ads", "dim").contains(value) ? value.toUpperCase(Locale.ROOT) : "SOURCE";
+        return Set.of("ods", "dwd", "dws", "ads", "dim").contains(value) ? value.toUpperCase(Locale.ROOT) : "SOURCE";
     }
 
     private TaskSummary taskSummary(List<RecentTask> tasks) {
@@ -138,8 +152,7 @@ public class DashboardService {
         int running = (int) instances.stream().filter(item -> isRunning(item.status())).count();
         int success = (int) instances.stream().filter(item -> isSuccess(item.status())).count();
         int failed = (int) instances.stream().filter(item -> isFailed(item.status())).count();
-        return new TaskSummary(instances.size(), running, success, failed,
-                Math.max(0, instances.size() - running - success - failed));
+        return new TaskSummary(instances.size(), running, success, failed, Math.max(0, instances.size() - running - success - failed));
     }
 
     private List<RecentTask> recentTasks() {
@@ -150,9 +163,18 @@ public class DashboardService {
             result.add(new RecentTask("integration-" + instance.id(), task == null ? "未命名同步任务" : task.name(), "数据集成",
                     instance.status(), instance.startedAt(), instance.finishedAt(), instance.message()));
         }
-        for (WorkflowView workflow : store.workflows.values()) {
-            result.add(new RecentTask("workflow-" + workflow.id(), workflow.name(), "工作流", workflow.status(), null, null, workflow.description()));
+        // Workflow definitions are configuration, not executions. Only real scheduler
+        // instances belong in execution KPIs and recent-task timelines.
+        for (Map<String, Object> item : schedulerInstances()) {
+            result.add(new RecentTask("scheduler-" + item.getOrDefault("id", item.getOrDefault("processInstanceId", item.hashCode())),
+                    String.valueOf(item.getOrDefault("name", "调度实例")), "调度实例", String.valueOf(item.getOrDefault("status", "UNKNOWN")),
+                    asDateTime(item.get("startTime")), asDateTime(item.get("endTime")), String.valueOf(item.getOrDefault("duration", ""))));
         }
+        return result.stream().sorted(Comparator.comparing(RecentTask::startedAt, Comparator.nullsLast(Comparator.reverseOrder()))).toList();
+    }
+
+    private List<RecentTask> schedulerRecentTasks() {
+        List<RecentTask> result = new ArrayList<>();
         for (Map<String, Object> item : schedulerInstances()) {
             result.add(new RecentTask("scheduler-" + item.getOrDefault("id", item.getOrDefault("processInstanceId", item.hashCode())),
                     String.valueOf(item.getOrDefault("name", "调度实例")), "调度实例", String.valueOf(item.getOrDefault("status", "UNKNOWN")),
@@ -167,10 +189,8 @@ public class DashboardService {
         LocalDateTime start = "hours".equals(value) ? now.minusHours(24)
                 : "thirty".equals(value) ? now.minusDays(29).toLocalDate().atStartOfDay()
                 : now.minusDays(6).toLocalDate().atStartOfDay();
-        return store.integrationInstances.values().stream()
-                .filter(item -> item.startedAt() != null)
-                .filter(item -> !item.startedAt().isBefore(start) && !item.startedAt().isAfter(now))
-                .toList();
+        return store.integrationInstances.values().stream().filter(item -> item.startedAt() != null)
+                .filter(item -> !item.startedAt().isBefore(start) && !item.startedAt().isAfter(now)).toList();
     }
 
     private List<TrendPoint> integrationTrend(List<IntegrationInstanceView> instances, String range) {
@@ -196,9 +216,7 @@ public class DashboardService {
         Map<LocalDate, TrendCounter> counts = new LinkedHashMap<>();
         for (int offset = days - 1; offset >= 0; offset--) counts.put(LocalDate.now().minusDays(offset), new TrendCounter());
         for (IntegrationInstanceView instance : instances) {
-            if (instance.startedAt() != null && counts.containsKey(instance.startedAt().toLocalDate())) {
-                increase(counts.get(instance.startedAt().toLocalDate()), instance.status());
-            }
+            if (instance.startedAt() != null && counts.containsKey(instance.startedAt().toLocalDate())) increase(counts.get(instance.startedAt().toLocalDate()), instance.status());
         }
         return counts.entrySet().stream().map(item -> new TrendPoint(DAY.format(item.getKey()), item.getValue().count,
                 item.getValue().success, item.getValue().failed, item.getValue().running)).toList();
@@ -230,24 +248,19 @@ public class DashboardService {
         try { scheduler.listProcessInstances(); return true; }
         catch (RuntimeException ignored) { return false; }
     }
-
     private List<Map<String, Object>> schedulerInstances() {
         try { return scheduler.listProcessInstances(); }
         catch (RuntimeException ignored) { return List.of(); }
     }
-
-    private boolean healthy(DataSourceView source) {
-        String status = source.status() == null ? "" : source.status().toUpperCase(Locale.ROOT);
-        return status.equals("ACTIVE");
-    }
+    private boolean healthy(DataSourceView source) { return "ACTIVE".equals(source.status() == null ? "" : source.status().toUpperCase(Locale.ROOT)); }
     private boolean unhealthy(DataSourceView source) {
         String status = source.status() == null ? "" : source.status().toUpperCase(Locale.ROOT);
         return status.contains("DOWN") || status.contains("FAIL") || status.contains("ERROR") || status.contains("UNAVAILABLE");
     }
-    private boolean isRunning(String status) { return normalize(status).contains("RUNNING") || normalize(status).contains("SUBMITTED") || normalize(status).contains("运行中"); }
-    private boolean isSuccess(String status) { return normalize(status).contains("SUCCESS") || normalize(status).contains("PUBLISHED") || normalize(status).contains("成功"); }
+    private boolean isRunning(String status) { String value = normalize(status); return value.contains("RUNNING") || value.contains("SUBMITTED") || value.contains("运行中"); }
+    private boolean isSuccess(String status) { String value = normalize(status); return value.contains("SUCCESS") || value.contains("FINISHED") || value.contains("成功"); }
     private boolean isFailed(String status) { String value = normalize(status); return value.contains("FAIL") || value.contains("ERROR") || value.contains("失败"); }
-    private String normalize(String status) { return status == null ? "" : status.toUpperCase(Locale.ROOT); }
+    private String normalize(String status) { return status == null ? "" : status.trim().toUpperCase(Locale.ROOT); }
     private LocalDateTime asDateTime(Object value) {
         if (value instanceof LocalDateTime date) return date;
         if (value == null) return null;
@@ -262,16 +275,14 @@ public class DashboardService {
     public record RecentTask(String id, String name, String type, String status, LocalDateTime startedAt, LocalDateTime finishedAt, String detail) { }
     public record FavoriteItem(String id, String name, String type, String detail) { }
     public record SourceItem(long id, String name, String type, String status, String host, int port, String databaseName,
-                             String username, boolean metadataVisible, boolean healthy, LocalDateTime lastCheckedAt,
-                             String lastCheckMessage) { }
+                             String username, boolean metadataVisible, boolean healthy, LocalDateTime lastCheckedAt, String lastCheckMessage) { }
     public record AlertItem(String id, String name, String type, LocalDateTime occurredAt, String status) { }
     public record AssetItem(String name, String database, String table, String type, String layer, String status, String origin) { }
     public record OverviewView(PlatformStatus platform, TaskSummary tasks, SourceDashboardView sources, List<RecentTask> recentTasks, List<FavoriteItem> favorites, List<TrendPoint> trend, LocalDateTime generatedAt) { }
     public record SourceDashboardView(int total, int healthy, int unhealthy, int unchecked, int metadataVisible,
                                       Map<String, Long> typeDistribution, List<SourceItem> items) { }
     public record IntegrationDashboardView(int taskTotal, int total, int running, int success, int failed, int pending,
-                                           Map<String, Long> sourceDistribution, List<TrendPoint> trend,
-                                           LocalDateTime generatedAt) { }
+                                           Map<String, Long> sourceDistribution, List<TrendPoint> trend, LocalDateTime generatedAt) { }
     public record OperationsDashboardView(TaskSummary tasks, boolean schedulerAvailable, String mode, List<RecentTask> recentTasks, List<AlertItem> alerts, List<TrendPoint> trend, LocalDateTime generatedAt) { }
     public record AssetDashboardView(long total, long tables, long visibleCatalogs, long governed, long lineageRelations,
                                      List<AssetItem> items, LocalDateTime generatedAt) { }

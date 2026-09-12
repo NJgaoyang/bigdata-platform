@@ -4,12 +4,12 @@ import com.company.platform.common.NotFoundException;
 import com.company.platform.common.PlatformStore;
 import com.company.platform.common.Result;
 import com.company.platform.system.AuditService;
+import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.lang.management.ManagementFactory;
 import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -26,33 +26,45 @@ public class ClusterMetricsController {
     }
 
     @GetMapping("/cluster-metrics")
-    public Result<Map<String, Object>> metrics(@RequestParam String type, @RequestParam long id) {
+    public Result<Map<String, Object>> metrics(@RequestParam String type, @RequestParam long id,
+                                                HttpServletRequest servletRequest) {
         String name;
         String host;
         if ("dolphin".equalsIgnoreCase(type)) {
             var cluster = store.dolphinSchedulerClusters.get(id);
             if (cluster == null) throw new NotFoundException("DolphinScheduler 集群不存在");
-            name = cluster.name(); host = cluster.host();
-        } else {
+            name = cluster.name();
+            host = cluster.host();
+        } else if ("seatunnel".equalsIgnoreCase(type)) {
             var cluster = store.seaTunnelClusters.get(id);
             if (cluster == null) throw new NotFoundException("SeaTunnel 集群不存在");
-            name = cluster.name(); host = cluster.host();
+            name = cluster.name();
+            host = cluster.host();
+        } else {
+            throw new NotFoundException("不支持的集群类型");
         }
-        var bean = ManagementFactory.getPlatformMXBean(com.sun.management.OperatingSystemMXBean.class);
-        double cpu = bean == null ? -1 : bean.getSystemCpuLoad();
-        long total = bean == null ? -1 : bean.getTotalMemorySize();
-        long free = bean == null ? -1 : bean.getFreeMemorySize();
+
+        // The platform currently has no remote host/Prometheus collector for cluster CPU and memory.
+        // Returning the Spring Boot host's OperatingSystemMXBean values here would misrepresent the
+        // application server as the selected remote cluster. Until a real collector is configured,
+        // explicitly report metrics as unavailable instead of fabricating or proxying local values.
         Map<String, Object> value = new LinkedHashMap<>();
         value.put("clusterName", name);
         value.put("host", host);
-        value.put("scope", "platform-node");
-        value.put("available", cpu >= 0 && total > 0 && free >= 0);
-        value.put("cpuUsage", cpu < 0 ? null : Math.round(cpu * 1000.0) / 10.0);
-        value.put("memoryTotalBytes", total < 0 ? null : total);
-        value.put("memoryUsedBytes", total < 0 ? null : total - free);
-        value.put("memoryUsage", total <= 0 ? null : Math.round((total - free) * 1000.0 / total) / 10.0);
+        value.put("scope", "remote-cluster");
+        value.put("available", false);
+        value.put("message", "未配置远程集群指标采集，暂不展示 CPU/内存数据");
+        value.put("cpuUsage", null);
+        value.put("memoryTotalBytes", null);
+        value.put("memoryUsedBytes", null);
+        value.put("memoryUsage", null);
         value.put("collectedAt", Instant.now().toString());
-        audit.record("VIEW_CLUSTER_METRICS", "CLUSTER", id, name, "admin");
+        audit.record("VIEW_CLUSTER_METRICS", "CLUSTER", id, name, operator(servletRequest));
         return Result.ok(value);
+    }
+
+    private String operator(HttpServletRequest request) {
+        Object value = request.getAttribute("platform.operator");
+        return value == null ? "admin" : String.valueOf(value);
     }
 }

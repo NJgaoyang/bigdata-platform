@@ -5,3 +5,8 @@ frontend/dist/
 *.iml
 *.log
 .DS_Store
+
+# Local deployment/runtime artifacts
+.run/
+backups/
+*.log.prev

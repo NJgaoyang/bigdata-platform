@@ -2,6 +2,7 @@ package com.company.platform.datasource;
 
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
+import jakarta.annotation.PreDestroy;
 import org.springframework.stereotype.Component;
 
 import java.sql.Connection;
@@ -16,7 +17,7 @@ public class DynamicDataSourceManager {
 
     public Connection getConnection(long sourceId, String jdbcUrl, String username, String password) throws SQLException {
         String poolKey = sourceId + "|" + jdbcUrl;
-        HikariDataSource pool = pools.computeIfAbsent(poolKey, ignored -> createPool(jdbcUrl, username, password));
+        HikariDataSource pool = pools.computeIfAbsent(poolKey, ignored -> createPool(sourceId, jdbcUrl, username, password));
         return pool.getConnection();
     }
 
@@ -32,14 +33,24 @@ public class DynamicDataSourceManager {
         });
     }
 
-    private HikariDataSource createPool(String jdbcUrl, String username, String password) {
+    @PreDestroy
+    public void shutdown() {
+        pools.values().forEach(pool -> {
+            try { pool.close(); } catch (RuntimeException ignored) { }
+        });
+        pools.clear();
+    }
+
+    private HikariDataSource createPool(long sourceId, String jdbcUrl, String username, String password) {
         HikariConfig config = new HikariConfig();
         config.setJdbcUrl(jdbcUrl);
         config.setUsername(username);
         config.setPassword(password);
         config.setMaximumPoolSize(5);
         config.setMinimumIdle(1);
-        config.setPoolName("platform-ds-pool");
+        config.setConnectionTimeout(10_000);
+        config.setValidationTimeout(5_000);
+        config.setPoolName("platform-ds-" + sourceId + "-" + Integer.toUnsignedString(jdbcUrl.hashCode()));
         return new HikariDataSource(config);
     }
 }

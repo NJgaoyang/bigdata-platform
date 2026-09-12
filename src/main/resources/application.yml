@@ -5,9 +5,9 @@ spring:
   application:
     name: bigdata-platform
   datasource:
-    url: ${PLATFORM_DB_URL:jdbc:mysql://81.69.15.136:3306/bigdata_platform?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true}
+    url: ${PLATFORM_DB_URL:jdbc:mysql://172.17.0.12:3306/bigdata_platform?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true}
     username: ${PLATFORM_DB_USERNAME:root}
-    password: ${PLATFORM_DB_PASSWORD}
+    password: ${PLATFORM_DB_PASSWORD:}
     driver-class-name: com.mysql.cj.jdbc.Driver
     hikari:
       connection-timeout: 10000
@@ -33,23 +33,27 @@ platform:
     admin-password-hash: ${PLATFORM_ADMIN_PASSWORD_SHA256:}
     session-ttl-minutes: ${PLATFORM_SESSION_TTL_MINUTES:480}
   query:
-    default-max-rows: 1000
-    timeout-seconds: 300
+    default-max-rows: ${PLATFORM_QUERY_MAX_ROWS:1000}
+    timeout-seconds: ${PLATFORM_QUERY_TIMEOUT_SECONDS:300}
+    max-concurrent-queries: ${PLATFORM_QUERY_MAX_CONCURRENT:8}
   starrocks:
     version: "3.3.22"
   seatunnel:
     version: "2.3.12"
-    home: /data/software/seatunnel
-    real-enabled: ${SEATUNNEL_REAL_ENABLED:true}
+    home: ${SEATUNNEL_HOME:/data/software/seatunnel}
+    real-enabled: ${SEATUNNEL_REAL_ENABLED:false}
   scheduler:
     type: dolphinscheduler
     dolphinscheduler:
-      base-url: ${DOLPHINSCHEDULER_BASE_URL:http://81.69.15.136:12345}
+      base-url: ${DOLPHINSCHEDULER_BASE_URL:http://127.0.0.1:12345}
       version: "3.1.9"
       install-dir: /data/software/dolphinscheduler
-      username: admin
-      project-code: ${DOLPHINSCHEDULER_PROJECT_CODE:22919517565792}
+      username: ${DOLPHINSCHEDULER_USERNAME:admin}
+      project-code: ${DOLPHINSCHEDULER_PROJECT_CODE:bigdata-platform}
       tenant-code: ${DOLPHINSCHEDULER_TENANT_CODE:bigdata}
-      password: ${DOLPHINSCHEDULER_PASSWORD}
-      token:
-      real-enabled: ${DOLPHINSCHEDULER_REAL_ENABLED:true}
+      password: ${DOLPHINSCHEDULER_PASSWORD:}
+      token: ${DOLPHINSCHEDULER_TOKEN:}
+      real-enabled: ${DOLPHINSCHEDULER_REAL_ENABLED:false}
+      fail-retry-times: ${DOLPHINSCHEDULER_FAIL_RETRY_TIMES:3}
+      fail-retry-interval: ${DOLPHINSCHEDULER_FAIL_RETRY_INTERVAL:1}
+      worker-group: ${DOLPHINSCHEDULER_WORKER_GROUP:default}

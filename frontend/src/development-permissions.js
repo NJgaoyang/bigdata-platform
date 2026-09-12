@@ -1,0 +1,300 @@
+import './development-version-flow.js';
+
+const ACCESS_STYLE_ID = 'development-permission-controls';
+let lastAccessSignature = '';
+
+const state = {
+  identityLoaded: false,
+  isAdmin: false,
+  permissions: new Set(),
+  moduleEdit: false,
+  moduleView: false,
+  canRun: false,
+  projectAccess: new Map(),
+  pendingProjectAccess: new Map()
+};
+
+function token() {
+  return window.localStorage.getItem('platform_access_token') || '';
+}
+
+function api(path, options = {}) {
+  const headers = Object.assign({ Accept: 'application/json' }, options.headers || {});
+  const accessToken = token();
+  if (accessToken) headers.Authorization = 'Bearer ' + accessToken;
+  if (options.body != null && typeof options.body !== 'string') {
+    headers['Content-Type'] = 'application/json';
+    options = Object.assign({}, options, { body: JSON.stringify(options.body) });
+  }
+  return window.fetch('/api' + path, Object.assign({}, options, { headers })).then(async (response) => {
+    let payload = {};
+    try { payload = await response.json(); } catch (_) { payload = {}; }
+    if (!response.ok || payload.success === false) throw new Error(payload.message || '接口请求失败');
+    return payload.data;
+  });
+}
+
+function developmentPage() {
+  return document.getElementById('page-development');
+}
+
+function scope() {
+  return developmentPage()?.querySelector('.dev-segment.on')?.dataset.devScope || 'mine';
+}
+
+function currentProjectId() {
+  const page = developmentPage();
+  if (!page) return null;
+  const favorite = page.querySelector('[data-favorite-project-id]');
+  if (scope() === 'favorites' && favorite?.dataset.favoriteProjectId) return Number(favorite.dataset.favoriteProjectId);
+  const activeFile = page.querySelector('.live-file.on[data-project-id], .live-file[data-project-id][aria-current="true"]');
+  if (activeFile?.dataset.projectId) return Number(activeFile.dataset.projectId);
+  const tree = page.querySelector('[data-project-files]');
+  if (tree?.dataset.projectFiles) return Number(tree.dataset.projectFiles);
+  return null;
+}
+
+function notify(message, error) {
+  const toast = document.getElementById('toast');
+  if (!toast) {
+    if (error) window.alert(message);
+    return;
+  }
+  const icon = toast.querySelector('i');
+  const label = toast.querySelector('span');
+  if (icon) icon.className = error ? 'ri-error-warning-fill' : 'ri-checkbox-circle-fill';
+  if (label) label.textContent = message;
+  toast.classList.add('show');
+  window.clearTimeout(notify.timer);
+  notify.timer = window.setTimeout(() => toast.classList.remove('show'), 2800);
+}
+
+function installStyles() {
+  if (document.getElementById(ACCESS_STYLE_ID)) return;
+  const style = document.createElement('style');
+  style.id = ACCESS_STYLE_ID;
+  style.textContent = `
+    #page-development:not([data-dev-can-edit="true"]) .dev-create-file,
+    #page-development:not([data-dev-can-edit="true"]) .dev-tab-add,
+    #page-development:not([data-dev-can-edit="true"]) .favorite-row-actions,
+    #page-development:not([data-dev-can-edit="true"]) .favorite-folder-delete,
+    #page-development:not([data-dev-can-edit="true"]) .favorite-file-delete,
+    #page-development:not([data-dev-can-edit="true"]) .dev-save-file,
+    #page-development:not([data-dev-can-edit="true"]) .dev-format-file { display:none !important; }
+    #page-development:not([data-dev-can-manage="true"]) .dev-create-project,
+    #page-development:not([data-dev-can-manage="true"]) .folder-actions { display:none !important; }
+    #page-development[data-dev-scope-current="all"] .dev-create-file,
+    #page-development[data-dev-scope-current="all"] .dev-tab-add,
+    #page-development[data-dev-scope-current="all"] .dev-save-file,
+    #page-development[data-dev-scope-current="all"] .dev-format-file { display:none !important; }
+    #page-development:not([data-dev-can-publish="true"]) .dev-publish-file { display:none !important; }
+    #page-development:not([data-dev-can-push="true"]) .dev-save-to-project { display:none !important; }
+    #page-development:not([data-dev-can-run="true"]) .dev-run-button { display:none !important; }
+    #page-development[data-dev-readonly="true"] .code-shell { background:#fbfcfe; }
+    #page-development[data-dev-readonly="true"] .dev-version-bar::after { content:'只读'; margin-left:auto; color:#8a97aa; font-size:11px; }
+  `;
+  document.head.appendChild(style);
+}
+
+function setAttr(page, name, value) {
+  const next = String(value);
+  if (page.dataset[name] !== next) page.dataset[name] = next;
+}
+
+function effectiveCanManage(projectId, activeScope) {
+  if (!state.moduleEdit) return false;
+  if (activeScope === 'mine' || activeScope === 'favorites') return true;
+  if (activeScope !== 'all' || projectId == null) return false;
+  const access = state.projectAccess.get(String(projectId));
+  return !!(access && access.edit === true);
+}
+
+function applyEditorReadOnly(readOnly) {
+  const editor = window.platformMonaco?.getEditor?.();
+  if (editor && typeof editor.updateOptions === 'function') editor.updateOptions({ readOnly: !!readOnly });
+}
+
+function applyControls() {
+  const page = developmentPage();
+  if (!page) return;
+  const activeScope = scope();
+  const projectId = currentProjectId();
+  const canManage = effectiveCanManage(projectId, activeScope);
+  // Project space is a review/publish area. SQL content is always read-only there;
+  // all code changes must happen in "我的开发" and then be pushed.
+  const canEdit = activeScope !== 'all' && canManage;
+  const canPublish = activeScope === 'all' && canManage;
+  const canPush = activeScope === 'mine' && state.moduleEdit;
+
+  setAttr(page, 'devScopeCurrent', activeScope);
+  setAttr(page, 'devCanManage', canManage);
+  setAttr(page, 'devCanEdit', canEdit);
+  setAttr(page, 'devCanPublish', canPublish);
+  setAttr(page, 'devCanPush', canPush);
+  setAttr(page, 'devCanSaveToProject', canPush);
+  setAttr(page, 'devCanRun', state.canRun);
+  setAttr(page, 'devReadonly', !canEdit);
+
+  window.platformAuth = window.platformAuth || {};
+  window.platformAuth.permissions = Array.from(state.permissions);
+  window.platformAuth.canDevelopmentView = state.moduleView;
+  window.platformAuth.canDevelopmentEdit = state.moduleEdit;
+  window.platformDevelopmentAccess = {
+    scope: activeScope,
+    projectId,
+    canView: state.moduleView,
+    canManage,
+    canEdit,
+    canPublish,
+    canPush,
+    // backwards compatibility for older modules while the button label changes
+    canSaveToProject: canPush,
+    canRun: state.canRun
+  };
+
+  if (!canEdit) {
+    const menu = document.getElementById('dev-context-menu');
+    if (menu) menu.hidden = true;
+  }
+  applyEditorReadOnly(!canEdit);
+
+  const signature = [activeScope, projectId ?? '', canManage, canEdit, canPublish, canPush, state.canRun].join('|');
+  if (signature !== lastAccessSignature) {
+    lastAccessSignature = signature;
+    window.dispatchEvent(new CustomEvent('platform-development-access-changed', { detail: window.platformDevelopmentAccess }));
+  }
+}
+
+function loadProjectAccess(projectId) {
+  if (projectId == null || !state.moduleView) return Promise.resolve(null);
+  const key = String(projectId);
+  if (state.projectAccess.has(key)) return Promise.resolve(state.projectAccess.get(key));
+  if (state.pendingProjectAccess.has(key)) return state.pendingProjectAccess.get(key);
+  const pending = api('/development/projects/' + encodeURIComponent(projectId) + '/access')
+    .then((access) => {
+      state.projectAccess.set(key, access || { projectId, view: true, edit: false });
+      return access;
+    })
+    .catch(() => {
+      state.projectAccess.set(key, { projectId, view: true, edit: false });
+      return null;
+    })
+    .finally(() => {
+      state.pendingProjectAccess.delete(key);
+      applyControls();
+    });
+  state.pendingProjectAccess.set(key, pending);
+  return pending;
+}
+
+function sync() {
+  applyControls();
+  const activeScope = scope();
+  const projectId = currentProjectId();
+  if (activeScope === 'all' && projectId != null) loadProjectAccess(projectId);
+}
+
+function loadIdentity() {
+  return api('/auth/me').then((identity) => {
+    const role = String(identity?.roleCode || identity?.role || '').toUpperCase();
+    state.isAdmin = !!(identity?.authenticated && (identity?.superAdmin === true || role === 'ADMIN' || role === 'SUPER_ADMIN'));
+    state.permissions = new Set(Array.isArray(identity?.permissions) ? identity.permissions : []);
+    state.moduleView = state.isAdmin || state.permissions.has('DATA_DEVELOPMENT_VIEW') || state.permissions.has('DATA_DEVELOPMENT_EDIT') || state.permissions.has('DATA_DEVELOPMENT_PROJECT_ALL');
+    state.moduleEdit = state.isAdmin || state.permissions.has('DATA_DEVELOPMENT_EDIT') || state.permissions.has('DATA_DEVELOPMENT_PROJECT_ALL');
+    // QueryController is currently mapped to METADATA; POST execute/submit requires METADATA_EDIT.
+    state.canRun = state.isAdmin || state.permissions.has('METADATA_EDIT');
+    state.identityLoaded = true;
+    const nav = document.querySelector('.nav button[data-page="development"]');
+    if (nav) nav.style.display = state.moduleView ? '' : 'none';
+    applyControls();
+  }).catch(() => {
+    state.identityLoaded = true;
+    state.moduleView = false;
+    state.moduleEdit = false;
+    state.canRun = false;
+    applyControls();
+  });
+}
+
+function isContentMutationTarget(target) {
+  return target.closest?.([
+    '#page-development .dev-create-file',
+    '#page-development .dev-tab-add',
+    '#page-development .favorite-file-delete',
+    '#page-development .dev-save-file',
+    '#page-development .dev-format-file'
+  ].join(','));
+}
+
+function isStructureMutationTarget(target) {
+  return target.closest?.([
+    '#page-development .dev-create-project',
+    '#page-development .folder-add',
+    '#page-development .folder-more',
+    '#page-development .favorite-folder-delete'
+  ].join(','));
+}
+
+function installGuards() {
+  document.addEventListener('click', (event) => {
+    const page = developmentPage();
+    if (!page) return;
+    const access = window.platformDevelopmentAccess || {};
+    if (event.target.closest?.('#page-development .dev-publish-file') && !access.canPublish) {
+      event.preventDefault(); event.stopImmediatePropagation(); notify('当前项目仅有查看权限，不能发布', true); return;
+    }
+    if (event.target.closest?.('#page-development .dev-save-to-project') && !access.canPush) {
+      event.preventDefault(); event.stopImmediatePropagation(); notify('当前没有推送到项目的权限', true); return;
+    }
+    if (event.target.closest?.('#page-development .dev-run-button') && !access.canRun) {
+      event.preventDefault(); event.stopImmediatePropagation(); notify('当前账号没有 SQL 执行权限', true); return;
+    }
+    if (isContentMutationTarget(event.target) && !access.canEdit) {
+      event.preventDefault(); event.stopImmediatePropagation();
+      notify(access.scope === 'all' ? '项目空间版本只读，请创建开发版本后在“我的开发”中修改' : '当前空间为只读，不能修改', true);
+      return;
+    }
+    if (isStructureMutationTarget(event.target) && !access.canManage) {
+      event.preventDefault(); event.stopImmediatePropagation(); notify('当前空间为只读，不能修改目录', true);
+    }
+  }, true);
+
+  document.addEventListener('contextmenu', (event) => {
+    if (!event.target.closest?.('#page-development .live-folder, #page-development .live-file, #page-development .live-project')) return;
+    const access = window.platformDevelopmentAccess || {};
+    // Project files are review-only; do not expose rename/delete actions from the context menu.
+    if (!access.canEdit) { event.preventDefault(); event.stopImmediatePropagation(); }
+  }, true);
+
+  document.addEventListener('dblclick', (event) => {
+    if (!event.target.closest?.('#page-development .live-folder, #page-development .live-file')) return;
+    const access = window.platformDevelopmentAccess || {};
+    if (!access.canEdit) { event.preventDefault(); event.stopImmediatePropagation(); }
+  }, true);
+}
+
+function installObserver() {
+  const page = developmentPage();
+  if (!page) return;
+  let queued = false;
+  const observer = new MutationObserver(() => {
+    if (queued) return;
+    queued = true;
+    window.requestAnimationFrame(() => {
+      queued = false;
+      sync();
+    });
+  });
+  observer.observe(page, { subtree: true, childList: true, attributes: true, attributeFilter: ['class', 'hidden'] });
+}
+
+function boot() {
+  installStyles();
+  installGuards();
+  installObserver();
+  loadIdentity().finally(sync);
+  window.addEventListener('platform-monaco-ready', sync);
+}
+
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot, { once: true });
+else boot();

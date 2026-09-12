@@ -1,0 +1,45 @@
+server:
+  shutdown: graceful
+
+spring:
+  lifecycle:
+    timeout-per-shutdown-phase: 30s
+  datasource:
+    url: ${PLATFORM_DB_URL:jdbc:mysql://172.17.0.12:3306/bigdata_platform?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true}
+    username: ${PLATFORM_DB_USERNAME:root}
+    password: ${PLATFORM_DB_PASSWORD}
+    hikari:
+      connection-timeout: ${PLATFORM_DB_CONNECTION_TIMEOUT_MS:10000}
+      validation-timeout: ${PLATFORM_DB_VALIDATION_TIMEOUT_MS:5000}
+      maximum-pool-size: ${PLATFORM_DB_POOL_SIZE:20}
+
+springdoc:
+  api-docs:
+    enabled: ${SPRINGDOC_ENABLED:false}
+  swagger-ui:
+    enabled: ${SPRINGDOC_ENABLED:false}
+
+platform:
+  security:
+    enabled: ${PLATFORM_AUTH_ENABLED:true}
+    admin-username: ${PLATFORM_ADMIN_USERNAME:admin}
+    admin-password-hash: ${PLATFORM_ADMIN_PASSWORD_SHA256}
+  query:
+    default-max-rows: ${PLATFORM_QUERY_MAX_ROWS:1000}
+    timeout-seconds: ${PLATFORM_QUERY_TIMEOUT_SECONDS:300}
+    max-concurrent-queries: ${PLATFORM_QUERY_MAX_CONCURRENT:8}
+  seatunnel:
+    real-enabled: ${SEATUNNEL_REAL_ENABLED:true}
+  scheduler:
+    type: dolphinscheduler
+    dolphinscheduler:
+      base-url: ${DOLPHINSCHEDULER_BASE_URL:http://172.17.0.12:12345}
+      username: ${DOLPHINSCHEDULER_USERNAME:admin}
+      project-code: ${DOLPHINSCHEDULER_PROJECT_CODE:bigdata-platform}
+      tenant-code: ${DOLPHINSCHEDULER_TENANT_CODE:bigdata}
+      password: ${DOLPHINSCHEDULER_PASSWORD:}
+      token: ${DOLPHINSCHEDULER_TOKEN:}
+      real-enabled: ${DOLPHINSCHEDULER_REAL_ENABLED:true}
+      fail-retry-times: ${DOLPHINSCHEDULER_FAIL_RETRY_TIMES:3}
+      fail-retry-interval: ${DOLPHINSCHEDULER_FAIL_RETRY_INTERVAL:1}
+      worker-group: ${DOLPHINSCHEDULER_WORKER_GROUP:default}

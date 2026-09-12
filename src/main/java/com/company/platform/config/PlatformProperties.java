@@ -41,10 +41,13 @@ public class PlatformProperties {
     public static class Query {
         private int defaultMaxRows = 1000;
         private int timeoutSeconds = 300;
+        private int maxConcurrentQueries = 8;
         public int getDefaultMaxRows() { return defaultMaxRows; }
         public void setDefaultMaxRows(int value) { this.defaultMaxRows = value; }
         public int getTimeoutSeconds() { return timeoutSeconds; }
         public void setTimeoutSeconds(int value) { this.timeoutSeconds = value; }
+        public int getMaxConcurrentQueries() { return maxConcurrentQueries; }
+        public void setMaxConcurrentQueries(int value) { this.maxConcurrentQueries = value; }
     }
     public static class Starrocks {
         private String version = "3.3.22";
@@ -54,7 +57,7 @@ public class PlatformProperties {
     public static class Seatunnel {
         private String version = "2.3.12";
         private String home = "/data/software/seatunnel";
-        private boolean realEnabled;
+        private boolean realEnabled = true;
         public String getVersion() { return version; }
         public void setVersion(String version) { this.version = version; }
         public String getHome() { return home; }
@@ -78,7 +81,10 @@ public class PlatformProperties {
         private String tenantCode = "bigdata";
         private String password;
         private String token;
-        private boolean realEnabled;
+        private boolean realEnabled = true;
+        private int failRetryTimes = 3;
+        private int failRetryInterval = 1;
+        private String workerGroup = "default";
         public String getBaseUrl() { return baseUrl; }
         public void setBaseUrl(String baseUrl) { this.baseUrl = baseUrl; }
         public String getVersion() { return version; }
@@ -97,5 +103,11 @@ public class PlatformProperties {
         public void setToken(String token) { this.token = token; }
         public boolean isRealEnabled() { return realEnabled; }
         public void setRealEnabled(boolean realEnabled) { this.realEnabled = realEnabled; }
+        public int getFailRetryTimes() { return failRetryTimes; }
+        public void setFailRetryTimes(int failRetryTimes) { this.failRetryTimes = failRetryTimes; }
+        public int getFailRetryInterval() { return failRetryInterval; }
+        public void setFailRetryInterval(int failRetryInterval) { this.failRetryInterval = failRetryInterval; }
+        public String getWorkerGroup() { return workerGroup; }
+        public void setWorkerGroup(String workerGroup) { this.workerGroup = workerGroup; }
     }
 }

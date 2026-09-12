@@ -90,12 +90,15 @@ public class DataSourceService {
 
     @Transactional
     public ConnectionTestResult test(long id) {
-        try (var ignored = dataSourceManager.testConnection(connectionInfo(id).jdbcUrl(), connectionInfo(id).username(), connectionInfo(id).password())) {
-            String message = connectionInfo(id).type() + " 连接成功";
+        ConnectionInfo info = connectionInfo(id);
+        try (var ignored = dataSourceManager.testConnection(info.jdbcUrl(), info.username(), info.password())) {
+            String message = info.type() + " 连接成功";
             updateHealthStatus(id, "ACTIVE", message);
             return new ConnectionTestResult(true, message);
         } catch (Exception ex) {
-            String message = connectionInfo(id).type() + " 连接失败：" + ex.getMessage();
+            // Do not persist raw JDBC messages: driver errors may contain internal
+            // addresses, database names or other infrastructure details.
+            String message = info.type() + " 连接失败，请检查地址、端口、账号和网络权限";
             updateHealthStatus(id, "UNAVAILABLE", message);
             return new ConnectionTestResult(false, message);
         }

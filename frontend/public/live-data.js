@@ -24,6 +24,9 @@
     liveState.isAdmin = !!isAdmin;
     window.platformAuth = window.platformAuth || {};
     window.platformAuth.isAdmin = liveState.isAdmin;
+    // 集群新增入口由 Monaco bundle 中的设置增强模块创建；认证信息是
+    // 异步加载的，认证完成后主动刷新一次可见性，避免入口一直被隐藏。
+    if (window.settingsClusterFixSync) window.settingsClusterFixSync();
     var settingsNav = document.querySelector('.nav button[data-page="settings"]');
     if (settingsNav) settingsNav.style.display = liveState.isAdmin ? '' : 'none';
     document.querySelectorAll('[data-a="系统设置"], [data-a="数据源管理"]').forEach(function (node) {
@@ -328,35 +331,30 @@
   }
 
   function trendOption(points) {
-    var hasActualPoints = Array.isArray(points) && points.length > 1 && points.some(function (item) { return Number(item.success || 0) || Number(item.failed || 0) || Number(item.running || 0); });
-    var chartPoints = hasActualPoints ? points : [
-      { date: '—', success: 5.0, failed: 1.1, running: 2.5 }, { date: '—', success: 5.3, failed: 1.0, running: 2.6 },
-      { date: '—', success: 5.1, failed: 1.2, running: 2.4 }, { date: '—', success: 5.5, failed: 1.1, running: 2.7 },
-      { date: '—', success: 5.3, failed: 1.0, running: 2.6 }, { date: '—', success: 5.6, failed: 1.1, running: 2.8 },
-      { date: '—', success: 5.4, failed: 1.0, running: 2.7 }
-    ];
+    var chartPoints = Array.isArray(points) ? points : [];
     return {
       animationDuration: 500, grid: { left: 40, right: 16, top: 18, bottom: 30 }, tooltip: { trigger: 'axis' },
       xAxis: { type: 'category', boundaryGap: false, data: chartPoints.map(function (item) { return item.date; }) },
       yAxis: { type: 'value', minInterval: 1 },
       series: [
-        { name: '成功', type: 'line', smooth: 0.55, showSymbol: false, data: chartPoints.map(function (item) { return item.success || 0; }), itemStyle: { color: colors.success }, lineStyle: { color: colors.success, width: 2.2 }, opacity: hasActualPoints ? 1 : 0.7 },
-        { name: '失败', type: 'line', smooth: 0.55, showSymbol: false, data: chartPoints.map(function (item) { return item.failed || 0; }), itemStyle: { color: colors.failed }, lineStyle: { color: colors.failed, width: 2 }, opacity: hasActualPoints ? 1 : 0.7 },
-        { name: '运行中', type: 'line', smooth: 0.55, showSymbol: false, data: chartPoints.map(function (item) { return item.running || 0; }), itemStyle: { color: colors.running }, lineStyle: { color: colors.running, width: 2 }, opacity: hasActualPoints ? 1 : 0.7 }
+        { name: '成功', type: 'line', smooth: 0.55, showSymbol: false, data: chartPoints.map(function (item) { return item.success || 0; }), itemStyle: { color: colors.success }, lineStyle: { color: colors.success, width: 2.2 } },
+        { name: '失败', type: 'line', smooth: 0.55, showSymbol: false, data: chartPoints.map(function (item) { return item.failed || 0; }), itemStyle: { color: colors.failed }, lineStyle: { color: colors.failed, width: 2 } },
+        { name: '运行中', type: 'line', smooth: 0.55, showSymbol: false, data: chartPoints.map(function (item) { return item.running || 0; }), itemStyle: { color: colors.running }, lineStyle: { color: colors.running, width: 2 } }
       ]
     };
   }
 
   function renderIntegrationTrend(scope, points) {
     if (!scope) return;
-    if (window.echarts) { replaceSvgChart(scope, 'live-integration-trend', trendOption(points || [])); return; }
-    var actual = Array.isArray(points) && points.length > 1 && points.some(function (item) { return Number(item.success || 0) || Number(item.failed || 0) || Number(item.running || 0); });
-    var values = actual ? points : [
-      { date: '—', success: 5.0, failed: 1.1, running: 2.5 }, { date: '—', success: 5.3, failed: 1.0, running: 2.6 },
-      { date: '—', success: 5.1, failed: 1.2, running: 2.4 }, { date: '—', success: 5.5, failed: 1.1, running: 2.7 },
-      { date: '—', success: 5.3, failed: 1.0, running: 2.6 }, { date: '—', success: 5.6, failed: 1.1, running: 2.8 },
-      { date: '—', success: 5.4, failed: 1.0, running: 2.7 }
-    ];
+    var values = Array.isArray(points) ? points : [];
+    if (!values.length) {
+      clearChart('live-integration-trend');
+      var emptyTarget = scope.querySelector('.static-line,#live-integration-trend,.live-chart-empty');
+      if (emptyTarget) emptyTarget.outerHTML = '<div class="live-chart-empty">暂无真实趋势数据</div>';
+      return;
+    }
+    if (window.echarts) { replaceSvgChart(scope, 'live-integration-trend', trendOption(values)); return; }
+    var actual = true;
     var width = 900, height = 190, left = 42, right = 16, top = 16, bottom = 30, plotWidth = width - left - right, plotHeight = height - top - bottom;
     var max = Math.max(1, values.reduce(function (result, item) { return Math.max(result, Number(item.success || 0), Number(item.failed || 0), Number(item.running || 0)); }, 0));
     function coordinates(key) { return values.map(function (item, index) { return { x: left + plotWidth * index / Math.max(values.length - 1, 1), y: top + plotHeight - Number(item[key] || 0) / max * plotHeight }; }); }
@@ -481,13 +479,19 @@
     var legend = operation.querySelector('.donut-layout .legend-list');
     if (legend) legend.innerHTML = [['成功', tasks.success, 'success'], ['运行中', tasks.running, 'running'], ['失败', tasks.failed, 'failed'], ['待运行', tasks.pending, 'pending']].map(function (item) { return '<div class="legend-item"><span><i class="dot" style="background:' + colors[item[2]] + '"></i>' + item[0] + '</span><b>' + number(item[1]) + '</b><small>' + (tasks.total ? ((item[1] / tasks.total) * 100).toFixed(1) : '0.0') + '%</small></div>'; }).join('');
     var recentBody = operation.querySelector('.ops-bp .data-table tbody');
-    if (recentBody) recentBody.innerHTML = operations.recentTasks.length ? operations.recentTasks.map(function (task) { return '<tr><td>' + escapeHtml(task.name) + '</td><td>' + escapeHtml(task.type) + '</td><td>' + when(task.startedAt) + '</td><td>' + escapeHtml(task.detail || '—') + '</td><td>' + stateTag(task.status) + '</td><td>—</td></tr>'; }).join('') : emptyRow(6, '暂无运行实例');
+    if (recentBody) recentBody.innerHTML = operations.recentTasks.length ? operations.recentTasks.map(function (task) {
+      var instanceId = String(task.id || '').replace(/^scheduler-/, '');
+      var running = stateKind(task.status) === 'running';
+      var actions = instanceId ? '<div class="ops-row-actions"><button type="button" class="ops-action primary" data-ops-action="detail" data-instance-id="' + escapeHtml(instanceId) + '">详情</button><button type="button" class="ops-action" data-ops-action="log" data-instance-id="' + escapeHtml(instanceId) + '">日志</button>' + (running ? '<button type="button" class="ops-action danger" data-ops-action="stop" data-instance-id="' + escapeHtml(instanceId) + '">终止</button>' : '<button type="button" class="ops-action" data-ops-action="rerun" data-instance-id="' + escapeHtml(instanceId) + '">重跑</button>') + '</div>' : '—';
+      return '<tr data-process-instance-id="' + escapeHtml(instanceId) + '"><td>' + escapeHtml(task.name) + '</td><td>' + escapeHtml(task.type) + '</td><td>' + when(task.startedAt) + '</td><td>' + escapeHtml(task.detail || '—') + '</td><td>' + stateTag(task.status) + '</td><td>' + actions + '</td></tr>';
+    }).join('') : emptyRow(6, '暂无运行实例');
     var alertBox = operation.querySelectorAll('.ops-bp')[1];
     if (alertBox) {
       var heading = alertBox.querySelector('.chart-title');
       alertBox.querySelectorAll('.alert-item').forEach(function (item) { item.remove(); });
       alertBox.insertAdjacentHTML('beforeend', operations.alerts.length ? operations.alerts.map(function (item) { return '<div class="alert-item">🔺 <b>' + escapeHtml(item.name) + '</b><small>' + escapeHtml(item.type) + '　' + when(item.occurredAt) + '</small></div>'; }).join('') : '<div class="alert-item muted">暂无告警信息</div>');
     }
+    if (window.platformOperationsEnhance) window.platformOperationsEnhance(operations);
   }
 
   function renderAssets(summary, lineages) {
@@ -643,6 +647,18 @@
     return safe;
   }
 
+  // 后端返回的 updatedAt 才是文件真实修改时间；没有持久化文件时不显示
+  // “刚刚”等模拟时间，避免把草稿状态误导成已保存的文件。
+  function formatDevelopmentUpdatedAt(value) {
+    if (!value) return '—';
+    var date = value instanceof Date ? value : new Date(value);
+    if (Number.isNaN(date.getTime())) return '—';
+    return new Intl.DateTimeFormat('zh-CN', {
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
+    }).format(date).replace(/\//g, '-');
+  }
+
   function renderDevelopmentVersionState(file) {
     var development = page('page-development');
     if (!development) return;
@@ -659,7 +675,7 @@
     if (devVersion) devVersion.textContent = file && file.id && Number(file.currentVersion) > 0 ? 'V' + file.currentVersion : '未保存';
     if (onlineVersion) onlineVersion.textContent = '—';
     if (owner) owner.textContent = '负责人：' + ((project && project.ownerName) || liveState.currentUsername || '—');
-    if (updated) updated.textContent = '最近修改：' + (file && file.id ? '刚刚' : '—');
+    if (updated) updated.textContent = '最近修改：' + (file && file.id ? formatDevelopmentUpdatedAt(file.updatedAt) : '—');
     if (warning) warning.hidden = true;
     if (publishedBanner) publishedBanner.hidden = true;
     if (savedBanner) savedBanner.hidden = !(liveState.developmentSavedNotice && Date.now() - liveState.developmentSavedNotice < 3500);
@@ -706,7 +722,7 @@
     if (tableSummary) {
       tableSummary.hidden = false;
       var project = liveState.projects.find(function (item) { return String(item.id) === String(liveState.selectedFile && liveState.selectedFile.projectId); });
-      tableSummary.innerHTML = '<h3><i class="ri-table-2-line ico-blue"></i> ' + escapeHtml(database + '.' + table) + '</h3><p class="muted">内部表</p><div class="kvgrid"><span>所属项目</span><b>' + escapeHtml((project && project.name) || '数仓') + '</b><span>负责人</span><b>' + escapeHtml((project && project.ownerName) || liveState.currentUsername || '—') + '</b><span>更新时间</span><span>刚刚</span></div>';
+      tableSummary.innerHTML = '<h3><i class="ri-table-2-line ico-blue"></i> ' + escapeHtml(database + '.' + table) + '</h3><p class="muted">内部表</p><div class="kvgrid"><span>所属项目</span><b>' + escapeHtml((project && project.name) || '—') + '</b><span>负责人</span><b>' + escapeHtml((project && project.ownerName) || liveState.currentUsername || '—') + '</b><span>更新时间</span><span>' + escapeHtml(formatDevelopmentUpdatedAt(liveState.selectedFile && liveState.selectedFile.updatedAt)) + '</span></div>';
     }
     var rows = columns || [];
     fieldInfo.innerHTML = '<h4>字段信息</h4><p class="muted dev-table-caption">' + escapeHtml((database ? database + '.' : '') + table) + ' · ' + escapeHtml(source.name || '') + '</p>' + (rows.length
@@ -848,8 +864,8 @@
     } else {
       liveState.selectedProjectId = null;
     }
-    var projectRoot = scope === 'all' && active ? '<div class="dev-project-root"><i class="ri-folder-3-fill"></i>' + escapeHtml(active.name || '数仓') + '</div>' : '';
-    list.innerHTML = active ? '<div class="dev-scope-note"><strong>' + scopeTitle + '</strong>' + scopeNote + '</div>' + projectRoot + '<div class="dev-files" data-project-files="' + active.id + '"></div>' : '<div class="dev-scope-note"><strong>' + scopeTitle + '</strong>' + scopeNote + '</div><div class="dev-empty">暂无文件夹，请点击左上角“+”创建</div>';
+    // 项目空间与我的开发保持同一层级，直接展示项目下的文件夹和文件，不再额外渲染项目根节点。
+    list.innerHTML = active ? '<div class="dev-scope-note"><strong>' + scopeTitle + '</strong>' + scopeNote + '</div><div class="dev-files" data-project-files="' + active.id + '"></div>' : '<div class="dev-scope-note"><strong>' + scopeTitle + '</strong>' + scopeNote + '</div><div class="dev-empty">暂无文件夹，请点击左上角“+”创建</div>';
     if (active) loadDevelopmentFiles(active.id, liveState.selectedFile && liveState.selectedFile.id, scope).catch(function (error) { notify(error.message, true); });
     else if (!liveState.openFiles.length) createDevelopmentDraft('SQL', null, null);
     else renderDevelopmentEditor(liveState.openFiles[0]);
@@ -1573,49 +1589,61 @@
     var file = liveState.selectedFile;
     var host = document.getElementById('dev-project-save-modal');
     var form = document.getElementById('dev-project-save-form');
+    var projectSelect = document.getElementById('dev-project-save-project');
     var folderSelect = document.getElementById('dev-project-save-folder');
     var nameInput = document.getElementById('dev-project-save-name');
     var descriptionInput = document.getElementById('dev-project-save-description');
     var error = document.getElementById('dev-project-save-error');
-    if (!file || !host || !form || !folderSelect || !nameInput) return notify('请先选择或新建一个个人 SQL');
+    if (!file || !host || !form || !projectSelect || !folderSelect || !nameInput) return notify('请先选择或新建一个个人 SQL');
     form.reset();
     nameInput.value = file.name || '未命名.sql';
     descriptionInput.value = file.description || '';
-    folderSelect.innerHTML = '<option value="">加载目录…</option>';
+    projectSelect.innerHTML = '<option value="">加载项目…</option>';
+    projectSelect.disabled = true;
+    folderSelect.innerHTML = '<option value="">请先选择项目</option>';
     folderSelect.disabled = true;
     if (error) error.textContent = '';
-    var sharedProjects = (liveState.projects || []).filter(function (project) { return !isPersonalDevelopmentProject(project); });
-    var target = sharedProjects.find(function (project) { return String(project.id) === String(liveState.selectedProjectId); }) || sharedProjects[0] || null;
-    host.dataset.targetProjectId = target ? String(target.id) : '';
-    var loadFolders = function (project) {
-      if (!project) { folderSelect.innerHTML = '<option value="__root__">根目录</option>'; folderSelect.disabled = false; if (error) error.textContent = '暂无项目空间，请先创建一个项目'; return; }
-      request('/development/folders?projectId=' + encodeURIComponent(project.id)).then(function (folders) {
+
+    var loadFolders = function (projectId) {
+      if (!projectId) { folderSelect.innerHTML = '<option value="">请选择目录</option>'; folderSelect.disabled = true; return; }
+      folderSelect.innerHTML = '<option value="">加载目录…</option>'; folderSelect.disabled = true;
+      request('/development/folders?projectId=' + encodeURIComponent(projectId)).then(function (folders) {
         var list = Array.isArray(folders) ? folders : [];
-        folderSelect.innerHTML = list.length ? '<option value="">请选择目录</option>' + list.map(function (item) { return '<option value="' + item.id + '">' + escapeHtml(item.name) + '</option>'; }).join('') + '<option value="__root__">根目录</option>' : '<option value="__root__">根目录</option>';
-        folderSelect.disabled = false;
-        if (file.folderId != null && list.some(function (item) { return String(item.id) === String(file.folderId); })) folderSelect.value = String(file.folderId);
-        else folderSelect.value = '__root__';
+        folderSelect.innerHTML = '<option value="__root__">根目录</option>' + list.map(function (item) { return '<option value="' + item.id + '">' + escapeHtml(item.name) + '</option>'; }).join('');
+        folderSelect.disabled = false; folderSelect.value = '__root__';
       }).catch(function (requestError) { folderSelect.innerHTML = '<option value="__root__">根目录</option>'; folderSelect.disabled = false; if (error) error.textContent = requestError.message || '目录加载失败'; });
     };
+
+    projectSelect.onchange = function () {
+      host.dataset.targetProjectId = projectSelect.value || '';
+      if (error) error.textContent = '';
+      loadFolders(projectSelect.value);
+    };
     host.classList.add('open'); host.setAttribute('aria-hidden', 'false');
-    if (target) loadFolders(target);
-    else request('/development/projects?scope=all').then(function (projects) {
+    request('/development/projects?scope=all').then(function (projects) {
       var list = (Array.isArray(projects) ? projects : []).filter(function (project) { return !isPersonalDevelopmentProject(project); });
-      target = list.find(function (project) { return String(project.id) === String(liveState.selectedProjectId); }) || list[0] || null;
-      host.dataset.targetProjectId = target ? String(target.id) : '';
-      loadFolders(target);
-    }).catch(function () { loadFolders(null); });
-    window.setTimeout(function () { folderSelect.focus(); }, 0);
+      projectSelect.innerHTML = list.length ? list.map(function (project) { return '<option value="' + project.id + '">' + escapeHtml(project.name || ('项目 #' + project.id)) + '</option>'; }).join('') : '<option value="">暂无项目空间</option>';
+      projectSelect.disabled = !list.length;
+      var preferred = list.find(function (project) { return String(project.id) === String(liveState.selectedProjectId); }) || list[0] || null;
+      projectSelect.value = preferred ? String(preferred.id) : '';
+      host.dataset.targetProjectId = projectSelect.value || '';
+      loadFolders(projectSelect.value);
+      window.setTimeout(function () { if (!projectSelect.disabled) projectSelect.focus(); }, 0);
+    }).catch(function (requestError) {
+      projectSelect.innerHTML = '<option value="">项目加载失败</option>'; projectSelect.disabled = true;
+      if (error) error.textContent = requestError.message || '项目加载失败';
+    });
   }
   function submitDevelopmentSaveToProject() {
     var file = liveState.selectedFile;
     var host = document.getElementById('dev-project-save-modal');
+    var projectSelect = document.getElementById('dev-project-save-project');
     var folderSelect = document.getElementById('dev-project-save-folder');
     var nameInput = document.getElementById('dev-project-save-name');
     var descriptionInput = document.getElementById('dev-project-save-description');
     var error = document.getElementById('dev-project-save-error');
     var name = String(nameInput && nameInput.value || '').trim();
-    var projectId = String(host && host.dataset.targetProjectId || '');
+    var projectId = String(projectSelect && projectSelect.value || host && host.dataset.targetProjectId || '');
     var folderValue = String(folderSelect && folderSelect.value || '');
     if (!file) return closeDevelopmentSaveToProjectModal();
     if (!projectId) { if (error) error.textContent = '暂无项目空间，请先创建一个项目'; return; }
@@ -1644,7 +1672,7 @@
     var nextLabel = nextSchedule.toLocaleString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }).replace(/\//g, '-');
     var task = liveState.selectedWorkflow && liveState.selectedWorkflow.name ? liveState.selectedWorkflow.name : '未绑定工作流';
     var schedule = task === '未绑定工作流' ? '未设置' : '每天 02:00';
-    host.innerHTML = '<section class="dev-publish-card" role="dialog" aria-modal="true" aria-labelledby="dev-publish-title"><div class="dev-publish-head"><div><h3 id="dev-publish-title">发布上线</h3><p>将项目开发版本切换为线上正式运行版本</p></div><button type="button" class="dev-publish-close" aria-label="关闭">×</button></div><div class="dev-publish-body"><div class="dev-publish-file-name">' + escapeHtml(file.name || '未命名文件') + '</div><div class="dev-publish-version-flow"><div><small>当前线上版本</small><strong>' + escapeHtml(onlineLabel || '—') + '</strong></div><i class="ri-arrow-right-line"></i><div class="next"><small>待发布开发版本</small><strong>' + escapeHtml(devLabel) + '</strong></div></div><div class="dev-publish-detail-grid"><span>负责人</span><b>' + escapeHtml((project && project.ownerName) || liveState.currentUsername || '—') + '</b><span>最近修改</span><b>刚刚</b><span>绑定工作流</span><b>' + escapeHtml(task) + '</b><span>调度周期</span><b>' + escapeHtml(schedule) + '</b><span>下次调度</span><b>' + escapeHtml(nextLabel) + '</b></div><div class="dev-publish-warning"><i class="ri-error-warning-fill"></i><span>发布后，后续线上调度将执行 ' + escapeHtml(devLabel) + '，当前正在运行的实例不受影响。</span></div><label class="dev-publish-note">发布备注（可选）<textarea placeholder="例如：修复订单金额统计逻辑"></textarea></label></div><div class="dev-publish-foot"><button type="button" class="dev-publish-cancel">取消</button><button type="button" class="primary dev-publish-confirm">确认发布上线</button></div></section>';
+    host.innerHTML = '<section class="dev-publish-card" role="dialog" aria-modal="true" aria-labelledby="dev-publish-title"><div class="dev-publish-head"><div><h3 id="dev-publish-title">发布上线</h3><p>将项目开发版本切换为线上正式运行版本</p></div><button type="button" class="dev-publish-close" aria-label="关闭">×</button></div><div class="dev-publish-body"><div class="dev-publish-file-name">' + escapeHtml(file.name || '未命名文件') + '</div><div class="dev-publish-version-flow"><div><small>当前线上版本</small><strong>' + escapeHtml(onlineLabel || '—') + '</strong></div><i class="ri-arrow-right-line"></i><div class="next"><small>待发布开发版本</small><strong>' + escapeHtml(devLabel) + '</strong></div></div><div class="dev-publish-detail-grid"><span>负责人</span><b>' + escapeHtml((project && project.ownerName) || liveState.currentUsername || '—') + '</b><span>最近修改</span><b>' + escapeHtml(formatDevelopmentUpdatedAt(file.updatedAt)) + '</b><span>绑定工作流</span><b>' + escapeHtml(task) + '</b><span>调度周期</span><b>' + escapeHtml(schedule) + '</b><span>下次调度</span><b>' + escapeHtml(nextLabel) + '</b></div><div class="dev-publish-warning"><i class="ri-error-warning-fill"></i><span>发布后，后续线上调度将执行 ' + escapeHtml(devLabel) + '，当前正在运行的实例不受影响。</span></div><label class="dev-publish-note">发布备注（可选）<textarea placeholder="例如：修复订单金额统计逻辑"></textarea></label></div><div class="dev-publish-foot"><button type="button" class="dev-publish-cancel">取消</button><button type="button" class="primary dev-publish-confirm">确认发布上线</button></div></section>';
     var close = function () { host.classList.remove('open'); host.setAttribute('aria-hidden', 'true'); };
     host.querySelector('.dev-publish-close').onclick = close;
     host.querySelector('.dev-publish-cancel').onclick = close;
@@ -2189,6 +2217,9 @@
   bindActions();
   window.addEventListener('platform:data-source-changed', function () {
     loadSources().then(function () { loadOverview(); loadIntegration(); notify('数据源已保存并刷新列表'); }).catch(function (error) { notify(error.message || '数据源已保存，但列表刷新失败', true); });
+  });
+  window.addEventListener('platform:operations-refresh', function () {
+    loadOperations().then(loadOverview).catch(function (error) { notify(error.message || '调度实例刷新失败', true); });
   });
   loadAll();
 })();

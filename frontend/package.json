@@ -13,5 +13,8 @@
   },
   "dependencies": {
     "monaco-editor": "^0.56.0"
+  },
+  "overrides": {
+    "dompurify": "3.4.15"
   }
 }
