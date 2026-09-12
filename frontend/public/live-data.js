@@ -331,35 +331,30 @@
   }
 
   function trendOption(points) {
-    var hasActualPoints = Array.isArray(points) && points.length > 1 && points.some(function (item) { return Number(item.success || 0) || Number(item.failed || 0) || Number(item.running || 0); });
-    var chartPoints = hasActualPoints ? points : [
-      { date: '—', success: 5.0, failed: 1.1, running: 2.5 }, { date: '—', success: 5.3, failed: 1.0, running: 2.6 },
-      { date: '—', success: 5.1, failed: 1.2, running: 2.4 }, { date: '—', success: 5.5, failed: 1.1, running: 2.7 },
-      { date: '—', success: 5.3, failed: 1.0, running: 2.6 }, { date: '—', success: 5.6, failed: 1.1, running: 2.8 },
-      { date: '—', success: 5.4, failed: 1.0, running: 2.7 }
-    ];
+    var chartPoints = Array.isArray(points) ? points : [];
     return {
       animationDuration: 500, grid: { left: 40, right: 16, top: 18, bottom: 30 }, tooltip: { trigger: 'axis' },
       xAxis: { type: 'category', boundaryGap: false, data: chartPoints.map(function (item) { return item.date; }) },
       yAxis: { type: 'value', minInterval: 1 },
       series: [
-        { name: '成功', type: 'line', smooth: 0.55, showSymbol: false, data: chartPoints.map(function (item) { return item.success || 0; }), itemStyle: { color: colors.success }, lineStyle: { color: colors.success, width: 2.2 }, opacity: hasActualPoints ? 1 : 0.7 },
-        { name: '失败', type: 'line', smooth: 0.55, showSymbol: false, data: chartPoints.map(function (item) { return item.failed || 0; }), itemStyle: { color: colors.failed }, lineStyle: { color: colors.failed, width: 2 }, opacity: hasActualPoints ? 1 : 0.7 },
-        { name: '运行中', type: 'line', smooth: 0.55, showSymbol: false, data: chartPoints.map(function (item) { return item.running || 0; }), itemStyle: { color: colors.running }, lineStyle: { color: colors.running, width: 2 }, opacity: hasActualPoints ? 1 : 0.7 }
+        { name: '成功', type: 'line', smooth: 0.55, showSymbol: false, data: chartPoints.map(function (item) { return item.success || 0; }), itemStyle: { color: colors.success }, lineStyle: { color: colors.success, width: 2.2 } },
+        { name: '失败', type: 'line', smooth: 0.55, showSymbol: false, data: chartPoints.map(function (item) { return item.failed || 0; }), itemStyle: { color: colors.failed }, lineStyle: { color: colors.failed, width: 2 } },
+        { name: '运行中', type: 'line', smooth: 0.55, showSymbol: false, data: chartPoints.map(function (item) { return item.running || 0; }), itemStyle: { color: colors.running }, lineStyle: { color: colors.running, width: 2 } }
       ]
     };
   }
 
   function renderIntegrationTrend(scope, points) {
     if (!scope) return;
-    if (window.echarts) { replaceSvgChart(scope, 'live-integration-trend', trendOption(points || [])); return; }
-    var actual = Array.isArray(points) && points.length > 1 && points.some(function (item) { return Number(item.success || 0) || Number(item.failed || 0) || Number(item.running || 0); });
-    var values = actual ? points : [
-      { date: '—', success: 5.0, failed: 1.1, running: 2.5 }, { date: '—', success: 5.3, failed: 1.0, running: 2.6 },
-      { date: '—', success: 5.1, failed: 1.2, running: 2.4 }, { date: '—', success: 5.5, failed: 1.1, running: 2.7 },
-      { date: '—', success: 5.3, failed: 1.0, running: 2.6 }, { date: '—', success: 5.6, failed: 1.1, running: 2.8 },
-      { date: '—', success: 5.4, failed: 1.0, running: 2.7 }
-    ];
+    var values = Array.isArray(points) ? points : [];
+    if (!values.length) {
+      clearChart('live-integration-trend');
+      var emptyTarget = scope.querySelector('.static-line,#live-integration-trend,.live-chart-empty');
+      if (emptyTarget) emptyTarget.outerHTML = '<div class="live-chart-empty">暂无真实趋势数据</div>';
+      return;
+    }
+    if (window.echarts) { replaceSvgChart(scope, 'live-integration-trend', trendOption(values)); return; }
+    var actual = true;
     var width = 900, height = 190, left = 42, right = 16, top = 16, bottom = 30, plotWidth = width - left - right, plotHeight = height - top - bottom;
     var max = Math.max(1, values.reduce(function (result, item) { return Math.max(result, Number(item.success || 0), Number(item.failed || 0), Number(item.running || 0)); }, 0));
     function coordinates(key) { return values.map(function (item, index) { return { x: left + plotWidth * index / Math.max(values.length - 1, 1), y: top + plotHeight - Number(item[key] || 0) / max * plotHeight }; }); }

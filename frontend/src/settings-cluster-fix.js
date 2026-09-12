@@ -286,7 +286,7 @@ function syncCreateButton() {
 
   if (!shouldHide) {
     const label = button.querySelector('span');
-    const nextLabel = type === 'dolphin' ? '新增 DolphinScheduler 集群' : '新增 SeaTunnel 集群';
+    const nextLabel = '新增集群';
     if (label && label.textContent !== nextLabel) label.textContent = nextLabel;
     if (button.dataset.clusterType !== type) button.dataset.clusterType = type;
   }

@@ -12,6 +12,15 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 mkdir -p "$RUN_DIR"
 
+ENV_FILE="${PLATFORM_ENV_FILE:-${RUN_DIR}/platform.env}"
+if [[ -f "$ENV_FILE" ]]; then
+  echo "[deploy] loading runtime environment: $ENV_FILE"
+  set -a
+  # shellcheck disable=SC1090
+  source "$ENV_FILE"
+  set +a
+fi
+
 echo "[deploy] repository: $ROOT_DIR"
 echo "[deploy] branch: $BRANCH"
 

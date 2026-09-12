@@ -21,6 +21,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.context.event.EventListener;
+import org.springframework.core.Ordered;
+import org.springframework.core.annotation.Order;
 import com.company.platform.workflow.WorkflowView;
 import com.company.platform.workflow.WorkflowNodeView;
 import com.company.platform.workflow.WorkflowEdgeView;
@@ -83,6 +85,7 @@ public class PlatformStore {
     }
 
     @EventListener(ApplicationReadyEvent.class)
+    @Order(Ordered.HIGHEST_PRECEDENCE)
     public void loadPersistedCoreData() {
         if (jdbc == null) return;
         try {
