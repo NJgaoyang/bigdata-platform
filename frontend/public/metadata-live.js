@@ -4,7 +4,7 @@
   var state = {
     sources: [], source: null, databases: [], database: '', table: null,
     tableCache: Object.create(null), tableLoading: Object.create(null), expanded: Object.create(null),
-    columns: [], lineage: [], selectionSeq: 0, searchSeq: 0
+    columns: [], lineage: [], profile: null, selectionSeq: 0, searchSeq: 0
   };
   var params = new URLSearchParams(window.location.search);
   var preferredSourceId = params.get('dataSourceId') || window.localStorage.getItem('metadataDataSourceId') || '';
@@ -40,6 +40,23 @@
   function formatTime(value) {
     if (!value) return '—';
     return String(value).replace('T', ' ').replace(/\.\d{1,9}(?=Z?$)/, '').replace(/Z$/, '').slice(0, 19);
+  }
+
+  function formatNumber(value) {
+    if (value == null || value === '') return '—';
+    var numeric = Number(value);
+    return Number.isFinite(numeric) ? new Intl.NumberFormat('zh-CN').format(numeric) : '—';
+  }
+
+  function formatBytes(value) {
+    if (value == null || value === '') return '—';
+    var bytes = Number(value);
+    if (!Number.isFinite(bytes) || bytes < 0) return '—';
+    if (bytes === 0) return '0 B';
+    var units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
+    var index = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
+    var scaled = bytes / Math.pow(1024, index);
+    return (index === 0 ? Math.round(scaled) : scaled.toFixed(scaled >= 100 ? 0 : scaled >= 10 ? 1 : 2)) + ' ' + units[index];
   }
 
   function sourceType() { return String(state.source && state.source.type || '').toUpperCase(); }
@@ -204,18 +221,35 @@
     var host = $('#pane-overview');
     if (!state.table) return;
     var source = state.source || {};
-    var address = [display(source.host, ''), display(source.port, '')].filter(Boolean).join(':') || '—';
+    var profile = state.profile || {};
     var comment = state.table.comment || '当前数据表没有维护说明。';
-    var checkMessage = source.lastCheckMessage || '暂无连接检测信息';
-    host.innerHTML = '<div class="overview"><div class="facts">' +
-      fact('数据源', display(source.name)) + fact('数据库', state.database) + fact('对象类型', display(state.table.type, 'TABLE')) + fact('字段数量', state.columns.length) +
+    var owner = display(profile.owner);
+    var ownerEdit = profile.ownerEditable ? '<button type="button" class="fact-action" id="editTableOwner" title="设置拥有者"><i class="ri-edit-line"></i></button>' : '';
+    host.innerHTML = '<div class="overview"><div class="facts table-profile-facts">' +
+      fact('数据条数', formatNumber(profile.rowCount)) + fact('预估大小', formatBytes(profile.estimatedSizeBytes)) +
+      '<div class="fact owner-fact"><label>拥有者</label><div class="fact-value"><strong title="' + esc(owner) + '">' + esc(owner) + '</strong>' + ownerEdit + '</div></div>' +
+      fact('最近更新时间', formatTime(profile.updateTime)) +
       '</div><div class="section"><div class="section-title">表说明</div><div class="section-body">' + esc(comment) + '</div></div>' +
-      '<div class="section"><div class="section-title">数据源信息</div><div class="source-grid">' +
-      '<span>数据源类型</span><b>' + esc(display(source.type)) + '</b><span>地址</span><b>' + esc(address) + '</b>' +
-      '<span>用户名</span><b>' + esc(display(source.username)) + '</b><span>元数据展示</span><b>' + (source.metadataVisible === false ? '关闭' : '开启') + '</b>' +
-      '<span>连接状态</span><b>' + esc(display(source.status, '未检测')) + '</b><span>最近检测</span><b>' + esc(formatTime(source.lastCheckedAt)) + '</b>' +
-      '<span>检测信息</span><b title="' + esc(checkMessage) + '">' + esc(checkMessage) + '</b><span>数据库</span><b>' + esc(state.database) + '</b>' +
+      '<div class="section"><div class="section-title">基本信息</div><div class="source-grid">' +
+      '<span>数据源</span><b>' + esc(display(source.name)) + '</b><span>数据库</span><b>' + esc(state.database) + '</b>' +
+      '<span>表类型</span><b>' + esc(display(state.table.type, 'TABLE')) + '</b><span>字段数量</span><b>' + esc(state.columns.length) + '</b>' +
+      '<span>创建时间</span><b>' + esc(formatTime(profile.createTime)) + '</b><span>最近更新时间</span><b>' + esc(formatTime(profile.updateTime)) + '</b>' +
       '</div></div></div>';
+    var editOwner = $('#editTableOwner');
+    if (editOwner) editOwner.onclick = updateTableOwner;
+  }
+
+  function updateTableOwner() {
+    if (!state.table || !state.profile || !state.profile.ownerEditable) return;
+    var current = state.profile.owner || '';
+    var next = window.prompt('设置数据表拥有者（留空可清除）', current);
+    if (next == null) return;
+    var body = { dataSourceId: state.source.id, database: state.database, table: state.table.name, owner: String(next).trim() };
+    api('/metadata/table-profile/owner', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(function (profile) {
+      state.profile = profile || {};
+      renderTableOverview();
+      notify(body.owner ? '数据表拥有者已更新' : '数据表拥有者已清除');
+    }).catch(function (error) { notify(error.message || '拥有者更新失败', true); });
   }
 
   function renderFields() {
@@ -266,6 +300,7 @@
     state.table = null;
     state.columns = [];
     state.lineage = [];
+    state.profile = null;
     state.expanded[database] = true;
     preferredDatabase = database;
     window.localStorage.setItem('metadataDatabase', database);
@@ -288,6 +323,7 @@
       state.table = table;
       state.columns = [];
       state.lineage = [];
+      state.profile = null;
       preferredDatabase = database;
       window.localStorage.setItem('metadataDatabase', database);
       renderCatalog();
@@ -297,13 +333,16 @@
       var base = 'dataSourceId=' + encodeURIComponent(state.source.id) + '&database=' + encodeURIComponent(database) + '&table=' + encodeURIComponent(table.name);
       return Promise.allSettled([
         api('/metadata/columns?' + base),
-        api('/lineage/table?name=' + encodeURIComponent(database + '.' + table.name))
+        api('/lineage/table?name=' + encodeURIComponent(database + '.' + table.name)),
+        api('/metadata/table-profile?' + base)
       ]).then(function (results) {
         if (seq !== state.selectionSeq || !state.table || state.database !== database || state.table.name !== table.name) return;
         if (results[0].status === 'fulfilled') state.columns = Array.isArray(results[0].value) ? results[0].value : [];
         else notify(results[0].reason.message || '字段读取失败', true);
         if (results[1].status === 'fulfilled') state.lineage = Array.isArray(results[1].value) ? results[1].value : [];
         else notify(results[1].reason.message || '血缘读取失败', true);
+        if (results[2].status === 'fulfilled') state.profile = results[2].value || {};
+        else notify(results[2].reason.message || '表画像读取失败', true);
         renderTableDetail();
       });
     }).catch(function (error) { notify(error.message, true); });
@@ -319,6 +358,7 @@
     state.expanded = Object.create(null);
     state.columns = [];
     state.lineage = [];
+    state.profile = null;
     $('#catalogTree').innerHTML = '<div class="skeleton">正在加载数据库…</div>';
     renderEmptyDetail();
     return api('/metadata/databases?dataSourceId=' + encodeURIComponent(state.source.id) + '&type=' + encodeURIComponent(sourceType())).then(function (items) {

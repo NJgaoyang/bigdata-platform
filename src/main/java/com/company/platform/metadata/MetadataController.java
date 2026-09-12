@@ -4,6 +4,8 @@ import com.company.platform.common.Result;
 import com.company.platform.datasource.DataSourceAccessService;
 import com.company.platform.datasource.DataSourceType;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -33,6 +35,31 @@ public class MetadataController {
         access.requireView(dataSourceId, operator(request));
         return Result.ok(service.columns(dataSourceId, database, table));
     }
+
+    @GetMapping("/table-profile")
+    public Result<TableProfileResponse> tableProfile(@RequestParam long dataSourceId, @RequestParam String database,
+                                                     @RequestParam String table, HttpServletRequest request) {
+        String operator = operator(request);
+        access.requireView(dataSourceId, operator);
+        return Result.ok(profileResponse(service.tableProfile(dataSourceId, database, table),
+                access.canAccess(dataSourceId, operator, DataSourceAccessService.Access.EDIT)));
+    }
+
+    @PutMapping("/table-profile/owner")
+    public Result<TableProfileResponse> updateTableOwner(@Valid @RequestBody TableOwnerRequest request,
+                                                         HttpServletRequest servletRequest) {
+        String operator = operator(servletRequest);
+        access.requireEdit(request.dataSourceId(), operator);
+        MetadataService.TableProfileView profile = service.setTableOwner(request.dataSourceId(), request.database(),
+                request.table(), request.owner(), operator);
+        return Result.ok(profileResponse(profile, true), "数据表拥有者已更新");
+    }
+
+    private TableProfileResponse profileResponse(MetadataService.TableProfileView profile, boolean ownerEditable) {
+        return new TableProfileResponse(profile.dataSourceId(), profile.database(), profile.table(), profile.rowCount(),
+                profile.estimatedSizeBytes(), profile.owner(), profile.createTime(), profile.updateTime(), ownerEditable);
+    }
+
     @GetMapping("/datasources/{dataSourceId}/databases")
     public Result<List<MetadataService.DatabaseView>> databasesByDataSource(@PathVariable long dataSourceId,
             @RequestParam(defaultValue = "STARROCKS") DataSourceType type, HttpServletRequest request) {
@@ -51,6 +78,12 @@ public class MetadataController {
         access.requireView(dataSourceId, operator(request));
         return Result.ok(service.columns(dataSourceId, database, table));
     }
+
+
+    public record TableOwnerRequest(long dataSourceId, @NotBlank String database, @NotBlank String table, String owner) { }
+    public record TableProfileResponse(long dataSourceId, String database, String table, Long rowCount,
+                                       Long estimatedSizeBytes, String owner, java.time.LocalDateTime createTime,
+                                       java.time.LocalDateTime updateTime, boolean ownerEditable) { }
 
     private String operator(HttpServletRequest request) {
         Object value = request.getAttribute("platform.operator");
