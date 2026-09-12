@@ -1,5 +1,6 @@
 package com.company.platform.development;
 
+import com.company.platform.common.BadRequestException;
 import com.company.platform.common.PlatformStore;
 import com.company.platform.config.PlatformProperties;
 import org.junit.jupiter.api.BeforeEach;
@@ -8,6 +9,7 @@ import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class DevelopmentVersionFlowServiceTest {
     private PlatformStore store;
@@ -65,7 +67,7 @@ class DevelopmentVersionFlowServiceTest {
         assertTrue(localChanged.pendingPush());
 
         pushed = flow.pushToProject(new DevelopmentVersionFlowRequests.PushToProjectRequest(
-                source.id(), project.id(), null, source.name(), ""), "admin");
+                source.id(), null, null, null, null), "admin");
         assertEquals(4, pushed.currentVersion());
         DevelopmentVersionFlowService.DevelopmentVersionState next = flow.state(pushed.id(), "admin");
         assertEquals(4, next.pushedVersion());
@@ -92,4 +94,53 @@ class DevelopmentVersionFlowServiceTest {
         assertEquals(1, state.onlineVersion());
         assertTrue(state.pendingPush());
     }
+    @Test
+    void boundDevelopmentFilePushesBackToOriginalProjectFileWithoutChoosingFolderAgain() {
+        DevFolderView domain = development.createFolder(new DevelopmentRequests.FolderRequest(project.id(), null, "订单域"), "admin");
+        DevFolderView daily = development.createFolder(new DevelopmentRequests.FolderRequest(project.id(), domain.id(), "日任务"), "admin");
+        DevFileView source = development.createFile(new DevelopmentRequests.FileRequest(
+                mine.id(), null, "orders.sql", "SQL", "select 1", "订单明细"), "admin");
+
+        DevFileView first = flow.pushToProject(new DevelopmentVersionFlowRequests.PushToProjectRequest(
+                source.id(), project.id(), daily.id(), "orders.sql", "订单明细"), "admin");
+        flow.publish(first.id(), "admin");
+        DevFileView developmentCopy = flow.createDevelopmentVersion(first.id(), "admin");
+        developmentCopy = development.saveFile(developmentCopy.id(), new DevelopmentRequests.SaveFileRequest("select 2"), "admin");
+
+        DevelopmentVersionFlowService.DevelopmentVersionState before = flow.state(developmentCopy.id(), "admin");
+        assertEquals(first.id(), before.projectFileId());
+        assertEquals(project.id(), before.targetProjectId());
+        assertEquals("项目空间", before.targetProjectName());
+        assertEquals(daily.id(), before.targetFolderId());
+        assertEquals("/订单域/日任务/", before.targetFolderPath());
+        assertEquals("orders.sql", before.targetFileName());
+
+        DevFileView pushed = flow.pushToProject(new DevelopmentVersionFlowRequests.PushToProjectRequest(
+                developmentCopy.id(), null, null, null, null), "admin");
+        assertEquals(first.id(), pushed.id());
+        assertEquals(project.id(), pushed.projectId());
+        assertEquals(daily.id(), pushed.folderId());
+        assertEquals("orders.sql", pushed.name());
+        assertEquals(2, pushed.currentVersion());
+    }
+
+    @Test
+    void boundDevelopmentFileCannotBeRetargetedDuringPush() {
+        DevProjectView otherProject = development.createProject(new DevelopmentRequests.ProjectRequest("其他项目", "团队公共开发空间"), "admin");
+        DevFileView source = development.createFile(new DevelopmentRequests.FileRequest(
+                mine.id(), null, "customer.sql", "SQL", "select 1", ""), "admin");
+        DevFileView first = flow.pushToProject(new DevelopmentVersionFlowRequests.PushToProjectRequest(
+                source.id(), project.id(), null, source.name(), ""), "admin");
+        flow.publish(first.id(), "admin");
+        DevFileView developmentCopy = flow.createDevelopmentVersion(first.id(), "admin");
+        developmentCopy = development.saveFile(developmentCopy.id(), new DevelopmentRequests.SaveFileRequest("select 2"), "admin");
+        long sourceId = developmentCopy.id();
+
+        assertThrows(BadRequestException.class, () -> flow.pushToProject(
+                new DevelopmentVersionFlowRequests.PushToProjectRequest(sourceId, otherProject.id(), null, "customer.sql", ""), "admin"));
+        DevelopmentVersionFlowService.DevelopmentVersionState state = flow.state(sourceId, "admin");
+        assertEquals(first.id(), state.projectFileId());
+        assertEquals(project.id(), state.targetProjectId());
+    }
+
 }

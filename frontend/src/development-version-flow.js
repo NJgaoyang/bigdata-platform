@@ -291,6 +291,7 @@ function handlePushSubmit(event) {
   if (!sourceFileId) return notify('请先保存当前开发文件后再推送', true);
 
   const host = document.getElementById('dev-project-save-modal');
+  const projectSelect = document.getElementById('dev-project-save-project');
   const folderSelect = document.getElementById('dev-project-save-folder');
   const nameInput = document.getElementById('dev-project-save-name');
   const descriptionInput = document.getElementById('dev-project-save-description');
@@ -302,13 +303,14 @@ function handlePushSubmit(event) {
   if (!folderValue) { if (error) error.textContent = '请选择目标目录'; return; }
   if (!name) { if (error) error.textContent = '请输入文件名称'; return; }
   const folderId = folderValue === '__root__' ? null : Number(folderValue);
+  const projectName = projectSelect?.selectedOptions?.[0]?.textContent?.trim() || ('项目 #' + projectId);
   const folderName = folderSelect?.selectedOptions?.[0]?.textContent?.trim() || '项目根目录';
 
   refreshState(true).then((state) => {
     if (!state) throw new Error('无法读取当前版本信息');
     confirmDialog({
       title: '确认推送到项目', subtitle: '确认后将当前已保存版本提交到项目空间。',
-      rows: [['文件', name], ['开发版本', versionLabel(state.developmentVersion)], ['当前已推送', versionLabel(state.pushedVersion)], ['当前线上', versionLabel(state.onlineVersion)], ['目标目录', folderName]],
+      rows: [['文件', name], ['开发版本', versionLabel(state.developmentVersion)], ['当前已推送', versionLabel(state.pushedVersion)], ['当前线上', versionLabel(state.onlineVersion)], ['目标项目', projectName], ['目标目录', folderName]],
       warning: '推送只更新项目空间的待发布版本，不会直接改变当前线上版本。', warningInfo: true,
       confirmText: '确认推送', pendingText: '推送中…',
       onConfirm: async () => {
@@ -372,7 +374,43 @@ function handleCreateDevelopment(fileId) {
 function installEvents() {
   document.addEventListener('submit', handlePushSubmit, true);
   document.addEventListener('click', (event) => {
-    if (event.target.closest?.('#page-development .dev-save-to-project')) { window.setTimeout(renamePushControls, 0); return; }
+    const push = event.target.closest?.('#page-development .dev-save-to-project');
+    if (push) {
+      event.preventDefault(); event.stopImmediatePropagation();
+      if (scope() !== 'mine') return notify('只能从“我的开发”推送版本', true);
+      if (isDirty()) return notify('当前有未保存修改，请先点击“保存”产生新版本后再推送', true);
+      const sourceFileId = activeFileId();
+      if (!sourceFileId) return notify('请先保存当前开发文件后再推送', true);
+      const legacyOpen = push.onclick;
+      refreshState(true).then((state) => {
+        if (!state) throw new Error('无法读取当前版本信息');
+        if (!state.projectFileId || state.projectFile) {
+          if (typeof legacyOpen === 'function') legacyOpen.call(push);
+          window.setTimeout(renamePushControls, 0);
+          return;
+        }
+        confirmDialog({
+          title: '确认推送到原项目文件',
+          subtitle: '该开发版本已经绑定项目文件，目标位置不可在推送时修改。',
+          rows: [
+            ['文件', state.targetFileName || currentFileName()],
+            ['开发版本', versionLabel(state.developmentVersion)],
+            ['当前已推送', versionLabel(state.pushedVersion)],
+            ['当前线上', versionLabel(state.onlineVersion)],
+            ['目标项目', state.targetProjectName || ('项目 #' + state.targetProjectId)],
+            ['目标目录', state.targetFolderPath || '/']
+          ],
+          warning: '确认后将直接回推到原 project_file_id #' + state.projectFileId + '，不会修改目录，也不会影响当前线上版本。',
+          warningInfo: true, confirmText: '确认推送', pendingText: '推送中…',
+          onConfirm: async () => {
+            await api('/development/files/push-to-project', { method: 'POST', body: { sourceFileId } });
+            notify('已推送 ' + versionLabel(state.developmentVersion) + ' 到原项目文件，线上版本未改变');
+            await refreshState(true);
+          }
+        });
+      }).catch((error) => notify(error.message || '推送失败', true));
+      return;
+    }
     const publish = event.target.closest?.('#page-development .dev-publish-file');
     if (publish && scope() === 'all') {
       event.preventDefault(); event.stopImmediatePropagation();

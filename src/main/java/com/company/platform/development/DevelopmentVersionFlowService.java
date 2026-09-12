@@ -52,7 +52,6 @@ public class DevelopmentVersionFlowService {
         DevelopmentAccessService.ModuleAccess module = access.moduleAccess(operator);
         if (!module.edit()) throw new ForbiddenException("当前账号没有数据开发编辑权限");
         if (request.sourceFileId() <= 0) throw new BadRequestException("请先保存当前开发文件后再推送");
-        if (request.projectId() <= 0) throw new BadRequestException("请选择目标项目");
 
         DevFileView source = development.getFile(request.sourceFileId(), operator);
         DevProjectView sourceProject = store.projects.get(source.projectId());
@@ -61,26 +60,59 @@ public class DevelopmentVersionFlowService {
                 || !isPersonalProject(sourceProject)) {
             throw new ForbiddenException("只能从自己的“我的开发”空间推送版本");
         }
-        if (source.projectId() == request.projectId()) throw new BadRequestException("目标项目不能与当前开发空间相同");
 
-        DevProjectView targetProject = store.projects.get(request.projectId());
-        if (targetProject == null) throw new NotFoundException("项目不存在：" + request.projectId());
+        DevFileDeliveryView binding = deliveryForSourceFile(source.id());
+        DevFileView target = null;
+        long targetProjectId;
+        Long targetFolderId;
+        String targetName;
+
+        if (binding != null) {
+            target = store.files.get(binding.projectFileId());
+            if (target == null) {
+                throw new NotFoundException("原项目文件不存在，不能自动改推到其他目录");
+            }
+            targetProjectId = target.projectId();
+            targetFolderId = target.folderId();
+            targetName = target.name();
+            if (request.projectId() != null && request.projectId() > 0 && request.projectId() != targetProjectId) {
+                throw new BadRequestException("该开发文件已绑定项目文件，不能在推送时更换项目");
+            }
+            if (request.folderId() != null && !Objects.equals(request.folderId(), targetFolderId)) {
+                throw new BadRequestException("该开发文件已绑定项目文件，不能在推送时更换目录");
+            }
+            String requestedName = request.name() == null ? "" : request.name().trim();
+            if (!requestedName.isBlank() && !requestedName.equalsIgnoreCase(targetName)) {
+                throw new BadRequestException("该开发文件已绑定项目文件，不能在推送时修改文件名");
+            }
+        } else {
+            if (request.projectId() == null || request.projectId() <= 0) throw new BadRequestException("请选择目标项目");
+            targetProjectId = request.projectId();
+            targetFolderId = request.folderId();
+            String rawName = request.name() == null ? "" : request.name().trim();
+            targetName = rawName.isBlank() ? source.name() : rawName;
+        }
+
+        if (source.projectId() == targetProjectId) throw new BadRequestException("目标项目不能与当前开发空间相同");
+        DevProjectView targetProject = store.projects.get(targetProjectId);
+        if (targetProject == null) throw new NotFoundException("项目不存在：" + targetProjectId);
         if (isPersonalProject(targetProject)) throw new BadRequestException("请选择项目空间中的目标项目");
 
-        DevelopmentAccessService.ProjectAccess targetAccess = access.projectAccess(request.projectId(), operator);
+        DevelopmentAccessService.ProjectAccess targetAccess = access.projectAccess(targetProjectId, operator);
         if (!targetAccess.edit()) throw new ForbiddenException("当前用户仅有目标项目查看权限，不能推送版本");
-        validateFolder(request.projectId(), request.folderId());
+        validateFolder(targetProjectId, targetFolderId);
 
         FileVersionView sourceVersion = version(source.id(), source.currentVersion());
-        String rawName = request.name() == null ? "" : request.name().trim();
-        final String requestedName = rawName.isBlank() ? source.name() : rawName;
-        String description = request.description() == null ? source.description() : request.description().trim();
+        String description = request.description() == null || request.description().isBlank()
+                ? source.description() : request.description().trim();
 
-        DevFileView target = store.files.values().stream()
-                .filter(file -> file.projectId() == request.projectId())
-                .filter(file -> Objects.equals(file.folderId(), request.folderId()))
-                .filter(file -> requestedName.equalsIgnoreCase(file.name()))
-                .findFirst().orElse(null);
+        if (target == null) {
+            target = store.files.values().stream()
+                    .filter(file -> file.projectId() == targetProjectId)
+                    .filter(file -> Objects.equals(file.folderId(), targetFolderId))
+                    .filter(file -> targetName.equalsIgnoreCase(file.name()))
+                    .findFirst().orElse(null);
+        }
 
         if (target != null) {
             DevFileDeliveryView existingLink = deliveryForProjectFile(target.id());
@@ -99,9 +131,8 @@ public class DevelopmentVersionFlowService {
         Integer onlineVersion = target == null ? null : publishedVersionNo(target.id());
         if (target == null) {
             long id = store.nextId();
-            target = new DevFileView(id, request.projectId(), request.folderId(), requestedName, source.fileType(),
+            target = new DevFileView(id, targetProjectId, targetFolderId, targetName, source.fileType(),
                     sourceVersion.content(), description, "PENDING_PUBLISH", source.currentVersion(), LocalDateTime.now());
-            // dev_file_version has a foreign key to dev_file, so persist the file first.
             store.persistFile(target);
             FileVersionView pushed = copyVersion(target.id(), sourceVersion, false);
             store.persistVersion(pushed);
@@ -118,7 +149,7 @@ public class DevelopmentVersionFlowService {
                 store.versions.put(pushed.id(), pushed);
             }
             String status = Objects.equals(onlineVersion, source.currentVersion()) ? "PUBLISHED" : "PENDING_PUBLISH";
-            target = new DevFileView(target.id(), target.projectId(), request.folderId(), requestedName, target.fileType(),
+            target = new DevFileView(target.id(), target.projectId(), target.folderId(), target.name(), target.fileType(),
                     sourceVersion.content(), description, status, source.currentVersion(), LocalDateTime.now());
             store.persistFile(target);
             store.files.put(target.id(), target);
@@ -214,7 +245,8 @@ public class DevelopmentVersionFlowService {
         if (delivery == null) {
             Integer online = publishedVersionNo(fileId);
             return new DevelopmentVersionState(fileId, fileId, null, requested.projectId(), requested.currentVersion(),
-                    null, online, requested.status(), false, false, online != null, false);
+                    null, online, requested.status(), false, false, online != null, false,
+                    null, null, null, null, null);
         }
 
         DevFileView source = store.files.get(delivery.sourceFileId());
@@ -225,9 +257,13 @@ public class DevelopmentVersionFlowService {
         boolean pendingPush = developmentVersion > pushed;
         boolean pendingPublish = pushed != null && !Objects.equals(pushed, online);
         String status = project == null ? requested.status() : project.status();
+        DevProjectView targetProject = project == null ? null : store.projects.get(project.projectId());
         return new DevelopmentVersionState(fileId, delivery.sourceFileId(), delivery.projectFileId(),
                 project == null ? requested.projectId() : project.projectId(), developmentVersion, pushed, online,
-                status, pendingPush, pendingPublish, online != null, projectFile);
+                status, pendingPush, pendingPublish, online != null, projectFile,
+                project == null ? null : project.projectId(), targetProject == null ? null : targetProject.name(),
+                project == null ? null : project.folderId(), project == null ? null : folderPath(project.folderId()),
+                project == null ? null : project.name());
     }
 
     public boolean isManagedProjectFile(long fileId) {
@@ -313,6 +349,20 @@ public class DevelopmentVersionFlowService {
     private boolean isOwnedBy(long projectId, String operator) {
         DevProjectView project = store.projects.get(projectId);
         return project != null && normalize(operator).equalsIgnoreCase(project.ownerName()) && isPersonalProject(project);
+    }
+
+    private String folderPath(Long folderId) {
+        if (folderId == null) return "/";
+        List<String> parts = new ArrayList<>();
+        Long current = folderId;
+        int guard = 0;
+        while (current != null && guard++ < 100) {
+            DevFolderView folder = store.folders.get(current);
+            if (folder == null) break;
+            parts.add(0, folder.name());
+            current = folder.parentId();
+        }
+        return parts.isEmpty() ? "/" : "/" + String.join("/", parts) + "/";
     }
 
     private void validateFolder(long projectId, Long folderId) {
@@ -411,5 +461,10 @@ public class DevelopmentVersionFlowService {
             boolean pendingPush,
             boolean pendingPublish,
             boolean online,
-            boolean projectFile) { }
+            boolean projectFile,
+            Long targetProjectId,
+            String targetProjectName,
+            Long targetFolderId,
+            String targetFolderPath,
+            String targetFileName) { }
 }

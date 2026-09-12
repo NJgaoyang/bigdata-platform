@@ -1594,49 +1594,61 @@
     var file = liveState.selectedFile;
     var host = document.getElementById('dev-project-save-modal');
     var form = document.getElementById('dev-project-save-form');
+    var projectSelect = document.getElementById('dev-project-save-project');
     var folderSelect = document.getElementById('dev-project-save-folder');
     var nameInput = document.getElementById('dev-project-save-name');
     var descriptionInput = document.getElementById('dev-project-save-description');
     var error = document.getElementById('dev-project-save-error');
-    if (!file || !host || !form || !folderSelect || !nameInput) return notify('请先选择或新建一个个人 SQL');
+    if (!file || !host || !form || !projectSelect || !folderSelect || !nameInput) return notify('请先选择或新建一个个人 SQL');
     form.reset();
     nameInput.value = file.name || '未命名.sql';
     descriptionInput.value = file.description || '';
-    folderSelect.innerHTML = '<option value="">加载目录…</option>';
+    projectSelect.innerHTML = '<option value="">加载项目…</option>';
+    projectSelect.disabled = true;
+    folderSelect.innerHTML = '<option value="">请先选择项目</option>';
     folderSelect.disabled = true;
     if (error) error.textContent = '';
-    var sharedProjects = (liveState.projects || []).filter(function (project) { return !isPersonalDevelopmentProject(project); });
-    var target = sharedProjects.find(function (project) { return String(project.id) === String(liveState.selectedProjectId); }) || sharedProjects[0] || null;
-    host.dataset.targetProjectId = target ? String(target.id) : '';
-    var loadFolders = function (project) {
-      if (!project) { folderSelect.innerHTML = '<option value="__root__">根目录</option>'; folderSelect.disabled = false; if (error) error.textContent = '暂无项目空间，请先创建一个项目'; return; }
-      request('/development/folders?projectId=' + encodeURIComponent(project.id)).then(function (folders) {
+
+    var loadFolders = function (projectId) {
+      if (!projectId) { folderSelect.innerHTML = '<option value="">请选择目录</option>'; folderSelect.disabled = true; return; }
+      folderSelect.innerHTML = '<option value="">加载目录…</option>'; folderSelect.disabled = true;
+      request('/development/folders?projectId=' + encodeURIComponent(projectId)).then(function (folders) {
         var list = Array.isArray(folders) ? folders : [];
-        folderSelect.innerHTML = list.length ? '<option value="">请选择目录</option>' + list.map(function (item) { return '<option value="' + item.id + '">' + escapeHtml(item.name) + '</option>'; }).join('') + '<option value="__root__">根目录</option>' : '<option value="__root__">根目录</option>';
-        folderSelect.disabled = false;
-        if (file.folderId != null && list.some(function (item) { return String(item.id) === String(file.folderId); })) folderSelect.value = String(file.folderId);
-        else folderSelect.value = '__root__';
+        folderSelect.innerHTML = '<option value="__root__">根目录</option>' + list.map(function (item) { return '<option value="' + item.id + '">' + escapeHtml(item.name) + '</option>'; }).join('');
+        folderSelect.disabled = false; folderSelect.value = '__root__';
       }).catch(function (requestError) { folderSelect.innerHTML = '<option value="__root__">根目录</option>'; folderSelect.disabled = false; if (error) error.textContent = requestError.message || '目录加载失败'; });
     };
+
+    projectSelect.onchange = function () {
+      host.dataset.targetProjectId = projectSelect.value || '';
+      if (error) error.textContent = '';
+      loadFolders(projectSelect.value);
+    };
     host.classList.add('open'); host.setAttribute('aria-hidden', 'false');
-    if (target) loadFolders(target);
-    else request('/development/projects?scope=all').then(function (projects) {
+    request('/development/projects?scope=all').then(function (projects) {
       var list = (Array.isArray(projects) ? projects : []).filter(function (project) { return !isPersonalDevelopmentProject(project); });
-      target = list.find(function (project) { return String(project.id) === String(liveState.selectedProjectId); }) || list[0] || null;
-      host.dataset.targetProjectId = target ? String(target.id) : '';
-      loadFolders(target);
-    }).catch(function () { loadFolders(null); });
-    window.setTimeout(function () { folderSelect.focus(); }, 0);
+      projectSelect.innerHTML = list.length ? list.map(function (project) { return '<option value="' + project.id + '">' + escapeHtml(project.name || ('项目 #' + project.id)) + '</option>'; }).join('') : '<option value="">暂无项目空间</option>';
+      projectSelect.disabled = !list.length;
+      var preferred = list.find(function (project) { return String(project.id) === String(liveState.selectedProjectId); }) || list[0] || null;
+      projectSelect.value = preferred ? String(preferred.id) : '';
+      host.dataset.targetProjectId = projectSelect.value || '';
+      loadFolders(projectSelect.value);
+      window.setTimeout(function () { if (!projectSelect.disabled) projectSelect.focus(); }, 0);
+    }).catch(function (requestError) {
+      projectSelect.innerHTML = '<option value="">项目加载失败</option>'; projectSelect.disabled = true;
+      if (error) error.textContent = requestError.message || '项目加载失败';
+    });
   }
   function submitDevelopmentSaveToProject() {
     var file = liveState.selectedFile;
     var host = document.getElementById('dev-project-save-modal');
+    var projectSelect = document.getElementById('dev-project-save-project');
     var folderSelect = document.getElementById('dev-project-save-folder');
     var nameInput = document.getElementById('dev-project-save-name');
     var descriptionInput = document.getElementById('dev-project-save-description');
     var error = document.getElementById('dev-project-save-error');
     var name = String(nameInput && nameInput.value || '').trim();
-    var projectId = String(host && host.dataset.targetProjectId || '');
+    var projectId = String(projectSelect && projectSelect.value || host && host.dataset.targetProjectId || '');
     var folderValue = String(folderSelect && folderSelect.value || '');
     if (!file) return closeDevelopmentSaveToProjectModal();
     if (!projectId) { if (error) error.textContent = '暂无项目空间，请先创建一个项目'; return; }

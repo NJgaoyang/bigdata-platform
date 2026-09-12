@@ -740,6 +740,7 @@ body.dev-fullscreen-open{overflow:hidden}
   <section class="dev-project-save-card" role="dialog" aria-modal="true" aria-labelledby="dev-project-save-title">
     <div class="dev-project-save-head"><div><h3 id="dev-project-save-title">保存到项目</h3><p>将当前个人 SQL 保存到团队项目空间，保存后项目成员可查看和协作编辑。</p></div><button type="button" class="dev-project-save-close" aria-label="关闭">×</button></div>
     <form class="dev-project-save-form" id="dev-project-save-form">
+      <div class="dev-project-save-field"><label for="dev-project-save-project">目标项目 <em>*</em></label><select id="dev-project-save-project" required><option value="">请选择项目</option></select></div>
       <div class="dev-project-save-field"><label for="dev-project-save-folder">目标目录 <em>*</em></label><select id="dev-project-save-folder" required><option value="">请选择目录</option></select></div>
       <div class="dev-project-save-field full"><label for="dev-project-save-name">文件名称 <em>*</em></label><input id="dev-project-save-name" required placeholder="例如：dwd_order_detail.sql"></div>
       <div class="dev-project-save-field full"><label for="dev-project-save-description">描述</label><textarea id="dev-project-save-description" placeholder="例如：每日订单明细汇总任务"></textarea></div>

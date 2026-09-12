@@ -1,14 +1,17 @@
 package com.company.platform.development;
 
-import jakarta.validation.constraints.NotBlank;
-
 public final class DevelopmentVersionFlowRequests {
     private DevelopmentVersionFlowRequests() { }
 
+    /**
+     * projectId/folderId/name are required only for the first push. Once a source
+     * file is bound to a project file, subsequent pushes resolve the immutable
+     * target from dev_file_delivery and these fields may be omitted.
+     */
     public record PushToProjectRequest(
             long sourceFileId,
-            long projectId,
+            Long projectId,
             Long folderId,
-            @NotBlank String name,
+            String name,
             String description) { }
 }
