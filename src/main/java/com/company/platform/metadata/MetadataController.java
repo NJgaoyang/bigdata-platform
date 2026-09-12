@@ -36,6 +36,16 @@ public class MetadataController {
         return Result.ok(service.columns(dataSourceId, database, table));
     }
 
+    @GetMapping("/table-preview")
+    public Result<MetadataService.TablePreviewView> tablePreview(@RequestParam long dataSourceId,
+                                                                  @RequestParam String database,
+                                                                  @RequestParam String table,
+                                                                  @RequestParam(defaultValue = "50") int limit,
+                                                                  HttpServletRequest request) {
+        access.requireQuery(dataSourceId, operator(request));
+        return Result.ok(service.tablePreview(dataSourceId, database, table, limit));
+    }
+
     @GetMapping("/table-profile")
     public Result<TableProfileResponse> tableProfile(@RequestParam long dataSourceId, @RequestParam String database,
                                                      @RequestParam String table, HttpServletRequest request) {

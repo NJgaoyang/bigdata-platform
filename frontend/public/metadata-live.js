@@ -4,7 +4,7 @@
   var state = {
     sources: [], source: null, databases: [], database: '', table: null,
     tableCache: Object.create(null), tableLoading: Object.create(null), expanded: Object.create(null),
-    columns: [], lineage: [], profile: null, selectionSeq: 0, searchSeq: 0
+    columns: [], lineage: [], profile: null, preview: null, previewLoading: false, previewError: '', previewLimit: 50, selectionSeq: 0, searchSeq: 0
   };
   var params = new URLSearchParams(window.location.search);
   var preferredSourceId = params.get('dataSourceId') || window.localStorage.getItem('metadataDataSourceId') || '';
@@ -172,6 +172,7 @@
     setActiveTab('overview');
     $('#pane-overview').innerHTML = '<div class="empty"><i class="ri-database-2-line"></i>请选择数据库</div>';
     $('#pane-fields').innerHTML = '<div class="empty">请选择数据表</div>';
+    $('#pane-preview').innerHTML = '<div class="empty">请选择数据表</div>';
     $('#pane-lineage').innerHTML = '<div class="empty">请选择数据表</div>';
     renderBreadcrumb();
   }
@@ -199,6 +200,7 @@
     if (search) { search.value = filter || ''; search.oninput = function () { renderDatabaseDetail(this.value); }; }
     $$('[data-detail-table]').forEach(function (row) { row.onclick = function () { selectTable(state.database, row.dataset.detailTable); }; });
     $('#pane-fields').innerHTML = '<div class="empty">请选择数据表</div>';
+    $('#pane-preview').innerHTML = '<div class="empty">请选择数据表</div>';
     $('#pane-lineage').innerHTML = '<div class="empty">请选择数据表</div>';
     renderBreadcrumb();
   }
@@ -261,6 +263,72 @@
     }).join('') + '</tbody></table>';
   }
 
+  function renderPreview() {
+    var host = $('#pane-preview');
+    if (!host) return;
+    if (!state.table) { host.innerHTML = '<div class="empty">请选择数据表</div>'; return; }
+    if (state.previewLoading) { host.innerHTML = '<div class="skeleton">正在读取真实数据预览…</div>'; return; }
+    if (state.previewError) {
+      host.innerHTML = '<div class="preview-error"><i class="ri-lock-2-line"></i>' + esc(state.previewError) + '</div>';
+      return;
+    }
+    if (!state.preview) {
+      host.innerHTML = '<div class="preview-empty"><i class="ri-table-view"></i><br>数据预览仅在打开此页签时查询，不会随表详情自动加载。</div>';
+      return;
+    }
+    var preview = state.preview || {};
+    var columns = Array.isArray(preview.columns) ? preview.columns : [];
+    var rows = Array.isArray(preview.rows) ? preview.rows : [];
+    var tableWidth = Math.max(900, columns.length * 150);
+    var header = columns.map(function (column) { return '<th title="' + esc(column) + '">' + esc(column) + '</th>'; }).join('');
+    var body = rows.length ? rows.map(function (row) {
+      return '<tr>' + columns.map(function (_, index) {
+        var value = Array.isArray(row) ? row[index] : null;
+        return '<td title="' + esc(value == null ? '' : value) + '">' + (value == null ? '<span class="preview-null">NULL</span>' : esc(value)) + '</td>';
+      }).join('') + '</tr>';
+    }).join('') : '<tr><td colspan="' + Math.max(1, columns.length) + '"><div class="preview-empty">当前表没有可预览的数据</div></td></tr>';
+    host.innerHTML = '<div class="preview-wrap"><div class="preview-toolbar"><strong>数据预览</strong><span class="preview-tip">只读 · 最多 200 条 · 查询超时 10 秒</span><span class="spacer"></span><label class="preview-tip">显示</label><select class="preview-limit" id="previewLimit">' +
+      [20,50,100,200].map(function (value) { return '<option value="' + value + '"' + (Number(state.previewLimit) === value ? ' selected' : '') + '>' + value + ' 条</option>'; }).join('') +
+      '</select><button class="btn" id="refreshPreview"><i class="ri-refresh-line"></i>刷新</button></div><div class="preview-table-shell"><table class="data-table" style="min-width:' + tableWidth + 'px;table-layout:auto"><thead><tr>' + header + '</tr></thead><tbody>' + body + '</tbody></table></div></div>';
+    var limit = $('#previewLimit');
+    if (limit) limit.onchange = function () { state.previewLimit = Number(this.value) || 50; loadPreview(true); };
+    var refresh = $('#refreshPreview');
+    if (refresh) refresh.onclick = function () { loadPreview(true); };
+  }
+
+  function loadPreview(force) {
+    if (!state.table || !state.source) return Promise.resolve();
+    if (state.preview && !force && !state.previewError) { renderPreview(); return Promise.resolve(state.preview); }
+    var seq = state.selectionSeq;
+    var database = state.database;
+    var tableName = state.table.name;
+    state.previewLoading = true;
+    state.previewError = '';
+    if (force) state.preview = null;
+    renderPreview();
+    var query = 'dataSourceId=' + encodeURIComponent(state.source.id) + '&database=' + encodeURIComponent(database) + '&table=' + encodeURIComponent(tableName) + '&limit=' + encodeURIComponent(state.previewLimit);
+    return api('/metadata/table-preview?' + query).then(function (preview) {
+      if (seq !== state.selectionSeq || !state.table || state.database !== database || state.table.name !== tableName) return;
+      state.preview = preview || { columns: [], rows: [], limit: state.previewLimit };
+      state.previewError = '';
+      renderPreview();
+      return state.preview;
+    }).catch(function (error) {
+      if (seq !== state.selectionSeq || !state.table || state.database !== database || state.table.name !== tableName) return;
+      state.preview = null;
+      state.previewError = error.message || '数据预览读取失败';
+      renderPreview();
+    }).finally(function () {
+      if (seq === state.selectionSeq) state.previewLoading = false;
+      if (seq === state.selectionSeq) renderPreview();
+    });
+  }
+
+  function activateTab(name) {
+    setActiveTab(name);
+    if (name === 'preview') loadPreview(false);
+  }
+
   function renderLineage() {
     var host = $('#pane-lineage');
     if (!state.table) { host.innerHTML = '<div class="empty">请选择数据表</div>'; return; }
@@ -277,6 +345,7 @@
     renderTableHeader();
     renderTableOverview();
     renderFields();
+    renderPreview();
     renderLineage();
   }
 
@@ -301,6 +370,7 @@
     state.columns = [];
     state.lineage = [];
     state.profile = null;
+    state.preview = null; state.previewLoading = false; state.previewError = '';
     state.expanded[database] = true;
     preferredDatabase = database;
     window.localStorage.setItem('metadataDatabase', database);
@@ -324,11 +394,13 @@
       state.columns = [];
       state.lineage = [];
       state.profile = null;
+      state.preview = null; state.previewLoading = false; state.previewError = '';
       preferredDatabase = database;
       window.localStorage.setItem('metadataDatabase', database);
       renderCatalog();
       renderTableDetail();
       $('#pane-fields').innerHTML = '<div class="skeleton">正在读取字段元数据…</div>';
+      $('#pane-preview').innerHTML = '<div class="preview-empty">点击“数据预览”后读取真实数据</div>';
       $('#pane-lineage').innerHTML = '<div class="skeleton">正在读取真实 SQL 血缘…</div>';
       var base = 'dataSourceId=' + encodeURIComponent(state.source.id) + '&database=' + encodeURIComponent(database) + '&table=' + encodeURIComponent(table.name);
       return Promise.allSettled([
@@ -359,6 +431,7 @@
     state.columns = [];
     state.lineage = [];
     state.profile = null;
+    state.preview = null; state.previewLoading = false; state.previewError = '';
     $('#catalogTree').innerHTML = '<div class="skeleton">正在加载数据库…</div>';
     renderEmptyDetail();
     return api('/metadata/databases?dataSourceId=' + encodeURIComponent(state.source.id) + '&type=' + encodeURIComponent(sourceType())).then(function (items) {
@@ -427,7 +500,7 @@
       clearTimeout(searchTimer);
       searchTimer = setTimeout(searchCatalog, 220);
     };
-    $$('.tab').forEach(function (tab) { tab.onclick = function () { setActiveTab(tab.dataset.tab); }; });
+    $$('.tab').forEach(function (tab) { tab.onclick = function () { activateTab(tab.dataset.tab); }; });
     $$('.nav button').forEach(function (button) { button.onclick = function () {
       var page = button.dataset.page || 'workbench';
       if (page === 'source') return;

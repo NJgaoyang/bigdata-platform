@@ -11,6 +11,7 @@ import org.springframework.stereotype.Service;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
+import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.util.ArrayList;
@@ -129,6 +130,60 @@ public class MetadataService {
         }
     }
 
+    public TablePreviewView tablePreview(long dataSourceId, String database, String table, int limit) {
+        ensureMetadataVisible(dataSourceId);
+        String db = requiredName(database, "数据库");
+        String tableName = requiredName(table, "数据表");
+        int safeLimit = Math.max(1, Math.min(limit <= 0 ? 50 : limit, 200));
+        try (Connection connection = connection(dataSourceId)) {
+            requireExistingTable(connection, db, tableName);
+            String sql = "SELECT * FROM " + quoteIdentifier(db) + "." + quoteIdentifier(tableName) + " LIMIT " + safeLimit;
+            try (PreparedStatement statement = connection.prepareStatement(sql)) {
+                statement.setQueryTimeout(10);
+                statement.setMaxRows(safeLimit);
+                try (ResultSet rs = statement.executeQuery()) {
+                    ResultSetMetaData meta = rs.getMetaData();
+                    int columnCount = meta.getColumnCount();
+                    List<String> columns = new ArrayList<>(columnCount);
+                    for (int i = 1; i <= columnCount; i++) columns.add(meta.getColumnLabel(i));
+                    List<List<String>> rows = new ArrayList<>();
+                    while (rs.next() && rows.size() < safeLimit) {
+                        List<String> row = new ArrayList<>(columnCount);
+                        for (int i = 1; i <= columnCount; i++) row.add(previewValue(rs.getString(i)));
+                        rows.add(row);
+                    }
+                    return new TablePreviewView(dataSourceId, db, tableName, columns, rows, safeLimit);
+                }
+            }
+        } catch (BadRequestException ex) {
+            throw ex;
+        } catch (SQLException ex) {
+            throw metadataReadFailure("数据预览");
+        }
+    }
+
+    private void requireExistingTable(Connection connection, String database, String table) throws SQLException {
+        String sql = "SELECT 1 FROM information_schema.tables WHERE TABLE_SCHEMA=? AND TABLE_NAME=? LIMIT 1";
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setString(1, database);
+            statement.setString(2, table);
+            statement.setQueryTimeout(5);
+            try (ResultSet rs = statement.executeQuery()) {
+                if (!rs.next()) throw new BadRequestException("数据表不存在或无权读取数据");
+            }
+        }
+    }
+
+    private String quoteIdentifier(String identifier) {
+        return "`" + identifier.replace("`", "``") + "`";
+    }
+
+    private String previewValue(String value) {
+        if (value == null) return null;
+        int maxLength = 2000;
+        return value.length() <= maxLength ? value : value.substring(0, maxLength) + "…";
+    }
+
     public TableProfileView setTableOwner(long dataSourceId, String database, String table, String owner, String operator) {
         TableProfileView current = tableProfile(dataSourceId, database, table);
         String normalized = owner == null ? "" : owner.trim();
@@ -192,4 +247,6 @@ public class MetadataService {
     public record TableProfileView(long dataSourceId, String database, String table, Long rowCount,
                                    Long estimatedSizeBytes, String owner, LocalDateTime createTime,
                                    LocalDateTime updateTime) { }
+    public record TablePreviewView(long dataSourceId, String database, String table, List<String> columns,
+                                   List<List<String>> rows, int limit) { }
 }

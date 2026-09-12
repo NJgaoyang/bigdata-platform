@@ -11,11 +11,14 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
+import java.sql.ResultSetMetaData;
 import java.sql.Timestamp;
 import java.time.LocalDateTime;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
@@ -84,4 +87,52 @@ class MetadataServiceTest {
         assertNull(profile.owner());
         verify(platformJdbc).update(startsWith("DELETE FROM metadata_table_owner"), eq(1006L), eq("ods"), eq("user_basic"));
     }
+    @Test
+    void previewIsReadOnlyBoundedAndUsesVerifiedQuotedTable() throws Exception {
+        PreparedStatement existsStatement = mock(PreparedStatement.class);
+        PreparedStatement previewStatement = mock(PreparedStatement.class);
+        ResultSet existsResult = mock(ResultSet.class);
+        ResultSet previewResult = mock(ResultSet.class);
+        ResultSetMetaData meta = mock(ResultSetMetaData.class);
+        when(connection.prepareStatement(anyString())).thenReturn(existsStatement, previewStatement);
+        when(existsStatement.executeQuery()).thenReturn(existsResult);
+        when(existsResult.next()).thenReturn(true);
+        when(previewStatement.executeQuery()).thenReturn(previewResult);
+        when(previewResult.getMetaData()).thenReturn(meta);
+        when(meta.getColumnCount()).thenReturn(2);
+        when(meta.getColumnLabel(1)).thenReturn("user_id");
+        when(meta.getColumnLabel(2)).thenReturn("user_name");
+        when(previewResult.next()).thenReturn(true, true, false);
+        when(previewResult.getString(1)).thenReturn("1", "2");
+        when(previewResult.getString(2)).thenReturn("Alice", "Bob");
+
+        MetadataService.TablePreviewView preview = service.tablePreview(1006L, "ods", "user_basic", 999);
+
+        assertEquals(200, preview.limit());
+        assertEquals(List.of("user_id", "user_name"), preview.columns());
+        assertEquals(2, preview.rows().size());
+        assertEquals(List.of("1", "Alice"), preview.rows().get(0));
+        verify(existsStatement).setString(1, "ods");
+        verify(existsStatement).setString(2, "user_basic");
+        verify(existsStatement).setQueryTimeout(5);
+        verify(connection).prepareStatement("SELECT * FROM `ods`.`user_basic` LIMIT 200");
+        verify(previewStatement).setQueryTimeout(10);
+        verify(previewStatement).setMaxRows(200);
+    }
+
+    @Test
+    void previewRejectsMissingTableBeforeExecutingDynamicSelect() throws Exception {
+        PreparedStatement existsStatement = mock(PreparedStatement.class);
+        ResultSet existsResult = mock(ResultSet.class);
+        when(connection.prepareStatement(anyString())).thenReturn(existsStatement);
+        when(existsStatement.executeQuery()).thenReturn(existsResult);
+        when(existsResult.next()).thenReturn(false);
+
+        Exception error = org.junit.jupiter.api.Assertions.assertThrows(RuntimeException.class,
+                () -> service.tablePreview(1006L, "ods", "missing_table", 50));
+
+        assertTrue(error.getMessage().contains("数据表不存在"));
+        verify(connection, times(1)).prepareStatement(anyString());
+    }
+
 }
