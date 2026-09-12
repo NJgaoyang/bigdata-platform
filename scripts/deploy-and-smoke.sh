@@ -52,19 +52,34 @@ test -f "$APP_JAR"
 jar tf "$APP_JAR" | grep -q 'BOOT-INF/classes/static/index.html'
 echo "[package] jar and packaged frontend verified"
 
+is_app_java_pid() {
+  local pid="$1"
+  [[ "$pid" =~ ^[0-9]+$ ]] || return 1
+  kill -0 "$pid" 2>/dev/null || return 1
+  [[ "$(ps -p "$pid" -o comm= 2>/dev/null | xargs)" == "java" ]] || return 1
+  tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null | grep -Fq -- "$(basename "$APP_JAR")"
+}
+
+find_app_pid() {
+  local pid
+  while read -r pid; do
+    if is_app_java_pid "$pid"; then
+      echo "$pid"
+      return 0
+    fi
+  done < <(pgrep -f "$(basename "$APP_JAR")" || true)
+  return 1
+}
+
 OLD_PID=""
 if [[ -f "$PID_FILE" ]]; then
   CANDIDATE="$(cat "$PID_FILE" 2>/dev/null || true)"
-  if [[ "$CANDIDATE" =~ ^[0-9]+$ ]] && kill -0 "$CANDIDATE" 2>/dev/null; then
-    OLD_PID="$CANDIDATE"
-  fi
+  if is_app_java_pid "$CANDIDATE"; then OLD_PID="$CANDIDATE"; fi
 fi
-if [[ -z "$OLD_PID" ]]; then
-  OLD_PID="$(pgrep -f "java .*$(basename "$APP_JAR")" | head -n 1 || true)"
-fi
+if [[ -z "$OLD_PID" ]]; then OLD_PID="$(find_app_pid || true)"; fi
 
 if [[ -n "$OLD_PID" ]]; then
-  echo "[restart] stopping pid $OLD_PID"
+  echo "[restart] stopping java pid $OLD_PID"
   kill "$OLD_PID" || true
   for _ in {1..30}; do
     if ! kill -0 "$OLD_PID" 2>/dev/null; then break; fi
@@ -76,12 +91,38 @@ if [[ -n "$OLD_PID" ]]; then
   fi
 fi
 
+REMAINING_PID="$(find_app_pid || true)"
+if [[ -n "$REMAINING_PID" ]]; then
+  echo "[restart] ERROR: old application java process is still running: $REMAINING_PID"
+  exit 1
+fi
+
 : > "$LOG_FILE"
 echo "[restart] starting application"
 nohup java ${JAVA_OPTS:-} -jar "$APP_JAR" > "$LOG_FILE" 2>&1 &
 NEW_PID=$!
 echo "$NEW_PID" > "$PID_FILE"
 echo "[restart] new pid: $NEW_PID"
+
+wait_started() {
+  for _ in {1..60}; do
+    if ! kill -0 "$NEW_PID" 2>/dev/null; then
+      echo "[smoke] application process exited during startup"
+      tail -n 160 "$LOG_FILE" || true
+      rm -f "$PID_FILE"
+      return 1
+    fi
+    if grep -q "Started PlatformApplication" "$LOG_FILE" 2>/dev/null; then
+      return 0
+    fi
+    sleep 1
+  done
+  echo "[smoke] timeout waiting for Spring Boot startup"
+  tail -n 160 "$LOG_FILE" || true
+  return 1
+}
+
+wait_started
 
 AUTH_ARGS=()
 if [[ -n "${PLATFORM_ACCESS_TOKEN:-}" ]]; then
@@ -125,9 +166,9 @@ fi
 
 if [[ "${DOLPHINSCHEDULER_REAL_ENABLED:-true}" == "true" ]]; then
   if [[ -z "${DOLPHINSCHEDULER_PASSWORD:-}" && -z "${DOLPHINSCHEDULER_TOKEN:-}" ]]; then
-    echo "[smoke] WARN: DolphinScheduler real mode is enabled but password/token is not configured"
+    echo "[smoke] DolphinScheduler env credentials are empty; persisted cluster credentials may be used"
   else
-    echo "[smoke] DolphinScheduler credentials are configured"
+    echo "[smoke] DolphinScheduler env credentials are configured"
   fi
 fi
 
