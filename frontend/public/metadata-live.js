@@ -1,9 +1,14 @@
 (function () {
   'use strict';
 
-  var state = { sources: [], source: null, databases: [], database: '', tables: [], table: null, columns: [], lineage: [], token: 0 };
+  var state = {
+    sources: [], source: null, databases: [], database: '', table: null,
+    tableCache: Object.create(null), tableLoading: Object.create(null), expanded: Object.create(null),
+    columns: [], lineage: [], selectionSeq: 0, searchSeq: 0
+  };
   var params = new URLSearchParams(window.location.search);
   var preferredSourceId = params.get('dataSourceId') || window.localStorage.getItem('metadataDataSourceId') || '';
+  var preferredDatabase = window.localStorage.getItem('metadataDatabase') || '';
   var $ = function (selector) { return document.querySelector(selector); };
   var $$ = function (selector) { return Array.prototype.slice.call(document.querySelectorAll(selector)); };
   var esc = function (value) { return String(value == null ? '' : value).replace(/[&<>'"]/g, function (c) { return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' })[c]; }); };
@@ -12,8 +17,8 @@
   function api(path, options) {
     options = options || {};
     var headers = Object.assign({ Accept: 'application/json' }, options.headers || {});
-    var token = window.localStorage.getItem('platform_access_token');
-    if (token) headers.Authorization = 'Bearer ' + token;
+    var accessToken = window.localStorage.getItem('platform_access_token');
+    if (accessToken) headers.Authorization = 'Bearer ' + accessToken;
     return fetch('/api' + path, Object.assign({}, options, { headers: headers })).then(function (response) {
       return response.json().catch(function () { return {}; }).then(function (payload) {
         if (!response.ok || payload.success === false) throw new Error(payload.message || '接口请求失败');
@@ -38,7 +43,8 @@
   }
 
   function sourceType() { return String(state.source && state.source.type || '').toUpperCase(); }
-  function qualifiedTable() { return state.table ? (state.database ? state.database + '.' + state.table.name : state.table.name) : ''; }
+  function qualifiedTable() { return state.table ? state.database + '.' + state.table.name : ''; }
+  function currentTables(database) { return state.tableCache[database] || []; }
   function tableMatches(left, right) {
     var a = String(left || '').replace(/`/g, '').trim().toLowerCase();
     var b = String(right || '').replace(/`/g, '').trim().toLowerCase();
@@ -74,80 +80,147 @@
     $('#crumbObject').textContent = state.table ? qualifiedTable() : state.database || '浏览';
   }
 
-  function renderDatabases() {
-    var host = $('#dbList');
-    var count = $('#databaseCount');
-    if (!host) return;
-    if (count) count.textContent = String(state.databases.length);
-    var query = String($('#dbSearch') && $('#dbSearch').value || '').trim().toLowerCase();
-    var items = state.databases.filter(function (item) { return !query || String(item.name || '').toLowerCase().indexOf(query) >= 0; });
-    host.innerHTML = items.length ? items.map(function (item) {
-      var active = item.name === state.database;
-      return '<div class="list-row' + (active ? ' on' : '') + '" data-db="' + esc(item.name) + '"><span class="db-icon"><i class="ri-database-2-line"></i></span><span class="row-main"><span class="row-title">' + esc(item.name) + '</span>' + (item.comment ? '<span class="row-sub">' + esc(item.comment) + '</span>' : '') + '</span></div>';
-    }).join('') : '<div class="empty"><i class="ri-database-line"></i>' + (state.databases.length ? '没有匹配的数据库' : '暂无数据库') + '</div>';
-    $$('#dbList [data-db]').forEach(function (node) { node.onclick = function () { selectDatabase(node.dataset.db); }; });
+  function tableMatchesQuery(table, query) {
+    return !query || String(table.name || '').toLowerCase().indexOf(query) >= 0 || String(table.comment || '').toLowerCase().indexOf(query) >= 0;
   }
 
-  function renderTables() {
-    var host = $('#tableList');
-    var count = $('#tableCount');
-    var title = $('#tablePaneTitle');
-    if (title) title.textContent = state.database ? state.database + ' · 数据表' : '数据表';
-    if (count) count.textContent = String(state.tables.length);
+  function renderCatalog() {
+    var host = $('#catalogTree');
     if (!host) return;
-    if (!state.database) {
-      host.innerHTML = '<div class="empty"><i class="ri-table-line"></i>请先选择数据库</div>';
-      return;
-    }
-    var query = String($('#tableSearch') && $('#tableSearch').value || '').trim().toLowerCase();
-    var items = state.tables.filter(function (item) {
-      return !query || String(item.name || '').toLowerCase().indexOf(query) >= 0 || String(item.comment || '').toLowerCase().indexOf(query) >= 0;
+    $('#databaseCount').textContent = state.databases.length + ' 个数据库';
+    var query = String($('#catalogSearch') && $('#catalogSearch').value || '').trim().toLowerCase();
+    var html = [];
+    state.databases.forEach(function (database) {
+      var tables = currentTables(database.name);
+      var dbMatch = !query || String(database.name || '').toLowerCase().indexOf(query) >= 0 || String(database.comment || '').toLowerCase().indexOf(query) >= 0;
+      var matchingTables = tables.filter(function (table) { return tableMatchesQuery(table, query); });
+      if (query && !dbMatch && !matchingTables.length) return;
+      var forcedOpen = !!query && matchingTables.length > 0;
+      var expanded = !!state.expanded[database.name] || forcedOpen;
+      var selectedDb = state.database === database.name && !state.table;
+      html.push('<div class="tree-db' + (expanded ? ' expanded' : '') + '" data-db-node="' + esc(database.name) + '">');
+      html.push('<div class="tree-db-row' + (selectedDb ? ' on' : '') + '" data-db="' + esc(database.name) + '"><span class="tree-chevron"><i class="ri-arrow-right-s-line"></i></span><span class="tree-icon"><i class="ri-database-2-line"></i></span><span class="tree-main"><span class="tree-title">' + esc(database.name) + '</span>' + (database.comment ? '<span class="tree-sub">' + esc(database.comment) + '</span>' : '') + '</span></div>');
+      html.push('<div class="tree-children">');
+      if (expanded) {
+        if (state.tableLoading[database.name] && !state.tableCache[database.name]) {
+          html.push('<div class="tree-loading">正在加载数据表…</div>');
+        } else if (!state.tableCache[database.name]) {
+          html.push('<div class="tree-loading">点击数据库加载数据表</div>');
+        } else if (!matchingTables.length && query) {
+          html.push('<div class="tree-loading">没有匹配的数据表</div>');
+        } else if (!tables.length) {
+          html.push('<div class="tree-loading">当前数据库暂无数据表</div>');
+        } else {
+          var visibleTables = query ? (dbMatch ? tables : matchingTables) : tables;
+          visibleTables.forEach(function (table) {
+            var active = state.table && state.database === database.name && state.table.name === table.name;
+            html.push('<div class="tree-table-row' + (active ? ' on' : '') + '" data-table-db="' + esc(database.name) + '" data-table="' + esc(table.name) + '"><span class="tree-icon"><i class="ri-table-2"></i></span><span class="tree-main"><span class="tree-title">' + esc(table.name) + '</span>' + (table.comment ? '<span class="tree-sub">' + esc(table.comment) + '</span>' : '') + '</span></div>');
+          });
+        }
+      }
+      html.push('</div></div>');
     });
-    host.innerHTML = items.length ? items.map(function (item) {
-      var active = state.table && item.name === state.table.name;
-      return '<div class="list-row' + (active ? ' on' : '') + '" data-table="' + esc(item.name) + '"><span class="table-icon"><i class="ri-table-2"></i></span><span class="row-main"><span class="row-title">' + esc(item.name) + '</span><span class="row-sub">' + esc(item.comment || state.database) + '</span></span><span class="row-type">' + esc(display(item.type, 'TABLE')) + '</span></div>';
-    }).join('') : '<div class="empty"><i class="ri-table-line"></i>' + (state.tables.length ? '没有匹配的数据表' : '当前数据库暂无数据表') + '</div>';
-    $$('#tableList [data-table]').forEach(function (node) { node.onclick = function () { selectTable(node.dataset.table); }; });
+    host.innerHTML = html.length ? html.join('') : '<div class="empty"><i class="ri-search-line"></i>' + (state.databases.length ? '没有匹配的数据库或数据表' : '暂无数据库') + '</div>';
+    $$('#catalogTree [data-db]').forEach(function (node) {
+      node.onclick = function () { selectDatabase(node.dataset.db); };
+    });
+    $$('#catalogTree [data-db] .tree-chevron').forEach(function (toggle) {
+      toggle.onclick = function (event) {
+        event.stopPropagation();
+        var row = toggle.closest('[data-db]');
+        var database = row && row.dataset.db;
+        if (!database) return;
+        state.expanded[database] = !state.expanded[database];
+        renderCatalog();
+        if (state.expanded[database] && !state.tableCache[database]) loadTables(database).catch(function (error) { notify(error.message, true); });
+      };
+    });
+    $$('#catalogTree [data-table]').forEach(function (node) {
+      node.onclick = function (event) { event.stopPropagation(); selectTable(node.dataset.tableDb, node.dataset.table); };
+    });
   }
 
-  function renderDetailHeader() {
-    $('#detailTitle').textContent = state.table ? state.table.name : '请选择数据表';
-    $('#detailPath').textContent = state.table ? display(state.source && state.source.name) + ' / ' + state.database + ' / ' + state.table.name : '从左侧选择数据库和数据表查看真实元数据';
-    $('#detailType').textContent = state.table ? display(state.table.type, 'TABLE') : '—';
-    $('#detailFieldCount').textContent = state.table ? '字段 ' + state.columns.length : '字段 —';
+  function setActiveTab(name) {
+    $$('.tab').forEach(function (tab) { tab.classList.toggle('on', tab.dataset.tab === name); });
+    $$('.tab-pane').forEach(function (pane) { pane.classList.toggle('on', pane.id === 'pane-' + name); });
+  }
+
+  function renderEmptyDetail() {
+    $('#detailSymbol').innerHTML = '<i class="ri-database-2-line"></i>';
+    $('#detailTitle').textContent = '请选择数据库';
+    $('#detailPath').textContent = '从左侧元数据目录选择数据库或数据表';
+    $('#detailType').textContent = '—';
+    $('#detailFieldCount').textContent = '—';
+    $('#detailTabs').classList.add('hidden');
+    setActiveTab('overview');
+    $('#pane-overview').innerHTML = '<div class="empty"><i class="ri-database-2-line"></i>请选择数据库</div>';
+    $('#pane-fields').innerHTML = '<div class="empty">请选择数据表</div>';
+    $('#pane-lineage').innerHTML = '<div class="empty">请选择数据表</div>';
     renderBreadcrumb();
   }
 
-  function renderOverview() {
-    var host = $('#pane-overview');
-    if (!host) return;
-    if (!state.table) {
-      host.innerHTML = '<div class="empty"><i class="ri-database-2-line"></i>请选择一张数据表</div>';
-      return;
-    }
-    var source = state.source || {};
-    var address = [display(source.host, ''), display(source.port, '')].filter(Boolean).join(':') || '—';
-    var comment = state.table.comment || '当前数据表没有维护说明。';
-    var checkMessage = source.lastCheckMessage || '暂无连接检测信息';
-    host.innerHTML = '<div class="overview"><div class="facts">' +
-      fact('数据源', display(source.name)) + fact('数据源类型', display(source.type)) + fact('数据库', state.database) +
-      fact('对象类型', display(state.table.type, 'TABLE')) + fact('字段数量', state.columns.length) + fact('地址', address) +
-      '</div><div class="section"><div class="section-title">表说明</div><div class="section-body">' + esc(comment) + '</div></div>' +
-      '<div class="section"><div class="section-title">数据源信息</div><div class="source-grid">' +
-      '<span>用户名</span><b>' + esc(display(source.username)) + '</b><span>元数据展示</span><b>' + (source.metadataVisible === false ? '关闭' : '开启') + '</b>' +
-      '<span>连接状态</span><b>' + esc(display(source.status, '未检测')) + '</b><span>最近检测</span><b>' + esc(formatTime(source.lastCheckedAt)) + '</b>' +
-      '<span>检测信息</span><b title="' + esc(checkMessage) + '">' + esc(checkMessage) + '</b><span>数据库</span><b>' + esc(state.database) + '</b>' +
-      '</div></div></div>';
+  function renderDatabaseDetail(filter) {
+    if (!state.database || state.table) return;
+    var tables = currentTables(state.database);
+    var database = state.databases.find(function (item) { return item.name === state.database; }) || { name: state.database, comment: '' };
+    $('#detailSymbol').innerHTML = '<i class="ri-database-2-line"></i>';
+    $('#detailTitle').textContent = state.database;
+    $('#detailPath').textContent = display(state.source && state.source.name) + ' / ' + state.database;
+    $('#detailType').textContent = '数据库';
+    $('#detailFieldCount').textContent = state.tableCache[state.database] ? tables.length + ' 张表' : '表 —';
+    $('#detailTabs').classList.add('hidden');
+    setActiveTab('overview');
+    var query = String(filter == null ? ($('#dbTableSearch') && $('#dbTableSearch').value || '') : filter).trim().toLowerCase();
+    var visible = tables.filter(function (table) { return tableMatchesQuery(table, query); });
+    var rows = !state.tableCache[state.database] ? '<tr><td colspan="3" class="empty">正在加载数据表…</td></tr>' : visible.length ? visible.map(function (table) {
+      return '<tr class="click-row" data-detail-table="' + esc(table.name) + '"><td><span class="field-name">' + esc(table.name) + '</span></td><td>' + esc(display(table.type, 'TABLE')) + '</td><td title="' + esc(table.comment || '') + '">' + esc(table.comment || '—') + '</td></tr>';
+    }).join('') : '<tr><td colspan="3" class="empty">' + (tables.length ? '没有匹配的数据表' : '当前数据库暂无数据表') + '</td></tr>';
+    $('#pane-overview').innerHTML = '<div class="db-browser"><div class="facts">' +
+      fact('数据源', display(state.source && state.source.name)) + fact('数据库', state.database) + fact('数据表', state.tableCache[state.database] ? tables.length : '加载中') + fact('数据库说明', database.comment || '—') +
+      '</div><div class="db-browser-head"><strong>数据表</strong><input class="search" id="dbTableSearch" placeholder="在当前数据库中搜索表"></div><table class="data-table"><thead><tr><th style="width:34%">表名</th><th style="width:18%">类型</th><th>说明</th></tr></thead><tbody>' + rows + '</tbody></table></div>';
+    var search = $('#dbTableSearch');
+    if (search) { search.value = filter || ''; search.oninput = function () { renderDatabaseDetail(this.value); }; }
+    $$('[data-detail-table]').forEach(function (row) { row.onclick = function () { selectTable(state.database, row.dataset.detailTable); }; });
+    $('#pane-fields').innerHTML = '<div class="empty">请选择数据表</div>';
+    $('#pane-lineage').innerHTML = '<div class="empty">请选择数据表</div>';
+    renderBreadcrumb();
   }
 
   function fact(label, value) {
     return '<div class="fact"><label>' + esc(label) + '</label><strong title="' + esc(display(value)) + '">' + esc(display(value)) + '</strong></div>';
   }
 
+  function renderTableHeader() {
+    $('#detailSymbol').innerHTML = '<i class="ri-table-2"></i>';
+    $('#detailTitle').textContent = state.table ? state.table.name : '请选择数据表';
+    $('#detailPath').textContent = state.table ? display(state.source && state.source.name) + ' / ' + state.database + ' / ' + state.table.name : '';
+    $('#detailType').textContent = state.table ? display(state.table.type, 'TABLE') : '—';
+    $('#detailFieldCount').textContent = state.table ? '字段 ' + state.columns.length : '字段 —';
+    $('#detailTabs').classList.remove('hidden');
+    renderBreadcrumb();
+  }
+
+  function renderTableOverview() {
+    var host = $('#pane-overview');
+    if (!state.table) return;
+    var source = state.source || {};
+    var address = [display(source.host, ''), display(source.port, '')].filter(Boolean).join(':') || '—';
+    var comment = state.table.comment || '当前数据表没有维护说明。';
+    var checkMessage = source.lastCheckMessage || '暂无连接检测信息';
+    host.innerHTML = '<div class="overview"><div class="facts">' +
+      fact('数据源', display(source.name)) + fact('数据库', state.database) + fact('对象类型', display(state.table.type, 'TABLE')) + fact('字段数量', state.columns.length) +
+      '</div><div class="section"><div class="section-title">表说明</div><div class="section-body">' + esc(comment) + '</div></div>' +
+      '<div class="section"><div class="section-title">数据源信息</div><div class="source-grid">' +
+      '<span>数据源类型</span><b>' + esc(display(source.type)) + '</b><span>地址</span><b>' + esc(address) + '</b>' +
+      '<span>用户名</span><b>' + esc(display(source.username)) + '</b><span>元数据展示</span><b>' + (source.metadataVisible === false ? '关闭' : '开启') + '</b>' +
+      '<span>连接状态</span><b>' + esc(display(source.status, '未检测')) + '</b><span>最近检测</span><b>' + esc(formatTime(source.lastCheckedAt)) + '</b>' +
+      '<span>检测信息</span><b title="' + esc(checkMessage) + '">' + esc(checkMessage) + '</b><span>数据库</span><b>' + esc(state.database) + '</b>' +
+      '</div></div></div>';
+  }
+
   function renderFields() {
     var host = $('#pane-fields');
-    if (!host) return;
-    if (!state.table) { host.innerHTML = '<div class="empty">请选择一张数据表</div>'; return; }
+    if (!state.table) { host.innerHTML = '<div class="empty">请选择数据表</div>'; return; }
     if (!state.columns.length) { host.innerHTML = '<div class="empty"><i class="ri-layout-column-line"></i>暂无字段元数据</div>'; return; }
     host.innerHTML = '<table class="data-table"><thead><tr><th style="width:28%">字段名</th><th style="width:22%">数据类型</th><th style="width:16%">可为空</th><th>字段说明</th></tr></thead><tbody>' + state.columns.map(function (column) {
       return '<tr><td><span class="field-name">' + esc(column.name) + '</span></td><td>' + esc(display(column.dataType)) + '</td><td><span class="nullable' + (column.nullable ? '' : ' no') + '">' + (column.nullable ? 'YES' : 'NO') + '</span></td><td title="' + esc(column.comment || '') + '">' + esc(column.comment || '—') + '</td></tr>';
@@ -156,8 +229,7 @@
 
   function renderLineage() {
     var host = $('#pane-lineage');
-    if (!host) return;
-    if (!state.table) { host.innerHTML = '<div class="empty">请选择一张数据表</div>'; return; }
+    if (!state.table) { host.innerHTML = '<div class="empty">请选择数据表</div>'; return; }
     if (!state.lineage.length) { host.innerHTML = '<div class="empty"><i class="ri-node-tree"></i>暂无已解析的真实 SQL 血缘</div>'; return; }
     var current = qualifiedTable();
     host.innerHTML = '<div class="lineage-wrap"><div class="lineage-tip">当前表：<b>' + esc(current) + '</b>。以下关系来自平台已持久化的 SQL 血缘，不做推测补全。</div><table class="data-table"><thead><tr><th style="width:110px">方向</th><th>上游表</th><th>下游表</th><th style="width:90px">关系</th><th style="width:150px">来源版本</th></tr></thead><tbody>' + state.lineage.map(function (item) {
@@ -167,59 +239,93 @@
     }).join('') + '</tbody></table></div>';
   }
 
-  function renderDetail() {
-    renderDetailHeader();
-    renderOverview();
+  function renderTableDetail() {
+    renderTableHeader();
+    renderTableOverview();
     renderFields();
     renderLineage();
   }
 
-  function setLoading(node, loading) { if (node) node.classList.toggle('loading', !!loading); }
+  function loadTables(database) {
+    if (state.tableCache[database]) return Promise.resolve(state.tableCache[database]);
+    if (state.tableLoading[database]) return state.tableLoading[database];
+    state.tableLoading[database] = api('/metadata/tables?dataSourceId=' + encodeURIComponent(state.source.id) + '&database=' + encodeURIComponent(database)).then(function (items) {
+      state.tableCache[database] = Array.isArray(items) ? items : [];
+      return state.tableCache[database];
+    }).finally(function () {
+      delete state.tableLoading[database];
+      renderCatalog();
+    });
+    renderCatalog();
+    return state.tableLoading[database];
+  }
 
-  function loadDatabases() {
-    var token = ++state.token;
-    state.databases = []; state.database = ''; state.tables = []; state.table = null; state.columns = []; state.lineage = [];
-    renderDatabases(); renderTables(); renderDetail();
-    setLoading($('#dbList'), true);
+  function selectDatabase(database) {
+    state.selectionSeq += 1;
+    state.database = database;
+    state.table = null;
+    state.columns = [];
+    state.lineage = [];
+    state.expanded[database] = true;
+    preferredDatabase = database;
+    window.localStorage.setItem('metadataDatabase', database);
+    renderCatalog();
+    renderDatabaseDetail();
+    return loadTables(database).then(function () {
+      if (state.database !== database || state.table) return;
+      renderCatalog();
+      renderDatabaseDetail();
+    }).catch(function (error) { notify(error.message, true); });
+  }
+
+  function selectTable(database, tableName) {
+    state.expanded[database] = true;
+    return loadTables(database).then(function (tables) {
+      var table = tables.find(function (item) { return item.name === tableName; });
+      if (!table) throw new Error('数据表不存在或已被删除：' + tableName);
+      var seq = ++state.selectionSeq;
+      state.database = database;
+      state.table = table;
+      state.columns = [];
+      state.lineage = [];
+      preferredDatabase = database;
+      window.localStorage.setItem('metadataDatabase', database);
+      renderCatalog();
+      renderTableDetail();
+      $('#pane-fields').innerHTML = '<div class="skeleton">正在读取字段元数据…</div>';
+      $('#pane-lineage').innerHTML = '<div class="skeleton">正在读取真实 SQL 血缘…</div>';
+      var base = 'dataSourceId=' + encodeURIComponent(state.source.id) + '&database=' + encodeURIComponent(database) + '&table=' + encodeURIComponent(table.name);
+      return Promise.allSettled([
+        api('/metadata/columns?' + base),
+        api('/lineage/table?name=' + encodeURIComponent(database + '.' + table.name))
+      ]).then(function (results) {
+        if (seq !== state.selectionSeq || !state.table || state.database !== database || state.table.name !== table.name) return;
+        if (results[0].status === 'fulfilled') state.columns = Array.isArray(results[0].value) ? results[0].value : [];
+        else notify(results[0].reason.message || '字段读取失败', true);
+        if (results[1].status === 'fulfilled') state.lineage = Array.isArray(results[1].value) ? results[1].value : [];
+        else notify(results[1].reason.message || '血缘读取失败', true);
+        renderTableDetail();
+      });
+    }).catch(function (error) { notify(error.message, true); });
+  }
+
+  function loadDatabases(restoreDatabase) {
+    state.selectionSeq += 1;
+    state.databases = [];
+    state.database = '';
+    state.table = null;
+    state.tableCache = Object.create(null);
+    state.tableLoading = Object.create(null);
+    state.expanded = Object.create(null);
+    state.columns = [];
+    state.lineage = [];
+    $('#catalogTree').innerHTML = '<div class="skeleton">正在加载数据库…</div>';
+    renderEmptyDetail();
     return api('/metadata/databases?dataSourceId=' + encodeURIComponent(state.source.id) + '&type=' + encodeURIComponent(sourceType())).then(function (items) {
-      if (token !== state.token) return;
       state.databases = Array.isArray(items) ? items : [];
-      renderDatabases();
-      if (state.databases.length) return selectDatabase(state.databases[0].name, token);
-    }).finally(function () { if (token === state.token) setLoading($('#dbList'), false); });
-  }
-
-  function selectDatabase(database, parentToken) {
-    state.database = database; state.tables = []; state.table = null; state.columns = []; state.lineage = [];
-    renderDatabases(); renderTables(); renderDetail();
-    var token = parentToken || ++state.token;
-    setLoading($('#tableList'), true);
-    return api('/metadata/tables?dataSourceId=' + encodeURIComponent(state.source.id) + '&database=' + encodeURIComponent(database)).then(function (items) {
-      if (token !== state.token || state.database !== database) return;
-      state.tables = Array.isArray(items) ? items : [];
-      renderTables();
-      if (state.tables.length) return selectTable(state.tables[0].name, token);
-    }).catch(function (error) {
-      if (token === state.token) notify(error.message, true);
-    }).finally(function () { if (token === state.token) setLoading($('#tableList'), false); });
-  }
-
-  function selectTable(tableName, parentToken) {
-    var table = state.tables.find(function (item) { return item.name === tableName; });
-    if (!table) return;
-    state.table = table; state.columns = []; state.lineage = [];
-    renderTables(); renderDetail();
-    var token = parentToken || ++state.token;
-    var base = 'dataSourceId=' + encodeURIComponent(state.source.id) + '&database=' + encodeURIComponent(state.database) + '&table=' + encodeURIComponent(table.name);
-    var columns = api('/metadata/columns?' + base);
-    var lineage = api('/lineage/table?name=' + encodeURIComponent(qualifiedTable()));
-    return Promise.allSettled([columns, lineage]).then(function (results) {
-      if (token !== state.token || !state.table || state.table.name !== table.name) return;
-      if (results[0].status === 'fulfilled') state.columns = Array.isArray(results[0].value) ? results[0].value : [];
-      else notify(results[0].reason.message || '字段读取失败', true);
-      if (results[1].status === 'fulfilled') state.lineage = Array.isArray(results[1].value) ? results[1].value : [];
-      else notify(results[1].reason.message || '血缘读取失败', true);
-      renderDetail();
+      renderCatalog();
+      var wanted = restoreDatabase || preferredDatabase;
+      if (wanted && state.databases.some(function (item) { return item.name === wanted; })) return selectDatabase(wanted);
     });
   }
 
@@ -228,10 +334,12 @@
     if (!source) return;
     state.source = source;
     preferredSourceId = String(source.id);
+    preferredDatabase = '';
     window.localStorage.setItem('metadataDataSourceId', preferredSourceId);
+    window.localStorage.removeItem('metadataDatabase');
     window.history.replaceState(null, '', '/metadata.html?dataSourceId=' + encodeURIComponent(preferredSourceId));
     renderSourcePicker(); renderSourceState(); renderBreadcrumb();
-    loadDatabases().catch(function (error) { notify(error.message, true); });
+    loadDatabases('').catch(function (error) { notify(error.message, true); });
   }
 
   function refreshSource() {
@@ -240,16 +348,31 @@
       var index = state.sources.findIndex(function (item) { return String(item.id) === String(source.id); });
       if (index >= 0) state.sources[index] = source;
       state.source = source;
-      renderSourcePicker(); renderSourceState(); renderDetail();
+      renderSourcePicker(); renderSourceState();
+      if (state.table) renderTableDetail();
+      else if (state.database) renderDatabaseDetail();
     });
+  }
+
+  function searchCatalog() {
+    var query = String($('#catalogSearch').value || '').trim().toLowerCase();
+    var seq = ++state.searchSeq;
+    if (query.length < 2) { renderCatalog(); return; }
+    var missing = state.databases.filter(function (database) { return !state.tableCache[database.name] && !state.tableLoading[database.name]; });
+    if (!missing.length) { renderCatalog(); return; }
+    Promise.allSettled(missing.map(function (database) { return loadTables(database.name); })).then(function () {
+      if (seq === state.searchSeq) renderCatalog();
+    });
+    renderCatalog();
   }
 
   function bind() {
     $('#metadataSourceSelect').onchange = function () { selectSource(this.value); };
     $('#metadataRefresh').onclick = function () {
       if (!state.source) return notify('暂无可刷新数据源', true);
+      var keepDatabase = state.database;
       notify('正在刷新元数据…');
-      loadDatabases().then(function () { notify('元数据已刷新'); }).catch(function (error) { notify(error.message, true); });
+      loadDatabases(keepDatabase).then(function () { notify('元数据已刷新'); }).catch(function (error) { notify(error.message, true); });
     };
     $('#testConnection').onclick = function () {
       if (!state.source) return notify('请先选择数据源', true);
@@ -259,12 +382,12 @@
         return refreshSource();
       }).catch(function (error) { notify(error.message, true); }).finally(function () { button.disabled = false; });
     };
-    $('#dbSearch').oninput = renderDatabases;
-    $('#tableSearch').oninput = renderTables;
-    $$('.tab').forEach(function (tab) { tab.onclick = function () {
-      $$('.tab').forEach(function (item) { item.classList.toggle('on', item === tab); });
-      $$('.tab-pane').forEach(function (pane) { pane.classList.toggle('on', pane.id === 'pane-' + tab.dataset.tab); });
-    }; });
+    var searchTimer = 0;
+    $('#catalogSearch').oninput = function () {
+      clearTimeout(searchTimer);
+      searchTimer = setTimeout(searchCatalog, 220);
+    };
+    $$('.tab').forEach(function (tab) { tab.onclick = function () { setActiveTab(tab.dataset.tab); }; });
     $$('.nav button').forEach(function (button) { button.onclick = function () {
       var page = button.dataset.page || 'workbench';
       if (page === 'source') return;
@@ -285,7 +408,7 @@
   }
 
   function start() {
-    bind(); loadIdentity();
+    bind(); loadIdentity(); renderEmptyDetail();
     api('/data-sources').then(function (sources) {
       var all = Array.isArray(sources) ? sources : [];
       state.sources = all.filter(function (item) {
@@ -294,11 +417,13 @@
       });
       if (!state.sources.length) throw new Error('暂无已开启元数据展示的 MySQL / StarRocks 数据源');
       state.source = state.sources.find(function (item) { return String(item.id) === String(preferredSourceId); }) || state.sources[0];
+      preferredSourceId = String(state.source.id);
+      window.localStorage.setItem('metadataDataSourceId', preferredSourceId);
       renderSourcePicker(); renderSourceState(); renderBreadcrumb();
-      return loadDatabases();
+      return loadDatabases(preferredDatabase);
     }).catch(function (error) {
       state.source = null; state.sources = []; state.databases = [];
-      renderSourcePicker(); renderSourceState(); renderDatabases(); renderTables(); renderDetail();
+      renderSourcePicker(); renderSourceState(); renderCatalog(); renderEmptyDetail();
       notify(error.message, true);
     });
   }
