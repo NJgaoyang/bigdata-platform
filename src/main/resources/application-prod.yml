@@ -23,7 +23,7 @@ platform:
   security:
     enabled: ${PLATFORM_AUTH_ENABLED:true}
     admin-username: ${PLATFORM_ADMIN_USERNAME:admin}
-    admin-password-hash: ${PLATFORM_ADMIN_PASSWORD_SHA256}
+    admin-password-hash: ${PLATFORM_ADMIN_PASSWORD_SHA256:}
   query:
     default-max-rows: ${PLATFORM_QUERY_MAX_ROWS:1000}
     timeout-seconds: ${PLATFORM_QUERY_TIMEOUT_SECONDS:300}

@@ -42,11 +42,18 @@ git checkout "$BRANCH"
 retry_git pull --ff-only origin "$BRANCH"
 echo "[deploy] commit: $(git rev-parse --short HEAD) $(git log -1 --pretty=%s)"
 
+RUNTIME_SPRING_PROFILES_ACTIVE="${SPRING_PROFILES_ACTIVE:-}"
+unset SPRING_PROFILES_ACTIVE
+
 echo "[test] running backend tests"
 mvn -B clean test
 
 echo "[package] building deployable jar (includes frontend npm ci/build)"
 mvn -B package -DskipTests
+
+if [[ -n "$RUNTIME_SPRING_PROFILES_ACTIVE" ]]; then
+  export SPRING_PROFILES_ACTIVE="$RUNTIME_SPRING_PROFILES_ACTIVE"
+fi
 
 test -f "$APP_JAR"
 jar tf "$APP_JAR" | grep -q 'BOOT-INF/classes/static/index.html'
@@ -125,14 +132,32 @@ wait_started() {
 wait_started
 
 AUTH_ARGS=()
+AUTH_ENABLED="${PLATFORM_AUTH_ENABLED:-false}"
 if [[ -n "${PLATFORM_ACCESS_TOKEN:-}" ]]; then
   AUTH_ARGS=(-H "Authorization: Bearer ${PLATFORM_ACCESS_TOKEN}")
+elif [[ "$AUTH_ENABLED" == "true" && -n "${PLATFORM_SMOKE_PASSWORD_FILE:-}" && -f "$PLATFORM_SMOKE_PASSWORD_FILE" ]]; then
+  LOGIN_PAYLOAD="$(python3 - "$PLATFORM_SMOKE_PASSWORD_FILE" "${PLATFORM_SMOKE_USERNAME:-admin}" <<'PYLOGIN'
+import json,sys
+password=open(sys.argv[1],encoding='utf-8').read().strip()
+print(json.dumps({'username':sys.argv[2],'password':password},ensure_ascii=False))
+PYLOGIN
+)"
+  LOGIN_RESPONSE="$(curl -fsS --max-time 10 -H 'Content-Type: application/json' -d "$LOGIN_PAYLOAD" "$BASE_URL/api/auth/login")"
+  PLATFORM_ACCESS_TOKEN="$(python3 -c 'import json,sys; d=json.load(sys.stdin); print((d.get("data") or {}).get("token") or "")' <<<"$LOGIN_RESPONSE")"
+  if [[ -z "$PLATFORM_ACCESS_TOKEN" ]]; then
+    echo "[smoke] ERROR: authenticated smoke login returned no token"
+    exit 1
+  fi
+  AUTH_ARGS=(-H "Authorization: Bearer ${PLATFORM_ACCESS_TOKEN}")
+  unset LOGIN_PAYLOAD LOGIN_RESPONSE
+  echo "[smoke] authenticated admin login OK"
 fi
 
 wait_http() {
   local url="$1"
+  shift || true
   for _ in {1..60}; do
-    if curl -fsS --max-time 5 "${AUTH_ARGS[@]}" "$url" >/dev/null 2>&1; then
+    if curl -fsS --max-time 5 "$@" "$url" >/dev/null 2>&1; then
       return 0
     fi
     if ! kill -0 "$NEW_PID" 2>/dev/null; then
@@ -148,16 +173,28 @@ wait_http() {
 }
 
 wait_http "$BASE_URL/"
-
 echo "[smoke] root page OK"
-curl -fsS --max-time 10 "${AUTH_ARGS[@]}" "$BASE_URL/api/dashboard/overview" >/dev/null
-echo "[smoke] dashboard overview OK"
-curl -fsS --max-time 10 "${AUTH_ARGS[@]}" "$BASE_URL/api/operations/summary" >/dev/null
-echo "[smoke] operations summary OK"
-curl -fsS --max-time 10 "${AUTH_ARGS[@]}" "$BASE_URL/api/release/policy" >/dev/null
-echo "[smoke] release policy OK"
-curl -fsS --max-time 10 "${AUTH_ARGS[@]}" "$BASE_URL/api/metrics/overview" >/dev/null
-echo "[smoke] metrics overview OK"
+wait_http "$BASE_URL/api/health"
+echo "[smoke] public health OK"
+
+if [[ "$AUTH_ENABLED" == "true" && ${#AUTH_ARGS[@]} -eq 0 ]]; then
+  HTTP_CODE="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 10 "$BASE_URL/api/workbench/summary")"
+  if [[ "$HTTP_CODE" != "401" ]]; then
+    echo "[smoke] ERROR: protected API without token returned HTTP $HTTP_CODE instead of 401"
+    exit 1
+  fi
+  echo "[smoke] authentication guard OK (protected API -> 401)"
+  echo "[smoke] protected API smoke skipped; provide PLATFORM_SMOKE_PASSWORD_FILE for authenticated checks"
+else
+  curl -fsS --max-time 10 "${AUTH_ARGS[@]}" "$BASE_URL/api/workbench/summary" >/dev/null
+  echo "[smoke] workbench summary OK"
+  curl -fsS --max-time 10 "${AUTH_ARGS[@]}" "$BASE_URL/api/operations/summary" >/dev/null
+  echo "[smoke] operations summary OK"
+  curl -fsS --max-time 10 "${AUTH_ARGS[@]}" "$BASE_URL/api/release/policy" >/dev/null
+  echo "[smoke] release policy OK"
+  curl -fsS --max-time 10 "${AUTH_ARGS[@]}" "$BASE_URL/api/metrics/overview" >/dev/null
+  echo "[smoke] metrics overview OK"
+fi
 
 if [[ "${SEATUNNEL_REAL_ENABLED:-true}" == "true" ]]; then
   SEATUNNEL_HOME_VALUE="${SEATUNNEL_HOME:-/data/software/seatunnel}"

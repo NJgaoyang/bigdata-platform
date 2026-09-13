@@ -454,6 +454,10 @@ public class PlatformStore {
         if (jdbc == null) return;
         jdbc.update("INSERT INTO datasource_permission (datasource_id,user_id,permission_code) VALUES (?,?,?)", datasourceId, userId, permission);
     }
+    public void deleteDatasourcePermission(long datasourceId, long userId, String permission) {
+        if (jdbc != null) jdbc.update("DELETE FROM datasource_permission WHERE datasource_id=? AND user_id=? AND permission_code=?", datasourceId, userId, permission);
+        datasourcePermissions.remove(datasourceId + ":" + userId + ":" + permission);
+    }
     private void advanceId(long id) { ids.updateAndGet(current -> Math.max(current, id)); }
 
     /** Keep generated IDs above records that were created by an earlier process instance. */

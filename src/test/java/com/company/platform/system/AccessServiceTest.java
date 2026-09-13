@@ -69,4 +69,42 @@ class AccessServiceTest {
         assertThrows(BadRequestException.class, () -> service.grantProjectPermission(projectId,
                 new AccessRequests.PermissionBindingRequest(user.id(), "OWNER")));
     }
+
+    @Test
+    void rolePermissionsApplyUntilUserGetsExplicitOverride() {
+        PlatformStore store = new PlatformStore();
+        AccessService service = new AccessService(store, new AuditService(store));
+        RoleView role = service.createRole(new AccessRequests.RoleRequest("DEVELOPER", "开发者"));
+        service.setRolePermissions(role.id(), java.util.Set.of("WORKBENCH_VIEW", "DATA_DEVELOPMENT_VIEW", "DATA_DEVELOPMENT_EDIT"));
+        UserView user = service.createUser(new AccessRequests.UserRequest("dev", "Dev", "secret", "DEVELOPER", "ACTIVE"));
+        assertTrue(service.effectivePermissions(user.id()).contains("DATA_DEVELOPMENT_EDIT"));
+        assertFalse(service.effectivePermissions(user.id()).contains("SYSTEM_SETTINGS_VIEW"));
+        service.setPermissions(user.id(), java.util.Set.of("WORKBENCH_VIEW"));
+        assertEquals(java.util.Set.of("WORKBENCH_VIEW"), service.effectivePermissions(user.id()));
+    }
+
+    @Test
+    void datasourcePermissionsCanBeListedAndRevoked() {
+        PlatformStore store = new PlatformStore();
+        AccessService service = new AccessService(store, new AuditService(store));
+        UserView user = service.createUser(new AccessRequests.UserRequest("analyst", "Analyst"));
+        long dataSourceId = 77L;
+        store.dataSources.put(dataSourceId, new com.company.platform.datasource.DataSourceView(dataSourceId, "orders", com.company.platform.datasource.DataSourceType.MYSQL,
+                "127.0.0.1", 3306, "app", "root", "ACTIVE", true, null, null));
+        service.grantDatasourcePermission(dataSourceId, new AccessRequests.PermissionBindingRequest(user.id(), "QUERY"));
+        assertEquals(1, service.datasourcePermissions().size());
+        assertEquals("QUERY", service.datasourcePermissions().get(0).permissionCode());
+        service.revokeDatasourcePermission(dataSourceId, user.id(), "QUERY");
+        assertTrue(service.datasourcePermissions().isEmpty());
+    }
+
+    @Test
+    void customRoleCanBeAssignedToUser() {
+        PlatformStore store = new PlatformStore();
+        AccessService service = new AccessService(store, new AuditService(store));
+        RoleView role = service.createRole(new AccessRequests.RoleRequest("data_owner", "数据负责人"));
+        UserView user = service.createUser(new AccessRequests.UserRequest("owner", "Owner", "secret", role.roleCode(), "ACTIVE"));
+        assertEquals("DATA_OWNER", role.roleCode());
+        assertEquals("DATA_OWNER", user.roleCode());
+    }
 }

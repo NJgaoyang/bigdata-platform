@@ -2,13 +2,17 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { productNavigation, releaseNavigation, systemNavigation } from '../navigation'
-import { authApi } from '../api/auth'
+import { authApi, type CurrentUser } from '../api/auth'
+import { moduleViewPermission, hasPermission } from '../auth/permissions'
 
 const route = useRoute()
-const username=ref('admin'), roleCode=ref('ADMIN')
+const username=ref('admin'), roleCode=ref('ADMIN'), me=ref<CurrentUser|null>(null)
 const router = useRouter()
 const moduleKey = computed(() => String(route.meta.module || 'workbench'))
+const visibleProducts=computed(()=>productNavigation.filter(item=>hasPermission(me.value,moduleViewPermission[item.key])))
 const activeProduct = computed(() => productNavigation.find(item => item.key === moduleKey.value))
+const canRelease=computed(()=>hasPermission(me.value,moduleViewPermission.release))
+const canSystem=computed(()=>hasPermission(me.value,moduleViewPermission.system))
 const isWorkbench = computed(() => moduleKey.value === 'workbench')
 const sideTitle = computed(() => {
   if (moduleKey.value === 'release') return '发布中心'
@@ -23,7 +27,7 @@ const sideItems = computed(() => {
 
 function go(path: string) { void router.push(path) }
 function roleName(value:string){return ({ADMIN:'平台管理员',DEVELOPER:'开发者',RELEASE_MANAGER:'发布审核人',VIEWER:'只读用户',USER:'普通用户'} as Record<string,string>)[value]||value}
-async function loadMe(){try{const me=await authApi.me();username.value=me.username||'admin';roleCode.value=me.roleCode||'USER'}catch{}}
+async function loadMe(){try{const current=await authApi.me();me.value=current;username.value=current.username||'admin';roleCode.value=current.roleCode||'USER'}catch{}}
 async function logout(){try{await authApi.logout()}catch{}localStorage.removeItem('platform_auth_token');await router.replace('/login')}
 onMounted(loadMe)
 </script>
@@ -36,13 +40,13 @@ onMounted(loadMe)
         <span class="brand__copy"><strong>DataSphere</strong><small>企业数据开发平台</small></span>
       </button>
       <nav class="product-nav" aria-label="主导航">
-        <button v-for="item in productNavigation" :key="item.key" type="button"
+        <button v-for="item in visibleProducts" :key="item.key" type="button"
           :class="['product-nav__item', { active: moduleKey === item.key }]" @click="go(item.path)">
           {{ item.label }}
         </button>
       </nav>
       <div class="topbar__right">
-        <el-button plain @click="go('/release/history')">发布中心</el-button>
+        <el-button v-if="canRelease" plain @click="go('/release/history')">发布中心</el-button>
         <el-dropdown trigger="click">
           <button type="button" class="user-entry">
             <span class="user-entry__avatar">{{ (username||'U').slice(0,1).toUpperCase() }}</span>
@@ -50,9 +54,10 @@ onMounted(loadMe)
           </button>
           <template #dropdown>
             <el-dropdown-menu>
-              <el-dropdown-item @click="go('/system/users')">用户管理</el-dropdown-item>
+              <template v-if="canSystem"><el-dropdown-item @click="go('/system/users')">用户管理</el-dropdown-item>
               <el-dropdown-item @click="go('/system/roles')">角色权限</el-dropdown-item>
-              <el-dropdown-item @click="go('/system/audit')">审计日志</el-dropdown-item>
+              <el-dropdown-item @click="go('/system/data-source-permissions')">数据源权限</el-dropdown-item>
+              <el-dropdown-item @click="go('/system/audit')">审计日志</el-dropdown-item></template>
               <el-dropdown-item divided @click="logout">退出登录</el-dropdown-item>
             </el-dropdown-menu>
           </template>

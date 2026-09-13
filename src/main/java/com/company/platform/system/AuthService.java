@@ -134,7 +134,19 @@ public class AuthService {
         if (path.startsWith("/api/system")) return "SYSTEM_SETTINGS";
         return null;
     }
-    private Set<String> accessPermissions(long userId) { return AccessService.effectivePermissions(store.userPermissions.getOrDefault(userId, Set.of())); }
+    private Set<String> accessPermissions(long userId) {
+        Set<String> stored = store.userPermissions.getOrDefault(userId, Set.of());
+        if (stored.contains(AccessService.PERMISSION_MARKER)) return AccessService.effectivePermissions(stored);
+        UserView user = store.users.get(userId);
+        if (user != null) {
+            Set<String> rolePermissions = store.roles.values().stream()
+                    .filter(role -> role.roleCode().equalsIgnoreCase(user.roleCode()))
+                    .findFirst().map(RoleView::permissions).map(AccessService::effectivePermissions).orElse(Set.of())
+                    .stream().filter(AccessService.MODULE_PERMISSIONS::contains).collect(java.util.stream.Collectors.toUnmodifiableSet());
+            if (!rolePermissions.isEmpty()) return rolePermissions;
+        }
+        return AccessService.effectivePermissions(stored);
+    }
     private boolean isConfiguredAdmin(String username) {
         String configuredAdmin = properties.getSecurity().getAdminUsername();
         if (username == null || username.isBlank()) return false;

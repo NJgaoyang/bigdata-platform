@@ -47,6 +47,7 @@ export const releaseNavigation: SideNavItem[] = [
 export const systemNavigation: SideNavItem[] = [
   { label: '用户管理', path: '/system/users' },
   { label: '角色权限', path: '/system/roles' },
+  { label: '数据源权限', path: '/system/data-source-permissions' },
   { label: '运行环境', path: '/system/environments' },
   { label: '审计日志', path: '/system/audit' }
 ]

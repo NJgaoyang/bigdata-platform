@@ -54,6 +54,16 @@ class AuthServiceTest {
         assertFalse(service.hasPermission(session.token(), "GET", "/api/projects"));
         assertFalse(service.hasPermission(session.token(), "GET", "/api/unknown-new-api"));
     }
+
+    @Test void rolePermissionsAreUsedWhenUserHasNoExplicitOverride() {
+        PlatformProperties properties = new PlatformProperties(); properties.getSecurity().setEnabled(true); PlatformStore store = new PlatformStore();
+        UserView user = new UserView(9L, "dev", "Dev", "DEVELOPER", "ACTIVE", java.time.LocalDateTime.now(), sha256("secret")); store.users.put(user.id(), user);
+        store.roles.put(2L, new RoleView(2L, "DEVELOPER", "开发者", java.util.Set.of("WORKBENCH_VIEW", "DATA_DEVELOPMENT_VIEW", "DATA_DEVELOPMENT_EDIT")));
+        AuthService service = new AuthService(properties, store); AuthService.AuthSession session = service.login(new AuthRequests.LoginRequest("dev", "secret"));
+        assertTrue(service.hasPermission(session.token(), "GET", "/api/development/projects"));
+        assertTrue(service.hasPermission(session.token(), "POST", "/api/development/projects"));
+        assertFalse(service.hasPermission(session.token(), "GET", "/api/system/users"));
+    }
     private String sha256(String value) {
         try { return java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256").digest(value.getBytes(java.nio.charset.StandardCharsets.UTF_8))); }
         catch (Exception ex) { throw new AssertionError(ex); }

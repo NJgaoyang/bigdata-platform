@@ -25,8 +25,11 @@ public class AccessController {
     @GetMapping("/roles") public Result<List<RoleView>> roles() { return Result.ok(service.roles()); }
     @PostMapping("/roles") public Result<RoleView> createRole(@Valid @RequestBody AccessRequests.RoleRequest request) { return Result.ok(service.createRole(request), "角色已创建"); }
     @PostMapping("/roles/{roleId}/permissions") public Result<RoleView> grant(@PathVariable long roleId, @Valid @RequestBody AccessRequests.PermissionRequest request) { return Result.ok(service.grant(roleId, request), "权限已授予"); }
+    @PutMapping("/roles/{roleId}/permissions") public Result<RoleView> setRolePermissions(@PathVariable long roleId, @RequestBody Map<String, Set<String>> request) { return Result.ok(service.setRolePermissions(roleId, request.getOrDefault("permissions", Set.of())), "角色权限已更新"); }
     @PostMapping("/projects/{projectId}/permissions") public Result<String> grantProject(@PathVariable long projectId, @Valid @RequestBody AccessRequests.PermissionBindingRequest request) { return Result.ok(service.grantProjectPermission(projectId, request), "项目权限已授予"); }
     @PostMapping("/data-sources/{dataSourceId}/permissions") public Result<String> grantDatasource(@PathVariable long dataSourceId, @Valid @RequestBody AccessRequests.PermissionBindingRequest request) { return Result.ok(service.grantDatasourcePermission(dataSourceId, request), "数据源权限已授予"); }
+    @GetMapping("/data-source-permissions") public Result<List<AccessService.DataSourcePermissionView>> datasourcePermissions() { return Result.ok(service.datasourcePermissions()); }
+    @DeleteMapping("/data-sources/{dataSourceId}/permissions/{userId}/{permissionCode}") public Result<Void> revokeDatasource(@PathVariable long dataSourceId, @PathVariable long userId, @PathVariable String permissionCode) { service.revokeDatasourcePermission(dataSourceId, userId, permissionCode); return Result.ok(null, "数据源权限已撤销"); }
     @GetMapping("/alert-channels") public Result<List<AlertChannelView>> channels() { return Result.ok(service.channels()); }
     @PostMapping("/alert-channels") public Result<AlertChannelView> createChannel(@Valid @RequestBody AccessRequests.AlertChannelRequest request) { return Result.ok(service.createChannel(request), "告警渠道已创建"); }
     @GetMapping("/audit-logs") public Result<List<AuditLogView>> auditLogs() { return Result.ok(audit.list()); }

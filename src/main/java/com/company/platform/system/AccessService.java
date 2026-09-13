@@ -116,8 +116,10 @@ public class AccessService {
 
     @Transactional
     public RoleView createRole(AccessRequests.RoleRequest request) {
-        if (store.roles.values().stream().anyMatch(role -> role.roleCode().equalsIgnoreCase(request.roleCode()))) throw new BadRequestException("角色编码已存在");
-        RoleView role = new RoleView(store.nextId(), request.roleCode(), request.roleName(), new HashSet<>());
+        String roleCode = request.roleCode().trim().toUpperCase();
+        if (!roleCode.matches("[A-Z][A-Z0-9_]{1,63}")) throw new BadRequestException("角色编码仅支持大写字母、数字和下划线，且必须以字母开头");
+        if (store.roles.values().stream().anyMatch(role -> role.roleCode().equalsIgnoreCase(roleCode))) throw new BadRequestException("角色编码已存在");
+        RoleView role = new RoleView(store.nextId(), roleCode, request.roleName().trim(), new HashSet<>());
         store.persistRole(role);
         store.roles.put(role.id(), role);
         audit.record("CREATE_ROLE", "ROLE", role.id(), role.roleCode(), "admin");
@@ -137,6 +139,23 @@ public class AccessService {
         return updated;
     }
 
+    @Transactional
+    public RoleView setRolePermissions(long roleId, Set<String> requested) {
+        RoleView current = store.roles.get(roleId);
+        if (current == null) throw new NotFoundException("角色不存在：" + roleId);
+        Set<String> permissions = new HashSet<>(requested == null ? Set.of() : requested);
+        if (!MODULE_PERMISSIONS.containsAll(permissions)) throw new BadRequestException("角色包含不支持的模块权限");
+        RoleView updated = new RoleView(current.id(), current.roleCode(), current.roleName(), permissions);
+        store.persistRole(updated);
+        store.roles.put(roleId, updated);
+        if (auth != null) store.users.values().stream()
+                .filter(user -> user.roleCode().equalsIgnoreCase(current.roleCode()))
+                .filter(user -> !store.userPermissions.getOrDefault(user.id(), Set.of()).contains(PERMISSION_MARKER))
+                .forEach(user -> auth.invalidateUser(user.username()));
+        audit.record("SET_ROLE_PERMISSIONS", "ROLE", roleId, String.join(",", permissions), "admin");
+        return updated;
+    }
+
     public List<AlertChannelView> channels() { return store.alertChannels.values().stream().toList(); }
 
     @Transactional
@@ -150,12 +169,24 @@ public class AccessService {
 
     private String normalizeStatus(String status) { return "DISABLED".equalsIgnoreCase(status) ? "DISABLED" : "ACTIVE"; }
     private String normalizeRole(String roleCode) {
-        String value = roleCode == null ? "USER" : roleCode.trim().toUpperCase();
-        return Set.of("ADMIN", "DEVELOPER", "RELEASE_MANAGER", "VIEWER", "USER").contains(value) ? value : "USER";
+        String value = roleCode == null || roleCode.isBlank() ? "USER" : roleCode.trim().toUpperCase();
+        if (Set.of("ADMIN", "DEVELOPER", "RELEASE_MANAGER", "VIEWER", "USER").contains(value)) return value;
+        if (store.roles.values().stream().anyMatch(role -> role.roleCode().equalsIgnoreCase(value))) return value;
+        throw new BadRequestException("角色不存在：" + value);
     }
     private boolean isBuiltInAdmin(UserView user) { return user != null && "admin".equalsIgnoreCase(user.username().trim()); }
 
-    public Set<String> effectivePermissions(long userId) { return effectivePermissions(store.userPermissions.getOrDefault(userId, Set.of())); }
+    public Set<String> effectivePermissions(long userId) {
+        UserView user = store.users.get(userId);
+        if (user == null) throw new NotFoundException("用户不存在：" + userId);
+        Set<String> stored = store.userPermissions.getOrDefault(userId, Set.of());
+        if (stored.contains(PERMISSION_MARKER)) return effectivePermissions(stored);
+        Set<String> rolePermissions = store.roles.values().stream()
+                .filter(role -> role.roleCode().equalsIgnoreCase(user.roleCode()))
+                .findFirst().map(RoleView::permissions).map(AccessService::effectivePermissions).orElse(Set.of())
+                .stream().filter(MODULE_PERMISSIONS::contains).collect(java.util.stream.Collectors.toUnmodifiableSet());
+        return rolePermissions.isEmpty() ? effectivePermissions(stored) : rolePermissions;
+    }
     public static Set<String> effectivePermissions(Set<String> stored) {
         if (stored.isEmpty()) return defaultViewPermissions();
         Set<String> result = new HashSet<>();
@@ -222,4 +253,35 @@ public class AccessService {
         audit.record("GRANT_DATASOURCE_PERMISSION", "DATASOURCE", datasourceId, key, "admin");
         return key;
     }
+
+
+    public List<DataSourcePermissionView> datasourcePermissions() {
+        return store.datasourcePermissions.keySet().stream().map(key -> {
+            String[] parts = key.split(":", 3);
+            if (parts.length != 3) return null;
+            long dataSourceId = Long.parseLong(parts[0]);
+            long userId = Long.parseLong(parts[1]);
+            var source = store.dataSources.get(dataSourceId);
+            var user = store.users.get(userId);
+            if (source == null || user == null) return null;
+            return new DataSourcePermissionView(dataSourceId, source.name(), userId, user.username(), user.displayName(), parts[2]);
+        }).filter(java.util.Objects::nonNull)
+                .sorted(java.util.Comparator.comparing(DataSourcePermissionView::dataSourceName, String.CASE_INSENSITIVE_ORDER)
+                        .thenComparing(DataSourcePermissionView::username, String.CASE_INSENSITIVE_ORDER)
+                        .thenComparing(DataSourcePermissionView::permissionCode))
+                .toList();
+    }
+
+    @Transactional
+    public void revokeDatasourcePermission(long datasourceId, long userId, String permissionCode) {
+        if (!store.dataSources.containsKey(datasourceId)) throw new NotFoundException("数据源不存在：" + datasourceId);
+        if (!store.users.containsKey(userId)) throw new NotFoundException("用户不存在：" + userId);
+        String permission = permissionCode == null ? "" : permissionCode.trim().toUpperCase();
+        if (!Set.of("VIEW", "QUERY", "EDIT").contains(permission)) throw new BadRequestException("数据源权限仅支持 VIEW、QUERY 或 EDIT");
+        store.deleteDatasourcePermission(datasourceId, userId, permission);
+        audit.record("REVOKE_DATASOURCE_PERMISSION", "DATASOURCE", datasourceId, userId + ":" + permission, "admin");
+    }
+
+    public record DataSourcePermissionView(long dataSourceId, String dataSourceName, long userId, String username,
+                                           String displayName, String permissionCode) { }
 }

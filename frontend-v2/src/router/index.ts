@@ -3,7 +3,9 @@ import PlatformLayout from '../layouts/PlatformLayout.vue'
 import WorkbenchView from '../views/workbench/WorkbenchView.vue'
 import LoginView from '../views/auth/LoginView.vue'
 import { authApi } from '../api/auth'
-const routes:RouteRecordRaw[]=[{path:'/login',name:'login',component:LoginView,meta:{public:true}},{path:'/',component:PlatformLayout,children:[
+import { moduleViewPermission, hasPermission } from '../auth/permissions'
+import { productNavigation } from '../navigation'
+const routes:RouteRecordRaw[]=[{path:'/login',name:'login',component:LoginView,meta:{public:true}},{path:'/forbidden',name:'forbidden',component:()=>import('../views/auth/ForbiddenView.vue'),meta:{public:true}},{path:'/',component:PlatformLayout,children:[
 {path:'',name:'workbench',component:WorkbenchView,meta:{module:'workbench'}},
 {path:'integration/overview',component:()=>import('../views/integration/IntegrationOverview.vue'),meta:{module:'integration'}},
 {path:'integration/datasources',component:()=>import('../views/integration/DataSourceList.vue'),meta:{module:'integration'}},
@@ -29,6 +31,7 @@ const routes:RouteRecordRaw[]=[{path:'/login',name:'login',component:LoginView,m
 {path:'release/policy',component:()=>import('../views/release/ReleaseCenter.vue'),meta:{module:'release'}},
 {path:'system/users',component:()=>import('../views/system/SystemAccess.vue'),meta:{module:'system'}},
 {path:'system/roles',component:()=>import('../views/system/SystemAccess.vue'),meta:{module:'system'}},
+{path:'system/data-source-permissions',component:()=>import('../views/system/DataSourcePermissions.vue'),meta:{module:'system'}},
 {path:'system/environments',component:()=>import('../views/system/RuntimeEnvironments.vue'),meta:{module:'system'}},
 {path:'system/audit',component:()=>import('../views/system/SystemAccess.vue'),meta:{module:'system'}}
 ]}]
@@ -37,7 +40,15 @@ router.beforeEach(async(to)=>{
   if(to.meta.public)return true
   try{
     const me=await authApi.me()
-    if(me.authenticated)return true
+    if(!me.authenticated)return {path:'/login',query:{redirect:to.fullPath}}
+    const module=String(to.meta.module||'workbench')
+    const required=moduleViewPermission[module]
+    if(hasPermission(me,required))return true
+    const fallback=productNavigation.find(item=>hasPermission(me,moduleViewPermission[item.key]))
+    if(fallback)return {path:fallback.path}
+    if(hasPermission(me,moduleViewPermission.release))return {path:'/release/history'}
+    if(hasPermission(me,moduleViewPermission.system))return {path:'/system/users'}
+    return {path:'/forbidden'}
   }catch{}
   return {path:'/login',query:{redirect:to.fullPath}}
 })
