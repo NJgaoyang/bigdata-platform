@@ -23,9 +23,7 @@ export const productNavigation: ProductNavItem[] = [
     { label: '失败任务', path: '/operations/failures' },
     { label: '告警中心', path: '/operations/alerts' }
   ]},
-  { key: 'metadata', label: '元数据', path: '/metadata/catalog', side: [
-    { label: '元数据目录', path: '/metadata/catalog' }
-  ]},
+  { key: 'metadata', label: '元数据', path: '/metadata/catalog' },
   { key: 'metrics', label: '指标中心', path: '/metrics/overview', side: [
     { label: '指标总览', path: '/metrics/overview' },
     { label: '指标管理', path: '/metrics/manage' },

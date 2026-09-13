@@ -13,7 +13,7 @@ const visibleProducts=computed(()=>productNavigation.filter(item=>hasPermission(
 const activeProduct = computed(() => productNavigation.find(item => item.key === moduleKey.value))
 const canRelease=computed(()=>hasPermission(me.value,moduleViewPermission.release))
 const canSystem=computed(()=>hasPermission(me.value,moduleViewPermission.system))
-const isWorkbench = computed(() => moduleKey.value === 'workbench')
+const isFullWidth = computed(() => moduleKey.value === 'workbench' || moduleKey.value === 'metadata')
 const sideTitle = computed(() => {
   if (moduleKey.value === 'release') return '发布中心'
   if (moduleKey.value === 'system') return '系统管理'
@@ -65,8 +65,8 @@ onMounted(loadMe)
       </div>
     </header>
 
-    <div :class="['body-shell', { 'body-shell--full': isWorkbench }]">
-      <aside v-if="!isWorkbench" class="sidebar">
+    <div :class="['body-shell', { 'body-shell--full': isFullWidth }]">
+      <aside v-if="!isFullWidth" class="sidebar">
         <div class="sidebar__title">{{ sideTitle }}</div>
         <nav class="side-nav" :aria-label="`${sideTitle}二级导航`">
           <button v-for="item in sideItems" :key="item.path" type="button"

@@ -24,8 +24,19 @@ public class WebConfig implements WebMvcConfigurer {
 
     @Override
     public void addViewControllers(org.springframework.web.servlet.config.annotation.ViewControllerRegistry registry) {
-        for (String route : new String[]{"/", "/overview", "/sources", "/integration", "/development", "/explore", "/lineage", "/workflow", "/operations", "/assets", "/settings", "/login"}) {
-            registry.addViewController(route).setViewName("forward:/index.html");
-        }
+        String[] routes = {
+                "/", "/login", "/forbidden",
+                "/overview", "/sources", "/integration", "/development", "/explore", "/lineage", "/workflow", "/operations", "/assets", "/settings",
+                "/integration/overview", "/integration/datasources", "/integration/batch", "/integration/realtime", "/integration/instances",
+                "/development/workspace", "/development/versions",
+                "/workflow/definitions",
+                "/operations/overview", "/operations/instances", "/operations/failures", "/operations/alerts",
+                "/metadata/catalog",
+                "/metrics/overview", "/metrics/manage", "/metrics/dimensions", "/metrics/lineage",
+                "/assets/catalog", "/assets/favorites",
+                "/release/history", "/release/queue", "/release/policy",
+                "/system/users", "/system/roles", "/system/data-source-permissions", "/system/environments", "/system/audit"
+        };
+        for (String route : routes) registry.addViewController(route).setViewName("forward:/index.html");
     }
 }
