@@ -100,7 +100,6 @@ public class MetadataService {
         }
     }
 
-
     public TableProfileView tableProfile(long dataSourceId, String database, String table) {
         ensureMetadataVisible(dataSourceId);
         String db = requiredName(database, "数据库");
@@ -134,7 +133,7 @@ public class MetadataService {
         ensureMetadataVisible(dataSourceId);
         String db = requiredName(database, "数据库");
         String tableName = requiredName(table, "数据表");
-        int safeLimit = Math.max(1, Math.min(limit <= 0 ? 50 : limit, 200));
+        int safeLimit = Math.max(1, Math.min(limit <= 0 ? 10 : limit, 1000));
         try (Connection connection = connection(dataSourceId)) {
             requireExistingTable(connection, db, tableName);
             String sql = "SELECT * FROM " + quoteIdentifier(db) + "." + quoteIdentifier(tableName) + " LIMIT " + safeLimit;
