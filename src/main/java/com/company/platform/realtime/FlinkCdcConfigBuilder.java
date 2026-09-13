@@ -52,9 +52,12 @@ public class FlinkCdcConfigBuilder {
          .append("\n  username: ").append(q(sink.username())).append("\n  password: ").append(q(sinkPassword))
          .append("\n  table.create.properties.replication_num: '1'\n");
         Map<String,Object> sinkCfg=spec.get("sink") instanceof Map<?,?>m?(Map<String,Object>)m:Map.of();
-        y.append("  sink.buffer-flush.max-rows: ").append(intValue(sinkCfg.get("batchSize"),1000)).append("\n")
+        long maxBytes = sinkCfg.get("maxBytes") == null ? 67108864L : longValue(sinkCfg.get("maxBytes"));
+        if(maxBytes < 67108864L) maxBytes = 67108864L; // StarRocks connector minimum is 64 MiB.
+        y.append("  sink.buffer-flush.max-bytes: ").append(maxBytes).append("\n")
          .append("  sink.buffer-flush.interval-ms: ").append(intValue(sinkCfg.get("flushIntervalMs"),2000)).append("\n")
-         .append("  sink.max-retries: ").append(intValue(sinkCfg.get("maxRetries"),3)).append("\n");
+         .append("  sink.at-least-once.use-transaction-stream-load: ")
+         .append(sinkCfg.get("transactionStreamLoad") == null || Boolean.parseBoolean(String.valueOf(sinkCfg.get("transactionStreamLoad")))).append("\n");
         y.append("pipeline:\n  name: ").append(q(str(spec.getOrDefault("name","datasphere-realtime")))).append("\n")
          .append("  parallelism: ").append(intValue(spec.get("parallelism"),1)).append("\n")
          .append("  schema.change.behavior: ").append(q(str(spec.getOrDefault("schemaEvolution","EVOLVE")).toLowerCase(Locale.ROOT))).append("\n")

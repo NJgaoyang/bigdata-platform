@@ -74,12 +74,40 @@ public class RealtimeSyncService {
         return runtime(id);
     }
 
-    @Transactional
-    public RealtimeViews.Runtime stop(long id,String operator){RealtimeViews.Job job=get(id);RealtimeViews.Execution execution=latestExecution(id);jdbc.update("UPDATE realtime_sync_definition SET desired_state='STOPPED',observed_state='STOPPING' WHERE id=?",id);
-        try{if(execution!=null&&execution.engineJobId()!=null&&job.runtimeEnvironmentId()!=null)gateway.cancel(environments.get(job.runtimeEnvironmentId()),execution.engineJobId());
-            if(execution!=null)jdbc.update("UPDATE realtime_sync_execution SET status='STOPPED',finished_at=CURRENT_TIMESTAMP WHERE id=?",execution.id());jdbc.update("UPDATE realtime_sync_definition SET observed_state='STOPPED',last_error=NULL WHERE id=?",id);event(id,execution==null?null:execution.id(),"STOPPED","停止任务 by "+operator(operator));
-        }catch(RuntimeException ex){String m=msg(ex);jdbc.update("UPDATE realtime_sync_definition SET observed_state='UNKNOWN',last_error=? WHERE id=?",m,id);if(execution!=null)jdbc.update("UPDATE realtime_sync_execution SET result_uncertain=TRUE,error_message=? WHERE id=?",m,execution.id());throw ex;}
-        return runtime(id);
+    public RealtimeViews.Runtime stop(long id,String operator){
+        RealtimeViews.Job job=get(id);
+        RealtimeViews.Execution execution=latestExecution(id);
+        jdbc.update("UPDATE realtime_sync_definition SET desired_state='STOPPED',observed_state='STOPPING' WHERE id=?",id);
+        try{
+            if(execution==null||execution.engineJobId()==null||job.runtimeEnvironmentId()==null){
+                if(execution!=null) jdbc.update("UPDATE realtime_sync_execution SET status='STOPPED',finished_at=CURRENT_TIMESTAMP WHERE id=?",execution.id());
+                jdbc.update("UPDATE realtime_sync_definition SET observed_state='STOPPED',last_error=NULL WHERE id=?",id);
+                event(id,execution==null?null:execution.id(),"STOPPED","无活动 Flink Job，任务已停止 by "+operator(operator));
+                return runtime(id);
+            }
+            FlinkEnvironmentView env=environments.get(job.runtimeEnvironmentId());
+            gateway.cancel(env,execution.engineJobId());
+            String terminal=waitForTerminal(env,execution.engineJobId(),10_000L);
+            if(terminal==null){
+                String m="Flink 取消请求已发送，但 10 秒内未确认终态";
+                jdbc.update("UPDATE realtime_sync_definition SET observed_state='UNKNOWN',last_error=? WHERE id=?",m,id);
+                jdbc.update("UPDATE realtime_sync_execution SET result_uncertain=TRUE,error_message=? WHERE id=?",m,execution.id());
+                event(id,execution.id(),"STOP_UNCONFIRMED",m);
+                throw new BadRequestException(m);
+            }
+            String observed=mapState(terminal);
+            String executionState=mapExecution(terminal);
+            jdbc.update("UPDATE realtime_sync_execution SET status=?,finished_at=CURRENT_TIMESTAMP,result_uncertain=FALSE,error_message=NULL WHERE id=?",executionState,execution.id());
+            jdbc.update("UPDATE realtime_sync_definition SET observed_state=?,last_error=NULL WHERE id=?",observed,id);
+            event(id,execution.id(),observed,"Flink 终态="+terminal+", 停止任务 by "+operator(operator));
+            if("FAILED".equals(terminal)) throw new BadRequestException("Flink Job 在停止过程中进入 FAILED");
+            return runtime(id);
+        }catch(BadRequestException ex){throw ex;}catch(RuntimeException ex){
+            String m=msg(ex);
+            jdbc.update("UPDATE realtime_sync_definition SET observed_state='UNKNOWN',last_error=? WHERE id=?",m,id);
+            if(execution!=null) jdbc.update("UPDATE realtime_sync_execution SET result_uncertain=TRUE,error_message=? WHERE id=?",m,execution.id());
+            throw ex;
+        }
     }
 
     public RealtimeViews.Runtime restart(long id,String operator){RealtimeViews.Job job=get(id);if(!"STOPPED".equals(job.observedState()))try{stop(id,operator);}catch(RuntimeException ignored){}return start(id,operator);}
@@ -120,6 +148,15 @@ public class RealtimeSyncService {
     private String digest(String value){try{return java.util.HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8)));}catch(Exception ex){return UUID.randomUUID().toString();}}
     private String operator(String value){return value==null||value.isBlank()?"admin":value.trim();}
     private String msg(Throwable ex){return ex.getMessage()==null?ex.getClass().getSimpleName():ex.getMessage();}
+    private String waitForTerminal(FlinkEnvironmentView env,String engineJobId,long timeoutMs){
+        long deadline=System.currentTimeMillis()+Math.max(1000L,timeoutMs);
+        while(System.currentTimeMillis()<deadline){
+            String state=gateway.job(env,engineJobId).path("state").asText("UNKNOWN");
+            if(Set.of("FINISHED","CANCELED","FAILED").contains(state)) return state;
+            try{Thread.sleep(250L);}catch(InterruptedException ex){Thread.currentThread().interrupt();return null;}
+        }
+        return null;
+    }
     private String mapState(String s){return switch(s){case "RUNNING"->"RUNNING";case "CREATED","INITIALIZING","RECONCILING"->"STARTING";case "FINISHED","CANCELED"->"STOPPED";case "FAILED"->"FAILED";default->"UNKNOWN";};}
     private String mapExecution(String s){return switch(s){case "FINISHED"->"FINISHED";case "CANCELED"->"STOPPED";case "FAILED"->"FAILED";default->s;};}
     public record Validation(boolean valid,String message,List<String>warnings,String yamlPreview){}
