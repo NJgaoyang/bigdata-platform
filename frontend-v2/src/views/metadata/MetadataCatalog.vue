@@ -4,85 +4,68 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { dataSourceApi } from '../../api/platform'
 import { metadataApi, type ColumnView, type DataSourceView, type DatabaseView, type LineageView, type TablePreview, type TableProfile, type TableView } from '../../api/domain'
 
-const sources=ref<DataSourceView[]>([]), databases=ref<DatabaseView[]>([])
-const tableCache=ref<Record<string,TableView[]>>({}), expanded=ref<Set<string>>(new Set())
-const expandedTypes=ref<Set<string>>(new Set(['STARROCKS'])), expandedSources=ref<Set<number>>(new Set())
-const sourceId=ref<number>(), database=ref(''), table=ref<TableView>()
+const sources=ref<DataSourceView[]>([]), databases=ref<DatabaseView[]>([]), tables=ref<TableView[]>([])
 const columns=ref<ColumnView[]>([]), profile=ref<TableProfile>(), lineage=ref<LineageView[]>([]), preview=ref<TablePreview>()
-const keyword=ref(''), activeTab=ref<'overview'|'fields'|'preview'|'lineage'>('overview'), previewLimit=ref(50)
-const loading=ref(false), detailLoading=ref(false), previewLoading=ref(false), error=ref(''), previewError=ref('')
+const sourceId=ref<number>(), database=ref(''), table=ref<TableView>()
+const databaseKeyword=ref(''), tableKeyword=ref('')
+const activeTab=ref<'overview'|'fields'|'preview'|'lineage'>('overview'), previewLimit=ref(50)
+const loading=ref(false), tableLoading=ref(false), detailLoading=ref(false), previewLoading=ref(false)
+const error=ref(''), previewError=ref(''), drawerVisible=ref(false)
 const connectionState=ref<'idle'|'ok'|'bad'>('idle')
 
 const source=computed(()=>sources.value.find(item=>item.id===sourceId.value))
-const sourceGroups=computed(()=>{
-  const order=['STARROCKS','MYSQL']; const grouped=new Map<string,DataSourceView[]>()
-  for(const item of sources.value){const key=String(item.type||'OTHER').toUpperCase();grouped.set(key,[...(grouped.get(key)||[]),item])}
-  return [...grouped.entries()].sort((a,b)=>{const ai=order.indexOf(a[0]),bi=order.indexOf(b[0]);return (ai<0?99:ai)-(bi<0?99:bi)}).map(([type,items])=>({type,items}))
-})
-function typeLabel(type:string){return type==='STARROCKS'?'StarRocks':type==='MYSQL'?'MySQL':type}
 const currentDatabase=computed(()=>databases.value.find(item=>item.name===database.value))
-const currentTables=computed(()=>tableCache.value[database.value]||[])
-const visibleDatabases=computed(()=>{
-  const q=keyword.value.trim().toLowerCase(); if(!q)return databases.value
-  return databases.value.filter(db=>db.name.toLowerCase().includes(q)||(tableCache.value[db.name]||[]).some(t=>`${t.name} ${t.comment||''}`.toLowerCase().includes(q)))
+const filteredDatabases=computed(()=>{
+  const q=databaseKeyword.value.trim().toLowerCase()
+  return q?databases.value.filter(item=>`${item.name} ${item.comment||''}`.toLowerCase().includes(q)):databases.value
 })
-function visibleTables(db:string){const q=keyword.value.trim().toLowerCase();const rows=tableCache.value[db]||[];return q?rows.filter(t=>`${t.name} ${t.comment||''}`.toLowerCase().includes(q)):rows}
+const filteredTables=computed(()=>{
+  const q=tableKeyword.value.trim().toLowerCase()
+  return q?tables.value.filter(item=>`${item.name} ${item.comment||''} ${item.type||''}`.toLowerCase().includes(q)):tables.value
+})
 function fmtSize(v?:number){if(v==null)return '—';if(v>=1024**3)return `${(v/1024**3).toFixed(2)} GB`;if(v>=1024**2)return `${(v/1024**2).toFixed(1)} MB`;if(v>=1024)return `${(v/1024).toFixed(1)} KB`;return `${v} B`}
 function fmtTime(v?:string){return v?String(v).replace('T',' ').slice(0,19):'—'}
 
 async function loadSources(){
-  error.value=''
+  error.value='';loading.value=true
   try{
-    sources.value=(await dataSourceApi.list()).filter(s=>s.metadataVisible)
+    sources.value=(await dataSourceApi.list()).filter(item=>item.metadataVisible)
     const saved=Number(localStorage.getItem('metadataDataSourceId')||0)
-    const first=sources.value.find(s=>s.id===saved)||sources.value.find(s=>s.type==='STARROCKS')||sources.value[0]
-    if(first){expandedTypes.value=new Set([...expandedTypes.value,String(first.type).toUpperCase()]);expandedSources.value=new Set([first.id]);await selectSource(first.id)}
-  }catch(e){error.value=e instanceof Error?e.message:'数据源加载失败'}
+    const first=sources.value.find(item=>item.id===saved)||sources.value.find(item=>item.type==='STARROCKS')||sources.value[0]
+    if(first)await selectSource(first.id)
+  }catch(e){error.value=e instanceof Error?e.message:'数据源加载失败'}finally{loading.value=false}
 }
 async function selectSource(id:number){
-  sourceId.value=id; localStorage.setItem('metadataDataSourceId',String(id)); database.value='';table.value=undefined
-  expandedSources.value=new Set([...expandedSources.value,id])
-  databases.value=[];tableCache.value={};expanded.value=new Set();columns.value=[];profile.value=undefined;lineage.value=[];preview.value=undefined
-  activeTab.value='overview';connectionState.value='idle';loading.value=true;error.value=''
+  sourceId.value=id;localStorage.setItem('metadataDataSourceId',String(id));connectionState.value='idle'
+  database.value='';table.value=undefined;tables.value=[];databases.value=[];drawerVisible.value=false
   try{
-    const selected=sources.value.find(s=>s.id===id)
+    const selected=sources.value.find(item=>item.id===id)
     databases.value=await metadataApi.databases(id,selected?.type||'STARROCKS')
     const saved=localStorage.getItem('metadataDatabase')||''
-    if(saved&&databases.value.some(d=>d.name===saved))await selectDatabase(saved)
-  }catch(e){error.value=e instanceof Error?e.message:'数据库加载失败'}finally{loading.value=false}
+    const first=databases.value.find(item=>item.name===saved)||databases.value[0]
+    if(first)await selectDatabase(first.name)
+  }catch(e){error.value=e instanceof Error?e.message:'数据库加载失败'}
 }
-async function loadTables(db:string){
-  if(!sourceId.value||tableCache.value[db])return
-  const rows=await metadataApi.tables(sourceId.value,db)
-  tableCache.value={...tableCache.value,[db]:rows}
-}
-async function selectDatabase(db:string){
-  database.value=db;table.value=undefined;columns.value=[];profile.value=undefined;lineage.value=[];preview.value=undefined;activeTab.value='overview'
-  localStorage.setItem('metadataDatabase',db)
-  expanded.value=new Set([...expanded.value,db]); detailLoading.value=true
-  try{await loadTables(db)}catch(e){error.value=e instanceof Error?e.message:'数据表加载失败'}finally{detailLoading.value=false}
-}
-function toggleType(type:string){const next=new Set(expandedTypes.value);next.has(type)?next.delete(type):next.add(type);expandedTypes.value=next}
-async function toggleSource(id:number){
-  if(sourceId.value!==id){await selectSource(id);return}
-  const next=new Set(expandedSources.value);next.has(id)?next.delete(id):next.add(id);expandedSources.value=next
-}
-async function toggleDatabase(db:string){
-  if(expanded.value.has(db)){const next=new Set(expanded.value);next.delete(db);expanded.value=next;return}
-  expanded.value=new Set([...expanded.value,db]);await selectDatabase(db)
-}
-async function selectTable(db:string,value:TableView){
-  database.value=db;table.value=value;activeTab.value='overview';preview.value=undefined;previewError.value='';detailLoading.value=true
-  localStorage.setItem('metadataDatabase',db)
+async function selectDatabase(name:string){
   if(!sourceId.value)return
+  database.value=name;localStorage.setItem('metadataDatabase',name);table.value=undefined;drawerVisible.value=false;tableKeyword.value=''
+  tableLoading.value=true;error.value=''
+  try{tables.value=await metadataApi.tables(sourceId.value,name)}
+  catch(e){tables.value=[];error.value=e instanceof Error?e.message:'数据表加载失败'}finally{tableLoading.value=false}
+}
+async function openTable(value:TableView){
+  if(!sourceId.value||!database.value)return
+  table.value=value;drawerVisible.value=true;activeTab.value='overview';preview.value=undefined;previewError.value='';detailLoading.value=true
   try{
     const [cols,prof,lin]=await Promise.allSettled([
-      metadataApi.columns(sourceId.value,db,value.name),metadataApi.profile(sourceId.value,db,value.name),metadataApi.lineage(`${db}.${value.name}`)
+      metadataApi.columns(sourceId.value,database.value,value.name),
+      metadataApi.profile(sourceId.value,database.value,value.name),
+      metadataApi.lineage(`${database.value}.${value.name}`)
     ])
     columns.value=cols.status==='fulfilled'?cols.value:[]
     profile.value=prof.status==='fulfilled'?prof.value:undefined
     lineage.value=lin.status==='fulfilled'?lin.value:[]
-  }catch(e){error.value=e instanceof Error?e.message:'表详情加载失败'}finally{detailLoading.value=false}
+  }finally{detailLoading.value=false}
 }
 async function switchTab(tab:'overview'|'fields'|'preview'|'lineage'){
   activeTab.value=tab
@@ -101,13 +84,9 @@ async function testConnection(){
 }
 async function refreshMetadata(){
   if(!sourceId.value)return
-  const keepDb=database.value,keepTable=table.value?.name
+  const keep=database.value
   await selectSource(sourceId.value)
-  if(keepDb&&databases.value.some(d=>d.name===keepDb)){
-    await selectDatabase(keepDb)
-    const found=(tableCache.value[keepDb]||[]).find(t=>t.name===keepTable)
-    if(found)await selectTable(keepDb,found)
-  }
+  if(keep&&databases.value.some(item=>item.name===keep))await selectDatabase(keep)
   ElMessage.success('元数据已刷新')
 }
 async function editOwner(){
@@ -122,134 +101,99 @@ onMounted(loadSources)
 </script>
 
 <template>
-  <div class="metadata-page">
-    <div class="page-head">
-      <div class="breadcrumb">元数据 / <b>{{ source?.name||'数据源' }}</b> / <span>{{ table?.name||database||'浏览' }}</span></div>
-      <div class="head-spacer" />
-      <span v-if="source" class="current-source">当前数据源：<b>{{source.name}}</b></span>
-      <span :class="['source-state',connectionState]"><i />{{connectionState==='ok'?'连接正常':connectionState==='bad'?'连接失败':'未检测'}}</span>
+  <div class="metadata-page" v-loading="loading">
+    <header class="page-toolbar">
+      <div class="page-title"><strong>元数据</strong><span>浏览数据源中的数据库和数据表</span></div>
+      <div class="toolbar-spacer" />
+      <span :class="['connection-state',connectionState]"><i />{{connectionState==='ok'?'连接正常':connectionState==='bad'?'连接失败':'未检测'}}</span>
+      <el-select v-model="sourceId" class="source-select" placeholder="选择数据源" @change="selectSource">
+        <el-option v-for="item in sources" :key="item.id" :label="`${item.name} (${item.type})`" :value="item.id" />
+      </el-select>
       <el-button :disabled="!sourceId" @click="testConnection">检测连接</el-button>
       <el-button type="primary" :disabled="!sourceId" @click="refreshMetadata">刷新元数据</el-button>
-    </div>
+    </header>
 
     <div v-if="error" class="ds-error">{{error}}</div>
-    <section class="metadata-shell" v-loading="loading">
-      <aside class="catalog-pane">
-        <div class="catalog-head"><strong>数据目录</strong><span>{{sources.length}} 个数据源</span></div>
-        <div class="pane-search"><el-input v-model="keyword" placeholder="搜索数据源、数据库或表" clearable /></div>
-        <div class="tree">
-          <div v-for="group in sourceGroups" :key="group.type" class="tree-group">
-            <button class="tree-row type-row" @click="toggleType(group.type)">
-              <span :class="['caret',{open:expandedTypes.has(group.type)}]">›</span>
-              <span class="engine-dot" />
-              <span class="node-name type-name">{{typeLabel(group.type)}}</span>
-              <span class="node-count">{{group.items.length}}</span>
-            </button>
-            <div v-if="expandedTypes.has(group.type)" class="tree-level">
-              <div v-for="s in group.items" :key="s.id" class="source-node">
-                <button :class="['tree-row source-row',{selected:sourceId===s.id&&!database}]" @click="toggleSource(s.id)">
-                  <span :class="['caret',{open:expandedSources.has(s.id)}]">›</span>
-                  <span class="source-glyph"><i/><i/><i/></span>
-                  <span class="node-name">{{s.name}}</span>
-                  <span class="source-type">{{s.type}}</span>
-                </button>
-                <div v-if="expandedSources.has(s.id)&&sourceId===s.id" class="tree-level source-children">
-                  <div v-for="db in visibleDatabases" :key="db.name" class="db-node">
-                    <button :class="['tree-row db-row',{selected:database===db.name&&!table}]" @click="toggleDatabase(db.name)">
-                      <span :class="['caret',{open:expanded.has(db.name)}]">›</span>
-                      <span class="db-glyph" />
-                      <span class="node-name">{{db.name}}</span>
-                    </button>
-                    <div v-if="expanded.has(db.name)" class="tree-level table-children">
-                      <button v-for="t in visibleTables(db.name)" :key="t.name" :class="['tree-row table-row',{selected:database===db.name&&table?.name===t.name}]" @click="selectTable(db.name,t)">
-                        <span class="table-glyph"><i/><i/></span>
-                        <span class="node-name">{{t.name}}</span>
-                      </button>
-                      <div v-if="!tableCache[db.name]" class="tree-loading">正在加载数据表…</div>
-                      <div v-else-if="!visibleTables(db.name).length" class="tree-loading">暂无匹配数据表</div>
-                    </div>
-                  </div>
-                  <div v-if="!visibleDatabases.length" class="tree-loading">暂无数据库或没有匹配结果</div>
-                </div>
-              </div>
-            </div>
-          </div>
-          <div v-if="!sourceGroups.length" class="empty">暂无可展示的数据源</div>
+
+    <section class="governance-shell">
+      <aside class="database-panel">
+        <div class="panel-head"><div><strong>数据库</strong><span>{{databases.length}}</span></div></div>
+        <div class="panel-search"><el-input v-model="databaseKeyword" placeholder="搜索数据库" clearable /></div>
+        <div class="database-list">
+          <button v-for="item in filteredDatabases" :key="item.name" :class="['database-row',{active:database===item.name}]" @click="selectDatabase(item.name)">
+            <span class="database-icon"><i/><i/></span>
+            <span class="database-copy"><strong>{{item.name}}</strong><small v-if="item.comment">{{item.comment}}</small></span>
+          </button>
+          <div v-if="!filteredDatabases.length" class="empty-small">暂无数据库</div>
         </div>
       </aside>
 
-      <section class="pane detail" v-loading="detailLoading">
+      <main class="table-panel">
         <template v-if="database">
-          <div class="detail-head">
-            <div class="detail-symbol">{{table?'T':'DB'}}</div>
-            <div class="detail-copy"><div class="detail-title">{{table?.name||database}}</div><div class="detail-path">{{source?.name}} / {{database}}<template v-if="table"> / {{table.name}}</template></div></div>
-            <div class="detail-tags"><span class="tag">{{table?.type||'DATABASE'}}</span><span class="tag">{{table?`${columns.length} 字段`:`${currentTables.length} 表`}}</span></div>
+          <div class="table-panel-head">
+            <div class="db-title"><strong>{{database}}</strong><span>{{source?.name}} / {{source?.type}}</span></div>
+            <div class="table-count">共 {{filteredTables.length}} 张表</div>
           </div>
-
-          <template v-if="!table">
-            <div class="db-browser">
-              <div class="facts">
-                <div class="fact"><label>数据源</label><strong>{{source?.name||'—'}}</strong></div>
-                <div class="fact"><label>数据库</label><strong>{{database}}</strong></div>
-                <div class="fact"><label>数据表</label><strong>{{currentTables.length}}</strong></div>
-                <div class="fact"><label>数据库说明</label><strong>{{currentDatabase?.comment||'—'}}</strong></div>
-              </div>
-              <div class="db-browser-head"><strong>数据表</strong><span>{{currentTables.length}} 项</span></div>
-              <el-table :data="currentTables" height="calc(100vh - 345px)" @row-click="(row:TableView)=>selectTable(database,row)">
-                <el-table-column prop="name" label="表名" min-width="260"><template #default="s"><span class="field-name">{{s.row.name}}</span></template></el-table-column>
-                <el-table-column prop="type" label="类型" width="140" />
-                <el-table-column prop="comment" label="说明" min-width="320" show-overflow-tooltip />
-              </el-table>
-            </div>
-          </template>
-
-          <template v-else>
-            <div class="tabs">
-              <button :class="['tab',{on:activeTab==='overview'}]" @click="switchTab('overview')">概览</button>
-              <button :class="['tab',{on:activeTab==='fields'}]" @click="switchTab('fields')">字段</button>
-              <button :class="['tab',{on:activeTab==='preview'}]" @click="switchTab('preview')">数据预览</button>
-              <button :class="['tab',{on:activeTab==='lineage'}]" @click="switchTab('lineage')">血缘</button>
-            </div>
-            <div class="detail-body">
-              <div v-show="activeTab==='overview'" class="overview">
-                <div class="facts table-profile-facts">
-                  <div class="fact owner-fact"><label>负责人</label><div class="fact-value"><strong>{{profile?.owner||'未设置'}}</strong><button v-if="profile?.ownerEditable" class="fact-action" @click="editOwner">编辑</button></div></div>
-                  <div class="fact"><label>行数</label><strong>{{profile?.rowCount?.toLocaleString()||'—'}}</strong></div>
-                  <div class="fact"><label>估算大小</label><strong>{{fmtSize(profile?.estimatedSizeBytes)}}</strong></div>
-                  <div class="fact"><label>更新时间</label><strong>{{fmtTime(profile?.updateTime)}}</strong></div>
-                </div>
-                <div class="section"><div class="section-title">对象信息</div><div class="source-grid"><span>数据源</span><b>{{source?.name}}</b><span>类型</span><b>{{source?.type}}</b><span>数据库</span><b>{{database}}</b><span>数据表</span><b>{{table.name}}</b><span>地址</span><b>{{source?.host}}:{{source?.port}}</b><span>建表时间</span><b>{{fmtTime(profile?.createTime)}}</b></div></div>
-                <div class="section"><div class="section-title">表说明</div><div class="section-body">{{table.comment||'暂无表说明'}}</div></div>
-              </div>
-
-              <div v-show="activeTab==='fields'" class="content-pad">
-                <el-table :data="columns" height="calc(100vh - 300px)"><el-table-column prop="name" label="字段" min-width="220"><template #default="s"><span class="field-name">{{s.row.name}}</span></template></el-table-column><el-table-column prop="dataType" label="类型" width="190"/><el-table-column prop="nullable" label="可空" width="100"><template #default="s"><span :class="['nullable',{no:s.row.nullable===false}]">{{s.row.nullable===false?'否':'是'}}</span></template></el-table-column><el-table-column prop="comment" label="说明" min-width="300" show-overflow-tooltip/></el-table>
-              </div>
-
-              <div v-show="activeTab==='preview'" class="preview-wrap">
-                <div class="preview-toolbar"><span>数据预览仅用于抽样查看，不执行全表查询。</span><div class="head-spacer"/><el-select v-model="previewLimit" style="width:110px" @change="loadPreview"><el-option :value="20" label="20 行"/><el-option :value="50" label="50 行"/><el-option :value="100" label="100 行"/></el-select><el-button @click="loadPreview">刷新</el-button></div>
-                <div v-if="previewError" class="preview-error">{{previewError}}</div>
-                <div v-else class="preview-table-shell" v-loading="previewLoading">
-                  <table v-if="preview?.columns.length" class="preview-table"><thead><tr><th v-for="c in preview.columns" :key="c">{{c}}</th></tr></thead><tbody><tr v-for="(r,ri) in preview.rows" :key="ri"><td v-for="(c,ci) in preview.columns" :key="c">{{r[ci]??'NULL'}}</td></tr></tbody></table>
-                  <div v-else-if="!previewLoading" class="empty">暂无预览数据</div>
-                </div>
-              </div>
-
-              <div v-show="activeTab==='lineage'" class="lineage-wrap">
-                <div class="lineage-tip">展示平台已经解析到的当前数据表上下游关系。</div>
-                <el-table v-if="lineage.length" :data="lineage"><el-table-column prop="sourceTable" label="上游" min-width="260"/><el-table-column label="关系" width="100"><template #default>→</template></el-table-column><el-table-column prop="targetTable" label="下游" min-width="260"/><el-table-column prop="relationType" label="类型" width="150"/></el-table>
-                <div v-else class="empty">暂无已解析血缘</div>
-              </div>
-            </div>
-          </template>
+          <div class="table-toolbar">
+            <el-input v-model="tableKeyword" placeholder="搜索表名或描述" clearable class="table-search" />
+          </div>
+          <div class="table-content" v-loading="tableLoading">
+            <el-table :data="filteredTables" height="100%" row-class-name="metadata-table-row" @row-click="openTable">
+              <el-table-column prop="name" label="表名" min-width="280">
+                <template #default="scope"><button class="table-name" @click.stop="openTable(scope.row)">{{scope.row.name}}</button></template>
+              </el-table-column>
+              <el-table-column prop="type" label="类型" width="150"><template #default="scope"><span class="type-text">{{scope.row.type||'TABLE'}}</span></template></el-table-column>
+              <el-table-column prop="comment" label="描述" min-width="360" show-overflow-tooltip><template #default="scope">{{scope.row.comment||'—'}}</template></el-table-column>
+              <el-table-column label="操作" width="110" fixed="right"><template #default="scope"><el-button link type="primary" @click.stop="openTable(scope.row)">查看详情</el-button></template></el-table-column>
+              <template #empty><div class="table-empty">当前数据库暂无数据表</div></template>
+            </el-table>
+          </div>
         </template>
-        <div v-else class="empty detail-empty"><strong>请选择数据库</strong><span>从左侧元数据目录选择数据库或数据表</span></div>
-      </section>
+        <div v-else class="main-empty"><strong>请选择数据库</strong><span>从左侧选择数据库后查看数据表</span></div>
+      </main>
     </section>
+
+    <el-drawer v-model="drawerVisible" size="760px" :with-header="false" class="metadata-drawer">
+      <div v-if="table" class="drawer-shell" v-loading="detailLoading">
+        <div class="drawer-head">
+          <div><div class="drawer-path">{{source?.name}} / {{database}}</div><h2>{{table.name}}</h2><p>{{table.comment||'暂无表描述'}}</p></div>
+          <el-button text @click="drawerVisible=false">关闭</el-button>
+        </div>
+        <div class="drawer-tabs">
+          <button :class="{active:activeTab==='overview'}" @click="switchTab('overview')">概览</button>
+          <button :class="{active:activeTab==='fields'}" @click="switchTab('fields')">字段</button>
+          <button :class="{active:activeTab==='preview'}" @click="switchTab('preview')">数据预览</button>
+          <button :class="{active:activeTab==='lineage'}" @click="switchTab('lineage')">血缘</button>
+        </div>
+        <div class="drawer-body">
+          <section v-show="activeTab==='overview'" class="overview-panel">
+            <div class="overview-grid">
+              <div><label>数据源</label><strong>{{source?.name||'—'}}</strong></div><div><label>数据库</label><strong>{{database}}</strong></div>
+              <div><label>类型</label><strong>{{table.type||'TABLE'}}</strong></div><div><label>字段数</label><strong>{{columns.length}}</strong></div>
+              <div><label>负责人</label><div class="owner-value"><strong>{{profile?.owner||'未设置'}}</strong><el-button v-if="profile?.ownerEditable" link type="primary" @click="editOwner">编辑</el-button></div></div>
+              <div><label>行数</label><strong>{{profile?.rowCount?.toLocaleString()||'—'}}</strong></div>
+              <div><label>估算大小</label><strong>{{fmtSize(profile?.estimatedSizeBytes)}}</strong></div><div><label>更新时间</label><strong>{{fmtTime(profile?.updateTime)}}</strong></div>
+            </div>
+            <div class="info-section"><div class="section-title">连接信息</div><dl><dt>地址</dt><dd>{{source?.host}}:{{source?.port}}</dd><dt>数据库</dt><dd>{{database}}</dd><dt>数据表</dt><dd>{{table.name}}</dd><dt>建表时间</dt><dd>{{fmtTime(profile?.createTime)}}</dd></dl></div>
+          </section>
+
+          <section v-show="activeTab==='fields'" class="drawer-table-section">
+            <el-table :data="columns" height="calc(100vh - 190px)"><el-table-column prop="name" label="字段" min-width="210"/><el-table-column prop="dataType" label="类型" width="170"/><el-table-column prop="nullable" label="可空" width="90"><template #default="scope">{{scope.row.nullable===false?'否':'是'}}</template></el-table-column><el-table-column prop="comment" label="说明" min-width="240" show-overflow-tooltip/></el-table>
+          </section>
+
+          <section v-show="activeTab==='preview'" class="drawer-table-section">
+            <div class="preview-toolbar"><span>仅抽样预览</span><el-select v-model="previewLimit" style="width:100px" @change="loadPreview"><el-option :value="20" label="20 行"/><el-option :value="50" label="50 行"/><el-option :value="100" label="100 行"/></el-select><el-button @click="loadPreview">刷新</el-button></div>
+            <div v-if="previewError" class="preview-error">{{previewError}}</div>
+            <div v-else class="preview-table-shell" v-loading="previewLoading"><table v-if="preview?.columns.length" class="preview-table"><thead><tr><th v-for="c in preview.columns" :key="c">{{c}}</th></tr></thead><tbody><tr v-for="(r,ri) in preview.rows" :key="ri"><td v-for="(c,ci) in preview.columns" :key="c">{{r[ci]??'NULL'}}</td></tr></tbody></table><div v-else-if="!previewLoading" class="table-empty">暂无预览数据</div></div>
+          </section>
+
+          <section v-show="activeTab==='lineage'" class="drawer-table-section"><el-table v-if="lineage.length" :data="lineage"><el-table-column prop="sourceTable" label="上游" min-width="250"/><el-table-column label="关系" width="80"><template #default>→</template></el-table-column><el-table-column prop="targetTable" label="下游" min-width="250"/><el-table-column prop="relationType" label="类型" width="130"/></el-table><div v-else class="table-empty">暂无已解析血缘</div></section>
+        </div>
+      </div>
+    </el-drawer>
   </div>
 </template>
 
 <style scoped>
-.metadata-page{height:calc(100vh - var(--ds-topbar));padding:12px 18px 18px;display:flex;flex-direction:column;gap:10px;overflow:hidden;background:#f5f6f8}.page-head{height:42px;flex:0 0 42px;display:flex;align-items:center;gap:10px}.breadcrumb{font-size:12px;color:#8a9099}.breadcrumb b{color:#1f2329;font-weight:600}.head-spacer{flex:1}.current-source{font-size:12px;color:#8a9099}.current-source b{color:#4e5969;font-weight:500}.source-state{height:24px;padding:0 8px;border-radius:2px;background:#f2f3f5;color:#86909c;font-size:11px;display:inline-flex;align-items:center;gap:6px}.source-state i{width:6px;height:6px;border-radius:50%;background:#c9cdd4}.source-state.ok{background:#e8ffea;color:#00a870}.source-state.ok i{background:#00b42a}.source-state.bad{background:#fff2f0;color:#f53f3f}.source-state.bad i{background:#f53f3f}.metadata-shell{flex:1;min-height:0;display:grid;grid-template-columns:300px minmax(0,1fr);gap:0;background:#fff;border:1px solid #e5e6eb;border-radius:2px;overflow:hidden}.catalog-pane{min-height:0;display:flex;flex-direction:column;border-right:1px solid #e5e6eb;background:#fff}.catalog-head{height:44px;flex:0 0 44px;padding:0 12px;display:flex;align-items:center;border-bottom:1px solid #f2f3f5}.catalog-head strong{font-size:14px;color:#1d2129;font-weight:600}.catalog-head span{margin-left:auto;font-size:11px;color:#86909c}.pane-search{padding:8px 10px;border-bottom:1px solid #f2f3f5}.tree{flex:1;min-height:0;overflow:auto;padding:6px 6px 12px}.tree-group{margin:0}.tree-level{position:relative}.tree-row{width:100%;height:32px;display:flex;align-items:center;gap:6px;padding:0 8px;border:0;border-radius:2px;background:transparent;color:#4e5969;text-align:left;cursor:pointer;font-size:12px}.tree-row:hover{background:#f7f8fa}.tree-row.selected{background:#e8f3ff;color:#165dff}.type-row{font-weight:600;color:#1d2129}.source-row{padding-left:24px}.db-row{padding-left:42px}.table-row{padding-left:66px}.caret{width:14px;height:14px;display:grid;place-items:center;color:#86909c;font-size:16px;line-height:1;transform-origin:center;transition:transform .12s}.caret.open{transform:rotate(90deg)}.node-name{min-width:0;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.type-name{font-weight:600}.node-count{color:#c9cdd4;font-size:11px}.source-type{margin-left:6px;color:#c9cdd4;font-size:9px;letter-spacing:.2px}.engine-dot{width:14px;height:14px;border:1px solid #8d95a3;border-radius:2px;position:relative}.engine-dot:after{content:'';position:absolute;left:3px;right:3px;top:3px;height:1px;background:#8d95a3;box-shadow:0 3px 0 #8d95a3,0 6px 0 #8d95a3}.source-glyph{width:15px;height:15px;display:flex;flex-direction:column;justify-content:center;gap:2px;flex:0 0 15px}.source-glyph i{display:block;height:2px;border-radius:1px;background:#86909c}.source-glyph i:nth-child(2){width:11px}.source-glyph i:nth-child(3){width:7px}.db-glyph{width:14px;height:12px;border:1px solid #86909c;border-radius:50%;position:relative;flex:0 0 14px}.db-glyph:before,.db-glyph:after{content:'';position:absolute;left:-1px;width:12px;height:5px;border-left:1px solid #86909c;border-right:1px solid #86909c;border-bottom:1px solid #86909c;border-radius:0 0 50% 50%}.db-glyph:before{top:3px}.db-glyph:after{top:6px}.table-glyph{width:14px;height:14px;border:1px solid #86909c;display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;flex:0 0 14px}.table-glyph i:first-child{grid-column:1/3;border-bottom:1px solid #86909c}.table-glyph i:last-child{border-right:1px solid #86909c}.tree-row.selected .db-glyph,.tree-row.selected .table-glyph{border-color:#165dff}.tree-row.selected .db-glyph:before,.tree-row.selected .db-glyph:after{border-color:#165dff}.tree-row.selected .table-glyph i{border-color:#165dff}.tree-loading{height:28px;display:flex;align-items:center;padding-left:88px;color:#c9cdd4;font-size:10px}.detail{min-width:0;border:0!important;border-radius:0!important}.pane{min-height:0;background:#fff;overflow:hidden;display:flex;flex-direction:column}
-.detail{min-width:0}.detail-head{height:76px;flex:0 0 76px;border-bottom:1px solid var(--ds-border-soft);display:flex;align-items:center;padding:0 18px;gap:12px}.detail-symbol{width:40px;height:40px;border-radius:10px;background:#eaf2ff;color:#2c72dd;display:grid;place-items:center;font-size:11px;font-weight:750}.detail-copy{min-width:0}.detail-title{font-size:17px;font-weight:700;color:#253b57}.detail-path{margin-top:5px;font-size:11px;color:#8996a7}.detail-tags{margin-left:auto;display:flex;gap:7px}.tag{height:23px;padding:0 8px;border-radius:6px;background:#f1f4f8;color:#718095;font-size:10px;display:inline-flex;align-items:center}.tabs{height:44px;flex:0 0 44px;border-bottom:1px solid var(--ds-border-soft);display:flex;align-items:flex-end;padding-left:18px;gap:24px}.tab{height:44px;border:0;background:none;color:#68788f;padding:0 2px;position:relative;cursor:pointer}.tab.on{color:#286ed7;font-weight:650}.tab.on:after{content:"";position:absolute;left:0;right:0;bottom:0;height:2px;background:#3478f6}.detail-body{flex:1;min-height:0;overflow:auto}.overview,.db-browser{padding:16px 18px 22px}.facts{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}.fact{min-height:70px;border:1px solid #e8edf3;border-radius:8px;background:#fbfcfe;padding:11px 12px}.fact label{display:block;color:#8995a5;font-size:10px;margin-bottom:7px}.fact strong{display:block;color:#304863;font-size:12px;font-weight:650;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.fact-value{display:flex;align-items:center;gap:7px}.fact-value strong{flex:1}.fact-action{border:0;border-radius:5px;padding:4px 7px;background:#edf3ff;color:#3478f6;cursor:pointer;font-size:10px}.section{margin-top:15px;border:1px solid #e8edf3;border-radius:8px;overflow:hidden}.section-title{height:38px;background:#fafbfd;border-bottom:1px solid #edf1f5;display:flex;align-items:center;padding:0 12px;font-size:12px;font-weight:650;color:#3e5571}.section-body{padding:12px;color:#65758b;font-size:12px;line-height:1.7}.source-grid{display:grid;grid-template-columns:120px 1fr 120px 1fr}.source-grid span,.source-grid b{padding:10px 12px;border-bottom:1px solid #edf1f5;font-size:11px}.source-grid span{color:#8995a5;background:#fbfcfe}.source-grid b{font-weight:550;color:#405772;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.db-browser-head{height:44px;display:flex;align-items:center;gap:10px;margin-top:12px;border-bottom:1px solid #edf1f5}.db-browser-head span{margin-left:auto;color:#8d99a9;font-size:11px}.content-pad,.preview-wrap,.lineage-wrap{padding:14px 18px 20px}.field-name{font-family:Consolas,Monaco,monospace;color:#2168c9}.nullable{font-size:9px;border-radius:5px;padding:2px 6px;background:#edf7f2;color:#16845f}.nullable.no{background:#fff1e9;color:#bf6a16}.preview-toolbar{height:40px;display:flex;align-items:center;gap:10px;margin-bottom:10px;color:#8190a4;font-size:11px}.preview-table-shell{width:100%;overflow:auto;border:1px solid #e6ebf1;border-radius:8px}.preview-table{min-width:100%;border-collapse:collapse;font-size:11px}.preview-table th{height:38px;background:#f7f9fb;color:#65758b;text-align:left;padding:0 12px;white-space:nowrap}.preview-table td{height:38px;border-top:1px solid #edf1f5;padding:0 12px;color:#3d536f;white-space:nowrap}.preview-error{margin:26px auto;max-width:520px;padding:22px;border:1px solid #f1d9d6;border-radius:9px;background:#fff8f7;color:#a95550;text-align:center;font-size:12px}.lineage-tip{margin-bottom:12px;padding:9px 11px;border:1px solid #dce8f8;border-radius:7px;background:#f6f9fe;color:#617994;font-size:11px}.empty{padding:34px 18px;text-align:center;color:#95a1b0;font-size:12px;line-height:1.7}.detail-empty{margin:auto;display:flex;flex-direction:column;gap:6px}.detail-empty strong{font-size:15px;color:#53677f}@media(max-width:1360px){.metadata-page{padding-left:16px;padding-right:16px}.metadata-shell{grid-template-columns:270px minmax(0,1fr)}.facts{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.metadata-page{height:calc(100vh - var(--ds-topbar));padding:16px 18px 18px;background:#f5f6f7;display:flex;flex-direction:column;gap:12px;overflow:hidden}.page-toolbar{height:48px;flex:0 0 48px;display:flex;align-items:center;gap:10px}.page-title{display:flex;align-items:baseline;gap:10px}.page-title strong{font-size:18px;color:#252b3a}.page-title span{font-size:12px;color:#8a8e99}.toolbar-spacer{flex:1}.source-select{width:250px}.connection-state{height:24px;padding:0 8px;display:inline-flex;align-items:center;gap:6px;border:1px solid #dfe1e6;background:#fff;color:#7a7f8a;font-size:11px}.connection-state i{width:6px;height:6px;border-radius:50%;background:#c4c7ce}.connection-state.ok{color:#278a57;border-color:#b7e3ca;background:#f2fbf5}.connection-state.ok i{background:#36a269}.connection-state.bad{color:#c84b4b;border-color:#efc2c2;background:#fff6f6}.connection-state.bad i{background:#e05b5b}.governance-shell{flex:1;min-height:0;display:grid;grid-template-columns:260px minmax(0,1fr);background:#fff;border:1px solid #dfe1e6;overflow:hidden}.database-panel{min-height:0;display:flex;flex-direction:column;border-right:1px solid #dfe1e6;background:#fafafa}.panel-head{height:46px;flex:0 0 46px;padding:0 14px;display:flex;align-items:center;border-bottom:1px solid #e8eaed;background:#fff}.panel-head>div{display:flex;align-items:center;gap:8px}.panel-head strong{font-size:14px;color:#252b3a}.panel-head span{font-size:11px;color:#9aa0aa}.panel-search{padding:10px;border-bottom:1px solid #e8eaed;background:#fff}.database-list{flex:1;min-height:0;overflow:auto;padding:6px 0}.database-row{position:relative;width:100%;min-height:40px;padding:6px 12px 6px 14px;border:0;background:transparent;display:flex;align-items:center;gap:9px;text-align:left;cursor:pointer}.database-row:hover{background:#f1f3f5}.database-row.active{background:#e9f2ff;color:#1f5fbf}.database-row.active:before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;background:#2d78d4}.database-icon{width:16px;height:13px;border:1px solid #7b8796;border-radius:50%;position:relative;flex:0 0 16px}.database-icon:before,.database-icon:after{content:'';position:absolute;left:-1px;width:14px;height:5px;border-left:1px solid #7b8796;border-right:1px solid #7b8796;border-bottom:1px solid #7b8796;border-radius:0 0 50% 50%}.database-icon:before{top:3px}.database-icon:after{top:7px}.database-row.active .database-icon,.database-row.active .database-icon:before,.database-row.active .database-icon:after{border-color:#2d78d4}.database-copy{min-width:0;display:flex;flex-direction:column}.database-copy strong{font-size:12px;font-weight:600;color:#3b4250;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.database-row.active .database-copy strong{color:#1f5fbf}.database-copy small{margin-top:2px;font-size:10px;color:#9aa0aa;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.table-panel{min-width:0;min-height:0;display:flex;flex-direction:column;background:#fff}.table-panel-head{height:62px;flex:0 0 62px;padding:0 18px;display:flex;align-items:center;border-bottom:1px solid #e8eaed}.db-title{min-width:0;display:flex;flex-direction:column}.db-title strong{font-size:16px;color:#252b3a}.db-title span{margin-top:4px;font-size:11px;color:#8a8e99}.table-count{margin-left:auto;font-size:12px;color:#8a8e99}.table-toolbar{height:52px;flex:0 0 52px;padding:9px 14px;display:flex;align-items:center;border-bottom:1px solid #eef0f2}.table-search{width:280px}.table-content{flex:1;min-height:0;padding:0 14px 14px}.table-name{padding:0;border:0;background:transparent;color:#1f5fbf;font-size:12px;cursor:pointer}.type-text{color:#5f6673;font-size:11px}.table-empty,.empty-small{padding:36px 16px;text-align:center;color:#9aa0aa;font-size:12px}.main-empty{margin:auto;display:flex;flex-direction:column;align-items:center;gap:8px;color:#9aa0aa}.main-empty strong{font-size:15px;color:#5f6673}.drawer-shell{height:100%;display:flex;flex-direction:column}.drawer-head{min-height:108px;padding:22px 24px 16px;border-bottom:1px solid #e8eaed;display:flex;gap:12px}.drawer-head>div:first-child{min-width:0;flex:1}.drawer-path{font-size:11px;color:#8a8e99}.drawer-head h2{margin:7px 0 5px;font-size:20px;color:#252b3a}.drawer-head p{margin:0;color:#7a7f8a;font-size:12px}.drawer-tabs{height:44px;flex:0 0 44px;display:flex;gap:24px;padding:0 24px;border-bottom:1px solid #e8eaed}.drawer-tabs button{position:relative;border:0;background:transparent;color:#5f6673;cursor:pointer}.drawer-tabs button.active{color:#1f5fbf;font-weight:600}.drawer-tabs button.active:after{content:'';position:absolute;left:0;right:0;bottom:0;height:2px;background:#2d78d4}.drawer-body{flex:1;min-height:0;overflow:auto}.overview-panel{padding:20px 24px}.overview-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));border-top:1px solid #e8eaed;border-left:1px solid #e8eaed}.overview-grid>div{min-height:66px;padding:10px 12px;border-right:1px solid #e8eaed;border-bottom:1px solid #e8eaed}.overview-grid label,.overview-grid strong{display:block}.overview-grid label{font-size:11px;color:#8a8e99}.overview-grid strong{margin-top:7px;font-size:12px;color:#3b4250}.owner-value{display:flex;align-items:center;gap:8px}.owner-value strong{margin-top:7px}.info-section{margin-top:18px;border:1px solid #e8eaed}.section-title{height:38px;padding:0 12px;display:flex;align-items:center;background:#f7f8fa;border-bottom:1px solid #e8eaed;font-size:12px;font-weight:600;color:#3b4250}.info-section dl{display:grid;grid-template-columns:110px 1fr 110px 1fr;margin:0}.info-section dt,.info-section dd{margin:0;padding:10px 12px;border-bottom:1px solid #eef0f2;font-size:11px}.info-section dt{background:#fafafa;color:#8a8e99}.info-section dd{color:#4e5562}.drawer-table-section{padding:14px 20px}.preview-toolbar{height:42px;display:flex;align-items:center;justify-content:flex-end;gap:8px;color:#8a8e99;font-size:11px}.preview-toolbar span{margin-right:auto}.preview-error{padding:22px;border:1px solid #edc7c7;background:#fff7f7;color:#b54b4b;text-align:center}.preview-table-shell{overflow:auto;border:1px solid #e8eaed}.preview-table{min-width:100%;border-collapse:collapse;font-size:11px}.preview-table th,.preview-table td{height:38px;padding:0 10px;border-bottom:1px solid #eef0f2;white-space:nowrap;text-align:left}.preview-table th{background:#f7f8fa;color:#5f6673;font-weight:600}.preview-table td{color:#4e5562}@media(max-width:1280px){.governance-shell{grid-template-columns:230px minmax(0,1fr)}.source-select{width:220px}}
 </style>
