@@ -40,7 +40,7 @@ public class MetadataController {
     public Result<MetadataService.TablePreviewView> tablePreview(@RequestParam long dataSourceId,
                                                                   @RequestParam String database,
                                                                   @RequestParam String table,
-                                                                  @RequestParam(defaultValue = "50") int limit,
+                                                                  @RequestParam(defaultValue = "10") int limit,
                                                                   HttpServletRequest request) {
         access.requireQuery(dataSourceId, operator(request));
         return Result.ok(service.tablePreview(dataSourceId, database, table, limit));
