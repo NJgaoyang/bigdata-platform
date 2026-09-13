@@ -4,11 +4,12 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import PageHeader from '../../components/PageHeader.vue'
 import StatusBadge from '../../components/StatusBadge.vue'
 import { dataSourceApi, type DataSourceView } from '../../api/platform'
-import { integrationApi, type IntegrationInstance, type IntegrationTask, type IntegrationTaskPayload } from '../../api/domain'
+import { integrationApi, type IntegrationAttempt, type IntegrationBatch, type IntegrationCursor, type IntegrationInstance, type IntegrationTask, type IntegrationTaskPayload } from '../../api/domain'
 
 const tasks = ref<IntegrationTask[]>([])
 const sources = ref<DataSourceView[]>([])
 const latest = ref<Record<number, IntegrationInstance | undefined>>({})
+const latestBatch = ref<Record<number, IntegrationBatch | undefined>>({})
 const loading = ref(false)
 const saving = ref(false)
 const editorVisible = ref(false)
@@ -25,6 +26,19 @@ const historyVisible = ref(false)
 const historyLoading = ref(false)
 const historyTask = ref<IntegrationTask | null>(null)
 const history = ref<IntegrationInstance[]>([])
+const batches = ref<IntegrationBatch[]>([])
+const attempts = ref<IntegrationAttempt[]>([])
+const attemptVisible = ref(false)
+const attemptLoading = ref(false)
+const attemptBatch = ref<IntegrationBatch | null>(null)
+const backfillVisible = ref(false)
+const backfillTask = ref<IntegrationTask | null>(null)
+const backfillSaving = ref(false)
+const cursorVisible = ref(false)
+const cursorTask = ref<IntegrationTask | null>(null)
+const cursorSaving = ref(false)
+const cursorState = reactive<IntegrationCursor>({ taskId: 0, cursorColumn: '', cursorValue: '' })
+const backfillForm = reactive({ where: '', startLabel: '', endLabel: '' })
 const logVisible = ref(false)
 const logLoading = ref(false)
 const logTitle = ref('运行日志')
@@ -64,10 +78,12 @@ async function load() {
     const [taskRows, sourceRows] = await Promise.all([integrationApi.list(), dataSourceApi.list()])
     tasks.value = taskRows.filter(task => task.syncMode !== 'REALTIME')
     sources.value = sourceRows
-    const pairs: Array<[number, IntegrationInstance | undefined]> = await Promise.all(
-      tasks.value.map(async task => [task.id, (await integrationApi.instances(task.id))[0]])
-    )
-    latest.value = Object.fromEntries(pairs)
+    const states = await Promise.all(tasks.value.map(async task => {
+      const [batchRows, instanceRows] = await Promise.all([integrationApi.batches(task.id), integrationApi.instances(task.id)])
+      return { taskId: task.id, batch: batchRows[0], instance: instanceRows[0] }
+    }))
+    latestBatch.value = Object.fromEntries(states.map(item => [item.taskId, item.batch]))
+    latest.value = Object.fromEntries(states.map(item => [item.taskId, item.instance]))
   } catch (error) {
     ElMessage.error(messageOf(error))
   } finally {
@@ -311,7 +327,9 @@ async function showHistory(task: IntegrationTask) {
   historyVisible.value = true
   historyLoading.value = true
   try {
-    history.value = await integrationApi.instances(task.id)
+    const [batchRows, instanceRows] = await Promise.all([integrationApi.batches(task.id), integrationApi.instances(task.id)])
+    batches.value = batchRows
+    history.value = instanceRows
   } catch (error) {
     ElMessage.error(messageOf(error))
   } finally {
@@ -319,22 +337,88 @@ async function showHistory(task: IntegrationTask) {
   }
 }
 
-async function showLog(instance: IntegrationInstance) {
+async function showAttempts(batch: IntegrationBatch) {
+  attemptBatch.value = batch
+  attemptVisible.value = true
+  attemptLoading.value = true
+  try { attempts.value = await integrationApi.attempts(batch.id) }
+  catch (error) { ElMessage.error(messageOf(error)) }
+  finally { attemptLoading.value = false }
+}
+
+async function retryBatch(batch: IntegrationBatch) {
+  try {
+    await ElMessageBox.confirm('重试会复用该批次创建时固化的运行快照，不使用任务当前的新配置。确认重试？', '重试离线批次', { type: 'warning' })
+    await integrationApi.retryBatch(batch.id)
+    ElMessage.success('重试已提交')
+    if (historyTask.value) await showHistory(historyTask.value)
+  } catch (error) {
+    if (error !== 'cancel' && error !== 'close') ElMessage.error(messageOf(error))
+  }
+}
+
+async function reconcileBatch(batch: IntegrationBatch) {
+  try {
+    await integrationApi.reconcileBatch(batch.id)
+    ElMessage.success('已向 SeaTunnel 重新核对运行状态')
+    if (historyTask.value) await showHistory(historyTask.value)
+  } catch (error) { ElMessage.error(messageOf(error)) }
+}
+
+function openBackfill(task: IntegrationTask) {
+  backfillTask.value = task
+  backfillForm.where = task.syncMode === 'INCREMENTAL' ? formWhere(task) : ''
+  backfillForm.startLabel = ''
+  backfillForm.endLabel = ''
+  backfillVisible.value = true
+}
+
+async function submitBackfill() {
+  if (!backfillTask.value || !backfillForm.where.trim()) return ElMessage.warning('请填写本次补数的 WHERE 条件')
+  backfillSaving.value = true
+  try {
+    await integrationApi.backfill(backfillTask.value.id, { ...backfillForm, where: backfillForm.where.trim() })
+    ElMessage.success('补数批次已提交')
+    backfillVisible.value = false
+    await load()
+  } catch (error) { ElMessage.error(messageOf(error)) }
+  finally { backfillSaving.value = false }
+}
+
+async function openCursor(task: IntegrationTask) {
+  cursorTask.value = task
+  try { Object.assign(cursorState, await integrationApi.cursor(task.id)); cursorVisible.value = true }
+  catch (error) { ElMessage.error(messageOf(error)) }
+}
+
+async function saveCursor() {
+  if (!cursorTask.value) return
+  cursorSaving.value = true
+  try {
+    Object.assign(cursorState, await integrationApi.saveCursor(cursorTask.value.id, { cursorColumn: cursorState.cursorColumn, cursorValue: cursorState.cursorValue }))
+    ElMessage.success('增量游标已保存')
+    cursorVisible.value = false
+  } catch (error) { ElMessage.error(messageOf(error)) }
+  finally { cursorSaving.value = false }
+}
+
+async function showLog(instance: { executionId?: string }) {
+  if (!instance.executionId) return ElMessage.warning('该次尝试尚未产生 SeaTunnel 执行 ID')
   logVisible.value = true
   logLoading.value = true
   logTitle.value = `运行日志 · ${instance.executionId}`
   logContent.value = ''
-  try {
-    logContent.value = await integrationApi.log(instance.executionId)
-  } catch (error) {
-    logContent.value = messageOf(error)
-  } finally {
-    logLoading.value = false
-  }
+  try { logContent.value = await integrationApi.log(instance.executionId) }
+  catch (error) { logContent.value = messageOf(error) }
+  finally { logLoading.value = false }
 }
 
 function latestStatus(task: IntegrationTask) {
-  return latest.value[task.id]?.status || '未运行'
+  return latestBatch.value[task.id]?.status || latest.value[task.id]?.status || '未运行'
+}
+
+function latestStartedAt(task: IntegrationTask) {
+  return latestBatch.value[task.id]?.startedAt || latestBatch.value[task.id]?.createdAt || latest.value[task.id]?.startedAt || '—'
 }
 
 function canStop(task: IntegrationTask) {
@@ -348,6 +432,20 @@ function path(task: IntegrationTask) {
 
 function modeLabel(mode: string) {
   return mode === 'INCREMENTAL' ? '条件增量' : '全量同步'
+}
+
+function canRetryBatch(batch: IntegrationBatch) {
+  return !['QUEUED', 'SUBMITTED', 'STARTING', 'RUNNING'].includes((batch.status || '').toUpperCase())
+}
+
+function triggerLabel(value: string) {
+  const labels: Record<string, string> = { MANUAL: '手动', WORKFLOW: '工作流', BACKFILL: '补数' }
+  return labels[value] || value
+}
+
+function formWhere(task: IntegrationTask) {
+  const transform = safeJson(task.transformConfigJson)
+  return stringValue(objectValue(transform.options).where)
 }
 
 function safeJson(value?: string) {
@@ -401,12 +499,14 @@ onMounted(load)
         <el-table-column label="表数" width="80"><template #default="scope">{{ scope.row.tables?.length || 0 }}</template></el-table-column>
         <el-table-column label="同步方式" width="110"><template #default="scope">{{ modeLabel(scope.row.syncMode) }}</template></el-table-column>
         <el-table-column label="最近状态" width="130"><template #default="scope"><StatusBadge :status="latestStatus(scope.row)" /></template></el-table-column>
-        <el-table-column label="最近运行" min-width="165"><template #default="scope">{{ latest[scope.row.id]?.startedAt || '—' }}</template></el-table-column>
-        <el-table-column label="操作" width="300" fixed="right">
+        <el-table-column label="最近运行" min-width="165"><template #default="scope">{{ latestStartedAt(scope.row) }}</template></el-table-column>
+        <el-table-column label="操作" width="390" fixed="right">
           <template #default="scope">
             <el-button link type="primary" @click="openEdit(scope.row)">编辑</el-button>
             <el-button link type="primary" @click="run(scope.row)">运行</el-button>
             <el-button link :disabled="!canStop(scope.row)" @click="stop(scope.row)">停止</el-button>
+            <el-button link @click="openBackfill(scope.row)">补数</el-button>
+            <el-button v-if="scope.row.syncMode === 'INCREMENTAL'" link @click="openCursor(scope.row)">游标</el-button>
             <el-button link @click="showHistory(scope.row)">运行记录</el-button>
             <el-button link type="danger" @click="remove(scope.row)">删除</el-button>
           </template>
@@ -546,15 +646,64 @@ onMounted(load)
       </template>
     </el-drawer>
 
-    <el-drawer v-model="historyVisible" :title="`运行记录 · ${historyTask?.name || ''}`" size="760px">
-      <el-table :data="history" v-loading="historyLoading">
-        <el-table-column prop="executionId" label="执行 ID" min-width="210" show-overflow-tooltip />
-        <el-table-column label="状态" width="120"><template #default="scope"><StatusBadge :status="scope.row.status" /></template></el-table-column>
+    <el-drawer v-model="historyVisible" :title="`运行记录 · ${historyTask?.name || ''}`" size="940px">
+      <div class="runtime-note">每次手动运行、工作流触发或补数都会形成独立 Batch；失败重试在同一 Batch 下新增 Attempt，并复用批次创建时固化的运行快照。</div>
+      <el-table v-if="batches.length" :data="batches" v-loading="historyLoading">
+        <el-table-column prop="batchCode" label="批次" min-width="170" show-overflow-tooltip />
+        <el-table-column label="触发方式" width="100"><template #default="scope">{{ triggerLabel(scope.row.triggerType) }}</template></el-table-column>
+        <el-table-column label="状态" width="110"><template #default="scope"><StatusBadge :status="scope.row.status" /></template></el-table-column>
         <el-table-column prop="startedAt" label="开始时间" min-width="165" />
         <el-table-column prop="finishedAt" label="结束时间" min-width="165" />
+        <el-table-column label="操作" width="210" fixed="right">
+          <template #default="scope">
+            <el-button link type="primary" @click="showAttempts(scope.row)">尝试记录</el-button>
+            <el-button link :disabled="!canRetryBatch(scope.row)" @click="retryBatch(scope.row)">重试</el-button>
+            <el-button link @click="reconcileBatch(scope.row)">核对状态</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+      <template v-else>
+        <div class="runtime-note">以下为升级批次模型之前的历史执行记录。</div>
+        <el-table :data="history" v-loading="historyLoading">
+          <el-table-column prop="executionId" label="执行 ID" min-width="210" show-overflow-tooltip />
+          <el-table-column label="状态" width="120"><template #default="scope"><StatusBadge :status="scope.row.status" /></template></el-table-column>
+          <el-table-column prop="startedAt" label="开始时间" min-width="165" />
+          <el-table-column prop="finishedAt" label="结束时间" min-width="165" />
+          <el-table-column label="操作" width="80"><template #default="scope"><el-button link type="primary" @click="showLog(scope.row)">日志</el-button></template></el-table-column>
+        </el-table>
+      </template>
+    </el-drawer>
+
+    <el-drawer v-model="attemptVisible" :title="`尝试记录 · ${attemptBatch?.batchCode || ''}`" size="760px">
+      <el-table :data="attempts" v-loading="attemptLoading">
+        <el-table-column prop="attemptNo" label="Attempt" width="90" />
+        <el-table-column prop="executionId" label="SeaTunnel 执行 ID" min-width="210" show-overflow-tooltip />
+        <el-table-column label="状态" width="120"><template #default="scope"><StatusBadge :status="scope.row.status" /></template></el-table-column>
+        <el-table-column prop="startedAt" label="开始时间" min-width="165" />
         <el-table-column label="操作" width="80"><template #default="scope"><el-button link type="primary" @click="showLog(scope.row)">日志</el-button></template></el-table-column>
       </el-table>
     </el-drawer>
+
+    <el-dialog v-model="backfillVisible" :title="`补数 · ${backfillTask?.name || ''}`" width="680px">
+      <div class="runtime-note">补数会创建独立 BACKFILL Batch，不修改任务原有同步条件。</div>
+      <el-form label-position="top">
+        <el-form-item label="本次补数 WHERE 条件"><el-input v-model="backfillForm.where" type="textarea" :rows="4" placeholder="例如 biz_date BETWEEN '2026-09-01' AND '2026-09-07'" /></el-form-item>
+        <div class="form-grid">
+          <el-form-item label="范围说明（开始，可选）"><el-input v-model="backfillForm.startLabel" placeholder="2026-09-01" /></el-form-item>
+          <el-form-item label="范围说明（结束，可选）"><el-input v-model="backfillForm.endLabel" placeholder="2026-09-07" /></el-form-item>
+        </div>
+      </el-form>
+      <template #footer><el-button @click="backfillVisible=false">取消</el-button><el-button type="primary" :loading="backfillSaving" @click="submitBackfill">提交补数</el-button></template>
+    </el-dialog>
+
+    <el-dialog v-model="cursorVisible" :title="`增量游标 · ${cursorTask?.name || ''}`" width="560px">
+      <div class="runtime-note">游标用于记录增量任务已处理到的位置。本轮先作为运行状态元数据保存，不会自动改写你配置的 WHERE 条件。</div>
+      <el-form label-position="top">
+        <el-form-item label="游标字段"><el-input v-model="cursorState.cursorColumn" placeholder="例如 updated_at / id" /></el-form-item>
+        <el-form-item label="当前游标值"><el-input v-model="cursorState.cursorValue" placeholder="例如 2026-09-13 14:00:00 / 123456" /></el-form-item>
+      </el-form>
+      <template #footer><el-button @click="cursorVisible=false">取消</el-button><el-button type="primary" :loading="cursorSaving" @click="saveCursor">保存游标</el-button></template>
+    </el-dialog>
 
     <el-dialog v-model="logVisible" :title="logTitle" width="820px">
       <div v-loading="logLoading" class="log-box"><pre>{{ logContent || '暂无日志' }}</pre></div>

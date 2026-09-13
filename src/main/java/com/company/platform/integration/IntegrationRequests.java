@@ -33,4 +33,6 @@ public final class IntegrationRequests {
             this(name, sourceType, targetType, syncMode, source, target, mappings, options, null, null, null);
         }
     }
+    public record BackfillRequest(@NotBlank String where, String startLabel, String endLabel) { }
+    public record CursorRequest(String cursorColumn, String cursorValue) { }
 }

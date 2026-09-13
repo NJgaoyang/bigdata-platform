@@ -42,6 +42,9 @@ export const developmentApi = {
 export interface IntegrationTable { id:number; taskId:number; sourceDatabase:string; sourceTable:string; targetDatabase:string; targetTable:string; partitionColumn?:string }
 export interface IntegrationTask { id:number; name:string; sourceType:string; targetType:string; syncMode:string; status:string; sourceConfigJson:string; targetConfigJson:string; transformConfigJson:string; seatunnelConfig:string; tables:IntegrationTable[] }
 export interface IntegrationInstance { id:number; taskId:number; executionId:string; status:string; startedAt?:string; finishedAt?:string; message?:string }
+export interface IntegrationBatch { id:number; taskId:number; batchCode:string; triggerType:string; status:string; clusterId?:number; parametersJson?:string; sourceBatchId?:number; createdBy:string; startedAt?:string; finishedAt?:string; errorMessage?:string; createdAt?:string }
+export interface IntegrationAttempt { id:number; batchId:number; attemptNo:number; executionId?:string; status:string; startedAt?:string; finishedAt?:string; errorMessage?:string; createdAt?:string }
+export interface IntegrationCursor { taskId:number; cursorColumn?:string; cursorValue?:string; updatedAt?:string }
 export interface IntegrationTaskPayload {
   name:string; sourceType:string; targetType:string; syncMode:string; sourceDataSourceId:number; targetDataSourceId:number;
   source:{host:string;port:number;database:string;username:string;password:string;table:string};
@@ -59,6 +62,13 @@ export const integrationApi = {
   stop: (id:number) => api.post<void>(`/integration/tasks/${id}/stop`),
   validate: (id:number) => api.post<{valid:boolean;message:string}>(`/integration/tasks/${id}/validate`),
   instances: (id:number) => api.get<IntegrationInstance[]>(`/integration/tasks/${id}/instances`),
+  batches: (id:number) => api.get<IntegrationBatch[]>(`/integration/tasks/${id}/batches`),
+  attempts: (batchId:number) => api.get<IntegrationAttempt[]>(`/integration/tasks/batches/${batchId}/attempts`),
+  retryBatch: (batchId:number) => api.post<IntegrationBatch>(`/integration/tasks/batches/${batchId}/retry`),
+  reconcileBatch: (batchId:number) => api.post<IntegrationBatch>(`/integration/tasks/batches/${batchId}/reconcile`),
+  backfill: (id:number,payload:{where:string;startLabel?:string;endLabel?:string}) => api.post<IntegrationBatch>(`/integration/tasks/${id}/backfill`,payload),
+  cursor: (id:number) => api.get<IntegrationCursor>(`/integration/tasks/${id}/cursor`),
+  saveCursor: (id:number,payload:{cursorColumn?:string;cursorValue?:string}) => api.put<IntegrationCursor>(`/integration/tasks/${id}/cursor`,payload),
   log: (executionId:string) => api.get<string>(`/integration/tasks/executions/${executionId}/log`),
   sourceDatabases: (dataSourceId:number) => api.get<Array<{name:string}>>('/integration/tasks/source-databases',{params:{dataSourceId}}),
   sourceTables: (dataSourceId:number,database:string) => api.get<Array<{name:string;comment?:string}>>('/integration/tasks/source-tables',{params:{dataSourceId,database}})

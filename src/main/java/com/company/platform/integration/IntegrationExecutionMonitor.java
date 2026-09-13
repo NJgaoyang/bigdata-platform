@@ -27,13 +27,16 @@ public class IntegrationExecutionMonitor {
     private static final int MAX_PERSISTED_LOG_CHARS = 60_000;
     private final PlatformStore store;
     private final SeaTunnelGateway gateway;
+    private final IntegrationRuntimeRepository runtimeRepository;
     private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor(
             Thread.ofPlatform().daemon(true).name("integration-execution-monitor").factory());
     private final AtomicBoolean started = new AtomicBoolean();
 
-    public IntegrationExecutionMonitor(PlatformStore store, SeaTunnelGateway gateway) {
+    public IntegrationExecutionMonitor(PlatformStore store, SeaTunnelGateway gateway,
+                                       IntegrationRuntimeRepository runtimeRepository) {
         this.store = store;
         this.gateway = gateway;
+        this.runtimeRepository = runtimeRepository;
     }
 
     @EventListener(ApplicationReadyEvent.class)
@@ -72,8 +75,8 @@ public class IntegrationExecutionMonitor {
         String next = normalizeRuntimeStatus(runtime.status());
         String message = runtime.message();
         if ("NOT_FOUND".equals(next)) {
-            next = "LOST";
-            message = "应用重启或 SeaTunnel 执行句柄已丢失，无法继续确认该实例的远程运行状态";
+            next = "UNKNOWN";
+            message = "SeaTunnel 无法确认执行句柄，结果需要 Reconcile 或人工核对";
         }
         if (active(next)) {
             if (!next.equalsIgnoreCase(instance.status())) {
@@ -92,6 +95,7 @@ public class IntegrationExecutionMonitor {
                 message == null || message.isBlank() ? current.message() : message);
         store.persistIntegrationInstance(updated);
         store.integrationInstances.put(updated.id(), updated);
+        runtimeRepository.updateAttempt(updated.executionId(), updated.status(), updated.message());
         syncTaskStatus(updated.taskId());
     }
 
@@ -117,7 +121,7 @@ public class IntegrationExecutionMonitor {
     private String taskStatus(String status) {
         String value = normalizeRuntimeStatus(status);
         if (Set.of("SUCCESS", "FINISHED").contains(value)) return "SUCCESS";
-        if (Set.of("FAILED", "ERROR", "CANCELLED", "KILLED", "LOST", "STOPPED").contains(value)) return "FAILED";
+        if (Set.of("FAILED", "ERROR", "CANCELLED", "KILLED", "LOST", "STOPPED", "UNKNOWN").contains(value)) return "FAILED";
         if (active(value)) return "RUNNING";
         return value.isBlank() ? "UNKNOWN" : value;
     }
@@ -139,7 +143,7 @@ public class IntegrationExecutionMonitor {
     }
 
     private boolean terminal(String status) {
-        return Set.of("FINISHED", "FAILED", "CANCELLED", "KILLED", "LOST", "STOPPED").contains(normalizeRuntimeStatus(status));
+        return Set.of("FINISHED", "FAILED", "CANCELLED", "KILLED", "LOST", "STOPPED", "UNKNOWN").contains(normalizeRuntimeStatus(status));
     }
 
     private String shortMessage(String message) {

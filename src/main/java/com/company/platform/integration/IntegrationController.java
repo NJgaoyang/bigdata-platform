@@ -45,6 +45,13 @@ public class IntegrationController {
     @PostMapping("/{id}/run") public Result<SeaTunnelGateway.SubmitResult> run(@PathVariable long id) { return Result.ok(service.execute(id)); }
     @PostMapping("/{id}/stop") public Result<Void> stop(@PathVariable long id) { service.instances(id).stream().findFirst().ifPresent(instance -> service.stop(instance.executionId())); return Result.ok(null, "同步任务已停止"); }
     @GetMapping("/{id}/instances") public Result<List<IntegrationInstanceView>> instances(@PathVariable long id) { return Result.ok(service.instances(id)); }
+    @GetMapping("/{id}/batches") public Result<List<IntegrationBatchView>> batches(@PathVariable long id) { return Result.ok(service.batches(id)); }
+    @GetMapping("/batches/{batchId}/attempts") public Result<List<IntegrationAttemptView>> attempts(@PathVariable long batchId) { return Result.ok(service.attempts(batchId)); }
+    @PostMapping("/batches/{batchId}/retry") public Result<IntegrationBatchView> retry(@PathVariable long batchId) { return Result.ok(service.retryBatch(batchId), "离线同步批次已重试"); }
+    @PostMapping("/batches/{batchId}/reconcile") public Result<IntegrationBatchView> reconcile(@PathVariable long batchId) { return Result.ok(service.reconcileBatch(batchId), "离线同步批次状态已核对"); }
+    @PostMapping("/{id}/backfill") public Result<IntegrationBatchView> backfill(@PathVariable long id, @Valid @RequestBody IntegrationRequests.BackfillRequest request) { return Result.ok(service.backfill(id, request), "补数批次已提交"); }
+    @GetMapping("/{id}/cursor") public Result<IntegrationCursorView> cursor(@PathVariable long id) { return Result.ok(service.cursor(id)); }
+    @PutMapping("/{id}/cursor") public Result<IntegrationCursorView> saveCursor(@PathVariable long id, @RequestBody IntegrationRequests.CursorRequest request) { return Result.ok(service.saveCursor(id, request), "增量游标已更新"); }
     @GetMapping("/executions/{executionId}") public Result<SeaTunnelGateway.JobStatus> status(@PathVariable String executionId) { return Result.ok(service.status(executionId)); }
     @GetMapping("/executions/{executionId}/log") public Result<String> log(@PathVariable String executionId) { return Result.ok(service.log(executionId)); }
     @PostMapping("/executions/{executionId}/cancel") public Result<Void> cancel(@PathVariable String executionId) { service.cancel(executionId); return Result.ok(null); }

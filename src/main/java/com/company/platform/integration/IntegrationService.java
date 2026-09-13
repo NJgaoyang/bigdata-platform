@@ -30,17 +30,18 @@ public class IntegrationService {
     private final PasswordCipher passwordCipher;
     private final DataSourceService dataSourceService;
     private final StarRocksSchemaService schemaService;
+    private final IntegrationRuntimeRepository runtimeRepository;
 
     /** Retained for existing focused unit tests. */
     public IntegrationService(PlatformStore store, SeaTunnelConfigBuilder builder, SeaTunnelGateway gateway,
                               ObjectMapper mapper, PasswordCipher passwordCipher, DataSourceService dataSourceService) {
-        this(store, builder, gateway, mapper, passwordCipher, dataSourceService, null);
+        this(store, builder, gateway, mapper, passwordCipher, dataSourceService, null, null);
     }
 
     @Autowired
     public IntegrationService(PlatformStore store, SeaTunnelConfigBuilder builder, SeaTunnelGateway gateway,
                               ObjectMapper mapper, PasswordCipher passwordCipher, DataSourceService dataSourceService,
-                              StarRocksSchemaService schemaService) {
+                              StarRocksSchemaService schemaService, IntegrationRuntimeRepository runtimeRepository) {
         this.store = store;
         this.builder = builder;
         this.gateway = gateway;
@@ -48,6 +49,7 @@ public class IntegrationService {
         this.passwordCipher = passwordCipher;
         this.dataSourceService = dataSourceService;
         this.schemaService = schemaService;
+        this.runtimeRepository = runtimeRepository;
     }
 
     public List<IntegrationTaskView> list() {
@@ -132,23 +134,73 @@ public class IntegrationService {
                 runtimeTask.syncMode(), runtimeTask.source(), runtimeTask.target(), runtimeTask.mappings(), options, runtimeTask.tables()));
     }
 
-    @Transactional
     public SeaTunnelGateway.SubmitResult execute(long id) {
+        return execute(id, "MANUAL");
+    }
+
+    public SeaTunnelGateway.SubmitResult execute(long id, String triggerType) {
         IntegrationTaskView view = raw(id);
         IntegrationTask runtimeTask = hasStructuredConfig(view) ? task(id) : null;
         String config = runtimeTask == null ? view.seatunnelConfig() : builder.build(runtimeTask);
         Long clusterId = runtimeTask == null ? null : runtimeClusterId(runtimeTask);
-        SeaTunnelGateway.ValidationResult validation = gateway.validate(config, clusterId);
-        if (!validation.valid()) throw new BadRequestException(validation.message());
-        if (runtimeTask != null && schemaService != null) schemaService.prepare(runtimeTask);
-        SeaTunnelGateway.SubmitResult result = gateway.submit(config, clusterId);
-        long instanceId = store.nextId();
-        IntegrationInstanceView instance = new IntegrationInstanceView(instanceId, id, result.executionId(), result.status(), LocalDateTime.now(),
-                terminal(result.status()) ? LocalDateTime.now() : null,
-                clusterId == null ? "SeaTunnel 本机执行实例" : "SeaTunnel 远程集群执行实例 #" + clusterId);
-        store.persistIntegrationInstance(instance);
-        store.integrationInstances.put(instanceId, instance);
-        return result;
+        BatchExecution execution = submitNewBatch(id, normalizeTrigger(triggerType), "{}", null, runtimeTask, config, clusterId);
+        return execution.result();
+    }
+
+    public IntegrationBatchView backfill(long id, IntegrationRequests.BackfillRequest request) {
+        IntegrationTask runtimeTask = task(id);
+        Map<String, Object> options = new HashMap<>(runtimeTask.options() == null ? Map.of() : runtimeTask.options());
+        options.put("where", request.where().trim());
+        IntegrationTask backfillTask = new IntegrationTask(runtimeTask.name(), runtimeTask.sourceType(), runtimeTask.targetType(),
+                "INCREMENTAL", runtimeTask.source(), runtimeTask.target(), runtimeTask.mappings(), options, runtimeTask.tables());
+        String parameters = json(Map.of("where", request.where().trim(),
+                "startLabel", value(request.startLabel()), "endLabel", value(request.endLabel())));
+        return submitNewBatch(id, "BACKFILL", parameters, null, backfillTask, builder.build(backfillTask),
+                runtimeClusterId(backfillTask)).batch();
+    }
+
+    public IntegrationBatchView retryBatch(long batchId) {
+        ensureRuntimeRepository();
+        IntegrationBatchView batch = runtimeRepository.getBatch(batchId);
+        IntegrationAttemptView latest = runtimeRepository.latestAttempt(batchId);
+        if (latest != null && active(latest.status())) throw new BadRequestException("该批次仍在运行，不能重复重试");
+        String config = runtimeRepository.runtimeConfig(batchId);
+        runtimeRepository.updateBatch(batchId, "QUEUED", null, null);
+        submitExistingBatch(batch, config);
+        return runtimeRepository.getBatch(batchId);
+    }
+
+    @Transactional
+    public IntegrationBatchView reconcileBatch(long batchId) {
+        ensureRuntimeRepository();
+        IntegrationBatchView batch = runtimeRepository.getBatch(batchId);
+        IntegrationAttemptView latest = runtimeRepository.latestAttempt(batchId);
+        if (latest == null || latest.executionId() == null || latest.executionId().isBlank()) return batch;
+        SeaTunnelGateway.JobStatus runtime = gateway.status(latest.executionId());
+        String status = "NOT_FOUND".equalsIgnoreCase(runtime.status()) ? "UNKNOWN" : runtime.status();
+        String message = "NOT_FOUND".equalsIgnoreCase(runtime.status())
+                ? "SeaTunnel 无法确认该执行句柄，批次结果需要人工核对" : runtime.message();
+        runtimeRepository.updateAttempt(latest.executionId(), status, message);
+        return runtimeRepository.getBatch(batchId);
+    }
+
+    public List<IntegrationBatchView> batches(long taskId) {
+        raw(taskId);
+        ensureRuntimeRepository();
+        return runtimeRepository.listBatches(taskId);
+    }
+
+    public List<IntegrationAttemptView> attempts(long batchId) {
+        ensureRuntimeRepository();
+        runtimeRepository.getBatch(batchId);
+        return runtimeRepository.attempts(batchId);
+    }
+
+    public IntegrationCursorView cursor(long taskId) { raw(taskId); ensureRuntimeRepository(); return runtimeRepository.cursor(taskId); }
+
+    public IntegrationCursorView saveCursor(long taskId, IntegrationRequests.CursorRequest request) {
+        raw(taskId); ensureRuntimeRepository();
+        return runtimeRepository.saveCursor(taskId, value(request.cursorColumn()), value(request.cursorValue()));
     }
 
     public void stop(String executionId) { gateway.cancel(executionId); }
@@ -195,17 +247,19 @@ public class IntegrationService {
         SeaTunnelGateway.JobStatus status = gateway.status(executionId);
         if ("NOT_FOUND".equalsIgnoreCase(status.status()) && persisted != null) {
             if (terminal(persisted.status())) return new SeaTunnelGateway.JobStatus(executionId, persisted.status(), persisted.message());
-            IntegrationInstanceView lost = new IntegrationInstanceView(persisted.id(), persisted.taskId(), persisted.executionId(),
-                    "LOST", persisted.startedAt(), LocalDateTime.now(), "应用重启或执行句柄已丢失，无法继续确认 SeaTunnel 进程状态");
-            store.persistIntegrationInstance(lost);
-            store.integrationInstances.put(lost.id(), lost);
-            return new SeaTunnelGateway.JobStatus(executionId, "LOST", lost.message());
+            IntegrationInstanceView unknown = new IntegrationInstanceView(persisted.id(), persisted.taskId(), persisted.executionId(),
+                    "UNKNOWN", persisted.startedAt(), LocalDateTime.now(), "SeaTunnel 无法确认执行句柄，结果需要 Reconcile 或人工核对");
+            store.persistIntegrationInstance(unknown);
+            store.integrationInstances.put(unknown.id(), unknown);
+            if (runtimeRepository != null) runtimeRepository.updateAttempt(executionId, "UNKNOWN", unknown.message());
+            return new SeaTunnelGateway.JobStatus(executionId, "UNKNOWN", unknown.message());
         }
         if (persisted != null) {
             IntegrationInstanceView updated = new IntegrationInstanceView(persisted.id(), persisted.taskId(), persisted.executionId(),
                     status.status(), persisted.startedAt(), terminal(status.status()) ? LocalDateTime.now() : null, status.message());
             store.persistIntegrationInstance(updated);
             store.integrationInstances.put(updated.id(), updated);
+            if (runtimeRepository != null) runtimeRepository.updateAttempt(executionId, status.status(), status.message());
         }
         return status;
     }
@@ -218,6 +272,71 @@ public class IntegrationService {
     }
 
     public void cancel(String executionId) { gateway.cancel(executionId); }
+
+    private BatchExecution submitNewBatch(long taskId, String triggerType, String parametersJson, Long sourceBatchId,
+                                          IntegrationTask runtimeTask, String config, Long clusterId) {
+        IntegrationBatchView batch = runtimeRepository == null ? null
+                : runtimeRepository.createBatch(taskId, triggerType, config, clusterId, parametersJson, sourceBatchId, "platform");
+        try {
+            SeaTunnelGateway.ValidationResult validation = gateway.validate(config, clusterId);
+            if (!validation.valid()) throw new BadRequestException(validation.message());
+            if (runtimeTask != null && schemaService != null) schemaService.prepare(runtimeTask);
+            SeaTunnelGateway.SubmitResult result = gateway.submit(config, clusterId);
+            persistLegacyInstance(taskId, result, clusterId);
+            if (batch != null) runtimeRepository.recordAttempt(batch.id(), result.executionId(), result.status(), null);
+            return new BatchExecution(batch, result);
+        } catch (RuntimeException ex) {
+            if (batch != null) runtimeRepository.recordAttempt(batch.id(), null, "FAILED", message(ex));
+            throw ex;
+        }
+    }
+
+    private SeaTunnelGateway.SubmitResult submitExistingBatch(IntegrationBatchView batch, String config) {
+        try {
+            SeaTunnelGateway.ValidationResult validation = gateway.validate(config, batch.clusterId());
+            if (!validation.valid()) throw new BadRequestException(validation.message());
+            SeaTunnelGateway.SubmitResult result = gateway.submit(config, batch.clusterId());
+            persistLegacyInstance(batch.taskId(), result, batch.clusterId());
+            runtimeRepository.recordAttempt(batch.id(), result.executionId(), result.status(), null);
+            return result;
+        } catch (RuntimeException ex) {
+            runtimeRepository.recordAttempt(batch.id(), null, "FAILED", message(ex));
+            throw ex;
+        }
+    }
+
+    private void persistLegacyInstance(long taskId, SeaTunnelGateway.SubmitResult result, Long clusterId) {
+        long instanceId = store.nextId();
+        IntegrationInstanceView instance = new IntegrationInstanceView(instanceId, taskId, result.executionId(), result.status(),
+                LocalDateTime.now(), terminal(result.status()) ? LocalDateTime.now() : null,
+                clusterId == null ? "SeaTunnel 默认执行环境" : "SeaTunnel 执行环境 #" + clusterId);
+        store.persistIntegrationInstance(instance);
+        store.integrationInstances.put(instanceId, instance);
+    }
+
+    private void ensureRuntimeRepository() {
+        if (runtimeRepository == null) throw new BadRequestException("离线同步批次运行库不可用");
+    }
+
+    private String normalizeTrigger(String value) {
+        String trigger = value == null ? "MANUAL" : value.trim().toUpperCase();
+        return Set.of("MANUAL", "WORKFLOW", "BACKFILL").contains(trigger) ? trigger : "MANUAL";
+    }
+
+    private boolean active(String status) {
+        String value = status == null ? "" : status.toUpperCase();
+        return Set.of("QUEUED", "SUBMITTED", "STARTING", "RUNNING").contains(value);
+    }
+
+    private String json(Map<String, Object> value) {
+        try { return mapper.writeValueAsString(value); }
+        catch (JsonProcessingException ex) { return "{}"; }
+    }
+
+    private String value(String value) { return value == null ? "" : value.trim(); }
+    private String message(Throwable error) { return error.getMessage() == null ? error.getClass().getSimpleName() : error.getMessage(); }
+
+    private record BatchExecution(IntegrationBatchView batch, SeaTunnelGateway.SubmitResult result) { }
 
     private IntegrationInstanceView findInstance(String executionId) {
         return store.integrationInstances.values().stream().filter(item -> executionId.equals(item.executionId())).findFirst().orElse(null);

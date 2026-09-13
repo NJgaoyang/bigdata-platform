@@ -264,7 +264,7 @@ public class LocalSchedulerGateway implements SchedulerGateway {
     private void executeSeaTunnel(JsonNode node,long taskId,AtomicBoolean cancelled) throws InterruptedException {
         long integrationTaskId=config(node).path("integrationTaskId").asLong(0);
         if (integrationTaskId<=0) throw new IllegalStateException("SeaTunnel 节点未配置 integrationTaskId");
-        SeaTunnelGateway.SubmitResult submitted=integrationService.execute(integrationTaskId);
+        SeaTunnelGateway.SubmitResult submitted=integrationService.execute(integrationTaskId, "WORKFLOW");
         log(taskId,"INFO","SeaTunnel executionId="+submitted.executionId());
         while (!cancelled.get()) {
             SeaTunnelGateway.JobStatus status=integrationService.status(submitted.executionId());
