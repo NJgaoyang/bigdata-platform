@@ -87,6 +87,7 @@ class MetadataServiceTest {
         assertNull(profile.owner());
         verify(platformJdbc).update(startsWith("DELETE FROM metadata_table_owner"), eq(1006L), eq("ods"), eq("user_basic"));
     }
+
     @Test
     void previewIsReadOnlyBoundedAndUsesVerifiedQuotedTable() throws Exception {
         PreparedStatement existsStatement = mock(PreparedStatement.class);
@@ -106,18 +107,18 @@ class MetadataServiceTest {
         when(previewResult.getString(1)).thenReturn("1", "2");
         when(previewResult.getString(2)).thenReturn("Alice", "Bob");
 
-        MetadataService.TablePreviewView preview = service.tablePreview(1006L, "ods", "user_basic", 999);
+        MetadataService.TablePreviewView preview = service.tablePreview(1006L, "ods", "user_basic", 5000);
 
-        assertEquals(200, preview.limit());
+        assertEquals(1000, preview.limit());
         assertEquals(List.of("user_id", "user_name"), preview.columns());
         assertEquals(2, preview.rows().size());
         assertEquals(List.of("1", "Alice"), preview.rows().get(0));
         verify(existsStatement).setString(1, "ods");
         verify(existsStatement).setString(2, "user_basic");
         verify(existsStatement).setQueryTimeout(5);
-        verify(connection).prepareStatement("SELECT * FROM `ods`.`user_basic` LIMIT 200");
+        verify(connection).prepareStatement("SELECT * FROM `ods`.`user_basic` LIMIT 1000");
         verify(previewStatement).setQueryTimeout(10);
-        verify(previewStatement).setMaxRows(200);
+        verify(previewStatement).setMaxRows(1000);
     }
 
     @Test
@@ -134,5 +135,4 @@ class MetadataServiceTest {
         assertTrue(error.getMessage().contains("数据表不存在"));
         verify(connection, times(1)).prepareStatement(anyString());
     }
-
 }
