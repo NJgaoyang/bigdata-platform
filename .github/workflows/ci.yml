@@ -20,6 +20,8 @@ jobs:
           node-version: '22'
           cache: npm
           cache-dependency-path: frontend-v2/package-lock.json
+      - name: Normalize frontend package registry
+        run: sed -i 's#http://mirrors.tencentyun.com/npm/#https://registry.npmjs.org/#g' frontend-v2/package-lock.json
       - name: Run backend tests
         run: mvn -B clean test
       - name: Build deployable package
@@ -41,6 +43,8 @@ jobs:
           node-version: '22'
           cache: npm
           cache-dependency-path: frontend-v2/package-lock.json
+      - name: Normalize package registry
+        run: sed -i 's#http://mirrors.tencentyun.com/npm/#https://registry.npmjs.org/#g' package-lock.json
       - name: Install dependencies
         run: npm ci
       - name: Build frontend
