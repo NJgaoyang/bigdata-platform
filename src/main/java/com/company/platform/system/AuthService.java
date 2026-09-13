@@ -97,7 +97,7 @@ public class AuthService {
         if (user == null || !"ACTIVE".equalsIgnoreCase(user.status())) return false;
         if ("ADMIN".equalsIgnoreCase(user.roleCode())) return true;
         Set<String> granted = accessPermissions(user.id());
-        if (path.startsWith("/api/dashboard")) return granted.contains("WORKBENCH_VIEW");
+        if (path.startsWith("/api/dashboard") || path.startsWith("/api/workbench")) return granted.contains("WORKBENCH_VIEW");
         if (isDataSourcePath(path)) {
             if (path.matches("^/api/(?:data-sources|datasources)/[^/]+/test/?$") || !"GET".equalsIgnoreCase(method)) {
                 return granted.contains("SYSTEM_SETTINGS_EDIT");

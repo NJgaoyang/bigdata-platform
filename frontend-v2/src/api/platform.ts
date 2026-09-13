@@ -15,6 +15,11 @@ export interface WorkbenchOverview {
   recentTasks: RecentTask[]
   generatedAt: string
 }
+export interface WorkbenchSummary {
+  issues:number; running:number; unpublished:number; successRate24h?:number; successful24h:number; failed24h:number; unhealthySources:number; generatedAt:string
+}
+export interface WorkbenchIssue { id:string; type:string; name:string; status:string; detail:string; occurredAt?:string; path:string }
+export interface WorkbenchRun { id:string; name:string; type:string; status:string; startedAt?:string; finishedAt?:string; detail?:string; path:string; sortTime?:string }
 export interface TrendPoint { date: string; count: number; success: number; failed: number; running: number }
 export interface IntegrationSummary {
   taskTotal: number
@@ -54,6 +59,11 @@ export interface DataSourcePayload {
 export const dashboardApi = {
   overview: () => api.get<WorkbenchOverview>('/dashboard/overview'),
   integration: () => api.get<IntegrationSummary>('/dashboard/integration')
+}
+export const workbenchApi = {
+  summary: () => api.get<WorkbenchSummary>('/workbench/summary'),
+  issues: () => api.get<WorkbenchIssue[]>('/workbench/issues'),
+  recentRuns: () => api.get<WorkbenchRun[]>('/workbench/recent-runs')
 }
 export const dataSourceApi = {
   list: () => api.get<DataSourceView[]>('/data-sources'),
