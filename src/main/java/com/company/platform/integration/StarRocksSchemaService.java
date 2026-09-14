@@ -47,12 +47,12 @@ public class StarRocksSchemaService {
                 if ("RECREATE_SCHEMA".equals(mode)) {
                     try (Statement statement = targetConnection.createStatement()) {
                         statement.execute("DROP TABLE IF EXISTS " + identifier(table.targetDatabase()) + "." + identifier(table.targetTable()));
-                        statement.execute(createTableDdl(table.targetDatabase(), table.targetTable(), sourceColumns));
+                        statement.execute(createTableDdl(table.targetDatabase(), table.targetTable(), sourceColumns, task.options()));
                     }
                     results.add(new SchemaResult(table.targetDatabase(), table.targetTable(), "RECREATED", sourceColumns.stream().map(SourceColumn::name).toList()));
                 } else if (!exists) {
                     try (Statement statement = targetConnection.createStatement()) {
-                        statement.execute(createTableDdl(table.targetDatabase(), table.targetTable(), sourceColumns));
+                        statement.execute(createTableDdl(table.targetDatabase(), table.targetTable(), sourceColumns, task.options()));
                     }
                     results.add(new SchemaResult(table.targetDatabase(), table.targetTable(), "CREATED", sourceColumns.stream().map(SourceColumn::name).toList()));
                 } else {
@@ -70,7 +70,7 @@ public class StarRocksSchemaService {
 
     public String previewDdl(IntegrationTask task, IntegrationRequests.TableRequest table) {
         List<SourceColumn> columns = sourceColumns(task.source(), table.sourceDatabase(), table.sourceTable());
-        return createTableDdl(table.targetDatabase(), table.targetTable(), columns);
+        return createTableDdl(table.targetDatabase(), table.targetTable(), columns, task.options());
     }
 
     private List<SourceColumn> sourceColumns(IntegrationRequests.Endpoint source, String database, String table) {
@@ -112,7 +112,7 @@ public class StarRocksSchemaService {
         return added;
     }
 
-    private String createTableDdl(String database, String table, List<SourceColumn> sourceColumns) {
+    String createTableDdl(String database, String table, List<SourceColumn> sourceColumns, Map<String, Object> options) {
         if (sourceColumns == null || sourceColumns.isEmpty()) throw new BadRequestException("无法为无字段表生成 StarRocks DDL");
         List<SourceColumn> ordered = new ArrayList<>();
         sourceColumns.stream().filter(SourceColumn::primaryKey).forEach(ordered::add);
@@ -134,8 +134,20 @@ public class StarRocksSchemaService {
             ddl.append(")\n");
         }
         String distribution = ordered.stream().filter(column -> hashable(column.starRocksType())).findFirst().orElse(ordered.get(0)).name();
-        ddl.append("DISTRIBUTED BY HASH(").append(identifier(distribution)).append(") BUCKETS 3");
+        ddl.append("DISTRIBUTED BY HASH(").append(identifier(distribution)).append(") BUCKETS 3\n");
+        ddl.append("PROPERTIES (\"replication_num\" = \"").append(replicationNum(options)).append("\")");
         return ddl.toString();
+    }
+
+    private int replicationNum(Map<String, Object> options) {
+        Object raw = options == null ? null : options.get("starrocksReplicationNum");
+        if (raw == null || raw.toString().isBlank()) return 1;
+        try {
+            int value = raw instanceof Number number ? number.intValue() : Integer.parseInt(raw.toString().trim());
+            return Math.max(1, Math.min(5, value));
+        } catch (NumberFormatException ignored) {
+            return 1;
+        }
     }
 
     private String columnDefinition(SourceColumn column) {

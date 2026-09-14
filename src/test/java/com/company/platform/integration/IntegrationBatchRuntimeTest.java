@@ -1,5 +1,6 @@
 package com.company.platform.integration;
 
+import com.company.platform.cluster.SeaTunnelClusterView;
 import com.company.platform.common.BadRequestException;
 import com.company.platform.common.PlatformStore;
 import com.company.platform.datasource.DataSourceService;
@@ -10,6 +11,7 @@ import org.junit.jupiter.api.Test;
 import java.time.LocalDateTime;
 import java.util.List;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
@@ -40,4 +42,18 @@ class IntegrationBatchRuntimeTest {
         verify(runtime).createBatch(eq(7L), eq("MANUAL"), anyString(), isNull(), eq("{}"), isNull(), eq("platform"));
         verify(runtime).recordAttempt(99L, null, "FAILED", "SeaTunnel 真实执行未启用");
     }
+    @Test
+    void defaultSeaTunnelClusterPrefersHealthyRuntime() {
+        PlatformStore store = new PlatformStore();
+        store.seaTunnelClusters.put(11L, new SeaTunnelClusterView(11L, "new-unknown", "host-a", 5801,
+                "root", 22, "/seatunnel", null, "UNKNOWN", LocalDateTime.now()));
+        store.seaTunnelClusters.put(7L, new SeaTunnelClusterView(7L, "healthy", "host-b", 5801,
+                "root", 22, "/seatunnel", null, "HEALTHY", LocalDateTime.now().minusDays(1)));
+        IntegrationService service = new IntegrationService(
+                store, mock(SeaTunnelConfigBuilder.class), mock(SeaTunnelGateway.class), new ObjectMapper(),
+                mock(PasswordCipher.class), mock(DataSourceService.class), null, mock(IntegrationRuntimeRepository.class));
+
+        assertEquals(7L, service.runtimeClusterId());
+    }
+
 }

@@ -119,9 +119,9 @@ public class IntegrationService {
 
     public SeaTunnelGateway.ValidationResult validate(long id) {
         IntegrationTaskView view = raw(id);
-        if (!hasStructuredConfig(view)) return gateway.validate(view.seatunnelConfig());
+        if (!hasStructuredConfig(view)) return gateway.validate(view.seatunnelConfig(), runtimeClusterId());
         IntegrationTask runtimeTask = task(id);
-        return gateway.validate(builder.build(runtimeTask), runtimeClusterId(runtimeTask));
+        return gateway.validate(builder.build(runtimeTask), runtimeClusterId());
     }
 
     public List<StarRocksSchemaService.SchemaResult> syncSchema(long id, boolean recreate) {
@@ -142,7 +142,7 @@ public class IntegrationService {
         IntegrationTaskView view = raw(id);
         IntegrationTask runtimeTask = hasStructuredConfig(view) ? task(id) : null;
         String config = runtimeTask == null ? view.seatunnelConfig() : builder.build(runtimeTask);
-        Long clusterId = runtimeTask == null ? null : runtimeClusterId(runtimeTask);
+        Long clusterId = runtimeClusterId();
         BatchExecution execution = submitNewBatch(id, normalizeTrigger(triggerType), "{}", null, runtimeTask, config, clusterId);
         return execution.result();
     }
@@ -156,7 +156,7 @@ public class IntegrationService {
         String parameters = json(Map.of("where", request.where().trim(),
                 "startLabel", value(request.startLabel()), "endLabel", value(request.endLabel())));
         return submitNewBatch(id, "BACKFILL", parameters, null, backfillTask, builder.build(backfillTask),
-                runtimeClusterId(backfillTask)).batch();
+                runtimeClusterId()).batch();
     }
 
     public IntegrationBatchView retryBatch(long batchId) {
@@ -382,18 +382,15 @@ public class IntegrationService {
         return view.sourceConfigJson() != null && !view.sourceConfigJson().isBlank() && !"{}".equals(view.sourceConfigJson().trim());
     }
 
-    private Long runtimeClusterId(IntegrationTask task) {
-        if (task.options() == null) return null;
-        Object raw = task.options().get("clusterId");
-        if (raw == null || raw.toString().isBlank()) return null;
-        try {
-            long id = raw instanceof Number number ? number.longValue() : Long.parseLong(raw.toString());
-            if (id <= 0) throw new NumberFormatException();
-            if (!store.seaTunnelClusters.containsKey(id)) throw new BadRequestException("选择的 SeaTunnel 集群不存在：" + id);
-            return id;
-        } catch (NumberFormatException ex) {
-            throw new BadRequestException("SeaTunnel clusterId 必须是有效的集群 ID");
-        }
+    Long runtimeClusterId() {
+        return store.seaTunnelClusters.values().stream()
+                .sorted(Comparator.comparing((com.company.platform.cluster.SeaTunnelClusterView cluster) ->
+                                !"HEALTHY".equalsIgnoreCase(cluster.healthStatus()))
+                        .thenComparing(com.company.platform.cluster.SeaTunnelClusterView::createdAt,
+                                Comparator.nullsLast(Comparator.reverseOrder()))
+                        .thenComparing(com.company.platform.cluster.SeaTunnelClusterView::id, Comparator.reverseOrder()))
+                .map(com.company.platform.cluster.SeaTunnelClusterView::id)
+                .findFirst().orElse(null);
     }
 
     private void validateMode(String syncMode, Map<String, Object> options) {
