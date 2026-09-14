@@ -8,7 +8,7 @@ const sources=ref<DataSourceView[]>([]), databases=ref<DatabaseView[]>([]), tabl
 const columns=ref<ColumnView[]>([]), profile=ref<TableProfile>(), lineage=ref<LineageView[]>([]), preview=ref<TablePreview>()
 const sourceId=ref<number>(), database=ref(''), table=ref<TableView>()
 const databaseKeyword=ref(''), tableKeyword=ref('')
-const activeTab=ref<'overview'|'fields'|'preview'|'lineage'>('overview'), previewLimit=ref(50)
+const activeTab=ref<'overview'|'fields'|'preview'|'lineage'>('overview'), previewLimit=ref(10)
 const loading=ref(false), tableLoading=ref(false), detailLoading=ref(false), previewLoading=ref(false)
 const error=ref(''), previewError=ref(''), drawerVisible=ref(false)
 const connectionState=ref<'idle'|'ok'|'bad'>('idle')
@@ -182,7 +182,7 @@ onMounted(loadSources)
           </section>
 
           <section v-show="activeTab==='preview'" class="drawer-table-section">
-            <div class="preview-toolbar"><span>仅抽样预览</span><el-select v-model="previewLimit" style="width:100px" @change="loadPreview"><el-option :value="20" label="20 行"/><el-option :value="50" label="50 行"/><el-option :value="100" label="100 行"/></el-select><el-button @click="loadPreview">刷新</el-button></div>
+            <div class="preview-toolbar"><span>仅抽样预览</span><el-select v-model="previewLimit" style="width:100px" @change="loadPreview"><el-option :value="10" label="10 行"/><el-option :value="50" label="50 行"/><el-option :value="100" label="100 行"/><el-option :value="500" label="500 行"/><el-option :value="1000" label="1000 行"/></el-select><el-button @click="loadPreview">刷新</el-button></div>
             <div v-if="previewError" class="preview-error">{{previewError}}</div>
             <div v-else class="preview-table-shell" v-loading="previewLoading"><table v-if="preview?.columns.length" class="preview-table"><thead><tr><th v-for="c in preview.columns" :key="c">{{c}}</th></tr></thead><tbody><tr v-for="(r,ri) in preview.rows" :key="ri"><td v-for="(c,ci) in preview.columns" :key="c">{{r[ci]??'NULL'}}</td></tr></tbody></table><div v-else-if="!previewLoading" class="table-empty">暂无预览数据</div></div>
           </section>
