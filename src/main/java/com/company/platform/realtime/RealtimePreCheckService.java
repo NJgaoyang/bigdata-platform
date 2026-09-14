@@ -56,12 +56,17 @@ public class RealtimePreCheckService {
              Connection sink = connection(dataSources.connectionInfo(sinkId))) {
             checkBinlog(source, items);
             checkPrivileges(source, items);
-            checkTables(source, sink, sourceDb, sinkDb, tables, items);
+            checkTables(source, sink, sourceDb, sinkDb, tables, spec, items);
         } catch (BadRequestException ex) {
             items.add(error("CONNECTION", ex.getMessage(), ""));
         } catch (Exception ex) {
             items.add(error("CONNECTION", "发布前检查无法连接数据源，请先检查网络、账号和端口", safe(ex)));
         }
+        String filter = string(spec.get("dataFilter"), "");
+        if (!filter.isBlank()) items.add(info("DATA_FILTER", "已配置 Flink CDC Transform 数据过滤", filter));
+        String deletePolicy = string(spec.get("deletePolicy"), "SYNC_DELETE").toUpperCase(Locale.ROOT);
+        if (!"SYNC_DELETE".equals(deletePolicy)) items.add(error("DELETE_POLICY", "当前生产 Flink CDC 链路仅允许“同步删除”", "忽略删除/逻辑删除需要事件转换规则，平台不会假装已生效"));
+        else items.add(info("DELETE_POLICY", "DELETE 将同步到 StarRocks Primary Key 表", "SYNC_DELETE"));
         return new Report(items.stream().noneMatch(Item::blocking), items);
     }
 
@@ -81,11 +86,15 @@ public class RealtimePreCheckService {
                 sourceInfo.username(), sourceInfo.password(), requests.get(0).sourceTable());
         IntegrationRequests.Endpoint sink = new IntegrationRequests.Endpoint(sinkView.host(), sinkView.port(), sinkDb,
                 sinkInfo.username(), sinkInfo.password(), requests.get(0).targetTable());
+        String targetStrategy = string(spec.get("targetStrategy"), "AUTO_CREATE").toUpperCase(Locale.ROOT);
+        if (!"AUTO_CREATE".equals(targetStrategy)) return;
+        Map<String,Object> starrocks = spec.get("starrocks") instanceof Map<?,?> raw ? (Map<String,Object>) raw : Map.of();
         Map<String, Object> options = new LinkedHashMap<>();
         options.put("sourceTimezone", sourceView.timezone());
         options.put("targetTimezone", sinkView.timezone());
         options.put("schemaSaveMode", "CREATE_SCHEMA_WHEN_NOT_EXIST");
-        options.put("starrocksReplicationNum", 1);
+        options.put("starrocksReplicationNum", starrocks.getOrDefault("replicationNum", 1));
+        options.put("starrocksBucketCount", starrocks.getOrDefault("bucketCount", 0));
         schemaService.prepare(new IntegrationTask("realtime-precheck", "MYSQL", "STARROCKS", "REALTIME",
                 source, sink, List.of(), options, requests));
     }
@@ -133,7 +142,7 @@ public class RealtimePreCheckService {
     }
 
     private void checkTables(Connection source, Connection sink, String sourceDb, String sinkDb,
-                             List<TablePair> tables, List<Item> items) throws Exception {
+                             List<TablePair> tables, Map<String,Object> spec, List<Item> items) throws Exception {
         if (!databaseExists(sink, sinkDb)) {
             items.add(error("SINK_DATABASE", "StarRocks 目标数据库不存在", sinkDb));
             return;
@@ -164,7 +173,9 @@ public class RealtimePreCheckService {
             }
             String create = showCreateTable(sink, sinkDb, table.target());
             if (create == null) {
-                items.add(info("TARGET_TABLE", "目标表不存在，将按统一 SchemaMapper 创建 PRIMARY KEY 表", sinkDb + "." + table.target()));
+                String strategy = string(spec.get("targetStrategy"), "AUTO_CREATE").toUpperCase(Locale.ROOT);
+                if ("AUTO_CREATE".equals(strategy)) items.add(info("TARGET_TABLE", "目标表不存在，将按统一 SchemaMapper 创建 PRIMARY KEY 表", sinkDb + "." + table.target()));
+                else items.add(error("TARGET_TABLE", "目标策略要求使用已有表，但目标表不存在", sinkDb + "." + table.target()));
             } else {
                 String upper = create.toUpperCase(Locale.ROOT);
                 if (!upper.contains("PRIMARY KEY")) items.add(error("TARGET_MODEL", "实时镜像目标表必须是 PRIMARY KEY 模型，才能正确传播 UPDATE / DELETE", sinkDb + "." + table.target()));

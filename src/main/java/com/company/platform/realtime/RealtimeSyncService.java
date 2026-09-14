@@ -55,6 +55,20 @@ public class RealtimeSyncService {
         event(id,null,"DRAFT_SAVED","保存草稿 V"+version);return get(id);
     }
 
+    public Validation validateDraft(RealtimeRequests.CreateJobRequest request){
+        Map<String,Object> spec=new LinkedHashMap<>(request.spec()==null?Map.of():request.spec());
+        spec.putIfAbsent("name",request.name());
+        List<String> warnings=new ArrayList<>();
+        configBuilder.validate(spec);
+        RealtimePreCheckService.Report report=preCheck.check(spec);
+        report.items().stream().filter(item->"WARNING".equals(item.level())).forEach(item->warnings.add(item.message()+": "+item.detail()));
+        boolean envReady=request.runtimeEnvironmentId()!=null;
+        if(!envReady) warnings.add("尚未选择 Flink 运行环境，发布前必须配置");
+        else if(!environments.get(request.runtimeEnvironmentId()).enabled()){warnings.add("Flink 运行环境已禁用");envReady=false;}
+        boolean valid=report.allowed()&&envReady;
+        return new Validation(valid,valid?"创建前检查通过":"创建前检查存在阻断项",warnings,configBuilder.build(spec,true),report.items());
+    }
+
     public Validation validate(long id){
         RealtimeViews.Job job=get(id);
         List<String> warnings=new ArrayList<>();
@@ -93,13 +107,13 @@ public class RealtimeSyncService {
     }
 
     @Transactional
-    public RealtimeViews.Runtime start(long id,String operator){RealtimeViews.Job job=get(id);if(job.publishedVersion()==null)throw new BadRequestException("请先发布实时同步任务");if(job.runtimeEnvironmentId()==null)throw new BadRequestException("未配置 Flink 运行环境");
+    public RealtimeViews.Runtime start(long id,String operator){RealtimeViews.Job job=get(id);if(job.publishedVersion()==null)throw new BadRequestException("请先发布实时同步任务");if(job.runtimeEnvironmentId()==null)throw new BadRequestException("未配置 Flink 运行环境");if(Set.of("STARTING","RUNNING","STOPPING").contains(job.observedState()))throw new BadRequestException("实时任务当前正在运行或状态切换中，请勿重复启动");
         Map<String,Object> spec=publishedSpec(id,job.publishedVersion());FlinkEnvironmentService.RuntimeEnvironment env=environments.runtime(job.runtimeEnvironmentId());String yaml=configBuilder.build(spec,false);
         jdbc.update("UPDATE realtime_sync_definition SET desired_state='RUNNING',observed_state='STARTING',last_error=NULL WHERE id=?",id);
         jdbc.update("INSERT INTO realtime_sync_execution(job_id,definition_version,runtime_environment_snapshot,status,started_at) VALUES(?,?,?,'STARTING',CURRENT_TIMESTAMP)",id,job.publishedVersion(),json(env.view()));
         long executionId=Objects.requireNonNull(jdbc.queryForObject("SELECT id FROM realtime_sync_execution WHERE job_id=? ORDER BY id DESC LIMIT 1",Long.class,id));event(id,executionId,"STARTING","提交 Flink CDC V"+job.publishedVersion());
         try{
-            FlinkCdcGateway.SubmitResult submitted=gateway.submit(env,yaml);
+            FlinkCdcGateway.SubmitResult submitted=gateway.submit(env,yaml,spec);
             jdbc.update("UPDATE realtime_sync_execution SET engine_job_id=?,status='RUNNING',runtime_revision=? WHERE id=?",submitted.jobId(),"v"+job.publishedVersion(),executionId);
             jdbc.update("UPDATE realtime_sync_definition SET observed_state='RUNNING' WHERE id=?",id);event(id,executionId,"RUNNING","Flink JobId="+submitted.jobId());
         }catch(RuntimeException ex){String m=msg(ex);jdbc.update("UPDATE realtime_sync_execution SET status='FAILED',finished_at=CURRENT_TIMESTAMP,error_message=? WHERE id=?",m,executionId);jdbc.update("UPDATE realtime_sync_definition SET observed_state='FAILED',last_error=? WHERE id=?",m,id);event(id,executionId,"FAILED",m);throw ex;}

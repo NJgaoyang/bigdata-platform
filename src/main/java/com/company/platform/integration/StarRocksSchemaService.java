@@ -176,9 +176,18 @@ public class StarRocksSchemaService {
             ddl.append(")\n");
         }
         String distribution = ordered.stream().filter(column -> hashable(column.starRocksType())).findFirst().orElse(ordered.get(0)).name();
-        ddl.append("DISTRIBUTED BY HASH(").append(identifier(distribution)).append(") BUCKETS 3\n");
+        ddl.append("DISTRIBUTED BY HASH(").append(identifier(distribution)).append(") BUCKETS ").append(bucketCount(options)).append("\n");
         ddl.append("PROPERTIES (\"replication_num\" = \"").append(replicationNum(options)).append("\")");
         return ddl.toString();
+    }
+
+    private int bucketCount(Map<String, Object> options) {
+        Object raw = options == null ? null : options.get("starrocksBucketCount");
+        if (raw == null || raw.toString().isBlank()) return 3;
+        try {
+            int value = raw instanceof Number number ? number.intValue() : Integer.parseInt(raw.toString().trim());
+            return value <= 0 ? 3 : Math.max(1, Math.min(128, value));
+        } catch (NumberFormatException ignored) { return 3; }
     }
 
     private int replicationNum(Map<String, Object> options) {

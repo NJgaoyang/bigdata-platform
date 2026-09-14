@@ -12,9 +12,14 @@ import java.util.List;
 @RequestMapping("/api/realtime/jobs")
 public class RealtimeSyncController {
     private final RealtimeSyncService service;
-    public RealtimeSyncController(RealtimeSyncService service){this.service=service;}
+    private final RealtimeManagementService management;
+    public RealtimeSyncController(RealtimeSyncService service, RealtimeManagementService management){this.service=service;this.management=management;}
     @GetMapping public Result<List<RealtimeViews.Job>> list(){return Result.ok(service.list());}
+    @GetMapping("/management") public Result<List<RealtimeManagementService.ManagementRow>> management(){return Result.ok(management.management());}
+    @GetMapping("/metadata/tables") public Result<List<RealtimeManagementService.TableOption>> tables(@RequestParam long dataSourceId,@RequestParam String database){return Result.ok(management.tables(dataSourceId,database));}
+    @GetMapping("/metadata/columns") public Result<List<RealtimeManagementService.ColumnOption>> columns(@RequestParam long dataSourceId,@RequestParam String database,@RequestParam String table){return Result.ok(management.columns(dataSourceId,database,table));}
     @PostMapping public Result<RealtimeViews.Job> create(@Valid @RequestBody RealtimeRequests.CreateJobRequest r,HttpServletRequest req){return Result.ok(service.create(r,operator(req)),"实时任务草稿已创建");}
+    @PostMapping("/preview-validate") public Result<RealtimeSyncService.Validation> previewValidate(@Valid @RequestBody RealtimeRequests.CreateJobRequest r){return Result.ok(service.validateDraft(r));}
     @GetMapping("/{id}") public Result<RealtimeViews.Job> get(@PathVariable long id){return Result.ok(service.get(id));}
     @PutMapping("/{id}/draft") public Result<RealtimeViews.Job> draft(@PathVariable long id,@RequestBody RealtimeRequests.DraftRequest r,HttpServletRequest req){return Result.ok(service.saveDraft(id,r,operator(req)),"草稿已保存");}
     @PostMapping("/{id}/validate") public Result<RealtimeSyncService.Validation> validate(@PathVariable long id){return Result.ok(service.validate(id));}
@@ -28,5 +33,12 @@ public class RealtimeSyncController {
     @GetMapping("/{id}/metrics") public Result<JsonNode> metrics(@PathVariable long id){return Result.ok(service.metrics(id));}
     @GetMapping("/{id}/logs") public Result<JsonNode> logs(@PathVariable long id){return Result.ok(service.logs(id));}
     @GetMapping("/{id}/yaml") public Result<String> yaml(@PathVariable long id){return Result.ok(service.yaml(id));}
+    @GetMapping("/{id}/executions") public Result<List<RealtimeManagementService.ExecutionRow>> executions(@PathVariable long id){service.get(id);return Result.ok(management.executions(id));}
+    @GetMapping("/{id}/events") public Result<List<RealtimeManagementService.EventRow>> events(@PathVariable long id){service.get(id);return Result.ok(management.events(id));}
+    @GetMapping("/{id}/checkpoint-history") public Result<List<RealtimeManagementService.CheckpointRow>> checkpointHistory(@PathVariable long id){service.get(id);return Result.ok(management.checkpointHistory(id));}
+    @GetMapping("/{id}/schema-changes") public Result<List<RealtimeManagementService.SchemaChangeRow>> schemaChanges(@PathVariable long id){service.get(id);return Result.ok(management.schemaChanges(id));}
+    @PostMapping("/{id}/schema-changes/scan") public Result<List<RealtimeManagementService.SchemaChangeRow>> scanSchemaChanges(@PathVariable long id){return Result.ok(management.scanSchemaChanges(service.get(id)),"Schema 变更检测完成");}
+    @GetMapping("/{id}/validation-results") public Result<List<RealtimeManagementService.ValidationRow>> validationResults(@PathVariable long id){service.get(id);return Result.ok(management.validationResults(id));}
+    @PostMapping("/{id}/data-validation") public Result<List<RealtimeManagementService.ValidationRow>> validateData(@PathVariable long id){return Result.ok(management.runValidation(service.get(id)),"实时数据校验完成");}
     private String operator(HttpServletRequest req){Object o=req.getAttribute("platform.operator");return o==null?"admin":String.valueOf(o);}
 }

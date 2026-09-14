@@ -68,6 +68,11 @@ public class FlinkCdcConfigBuilder {
          .append("  sink.properties.max_filter_ratio: '0'\n")
          .append("  sink.properties.strict_mode: 'true'\n")
          .append("  sink.properties.enable_merge_commit: 'false'\n");
+        String dataFilter=str(spec.get("dataFilter"));
+        if(!dataFilter.isBlank()){
+            y.append("transform:\n");
+            for(Map<String,Object> t:tables) y.append("  - source-table: ").append(q(sourceDb+"."+str(t.get("sourceTable")))).append("\n    filter: ").append(q(dataFilter)).append("\n");
+        }
         y.append("pipeline:\n  name: ").append(q(str(spec.getOrDefault("name","datasphere-realtime")))).append("\n")
          .append("  parallelism: ").append(intValue(spec.get("parallelism"),1)).append("\n")
          .append("  schema.change.behavior: ").append(q(str(spec.getOrDefault("schemaEvolution","EXCEPTION")).toLowerCase(Locale.ROOT))).append("\n")
