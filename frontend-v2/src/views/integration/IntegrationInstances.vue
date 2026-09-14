@@ -66,7 +66,7 @@ onBeforeUnmount(() => { stopLogPolling(); window.removeEventListener('keydown', 
 </script>
 
 <template>
-  <div class="ds-page">
+  <div class="ds-page ds-integration-page">
     <PageHeader title="运行实例" subtitle="统一查看 SeaTunnel 离线实例与 Flink CDC 实时实例。" />
     <div class="ds-card">
       <div class="ds-toolbar">

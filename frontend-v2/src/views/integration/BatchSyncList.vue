@@ -4,7 +4,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import PageHeader from '../../components/PageHeader.vue'
 import StatusBadge from '../../components/StatusBadge.vue'
 import { dataSourceApi, type DataSourceView } from '../../api/platform'
-import { integrationApi, type IntegrationAttempt, type IntegrationBatch, type IntegrationCursor, type IntegrationInstance, type IntegrationTask, type IntegrationTaskPayload, type IntegrationTaskSummary } from '../../api/domain'
+import { integrationApi, type IntegrationAttempt, type IntegrationBatch, type IntegrationCursor, type IntegrationInstance, type IntegrationTask, type IntegrationTaskPayload, type IntegrationTaskSummary, type IntegrationTaskSchedule } from '../../api/domain'
 
 const tasks = ref<IntegrationTask[]>([])
 const sources = ref<DataSourceView[]>([])
@@ -19,6 +19,7 @@ const detailLoading = ref(false)
 const detailTask = ref<IntegrationTask | null>(null)
 const detailBatches = ref<IntegrationBatch[]>([])
 const detailInstances = ref<IntegrationInstance[]>([])
+const detailSchedule = ref<IntegrationTaskSchedule | null>(null)
 const detailTab = ref('overview')
 const editorStep = ref(0)
 const editorMode = ref<'create' | 'edit'>('create')
@@ -103,12 +104,21 @@ function parseCronToParts(cron?: string) {
   syncCronFromParts()
 }
 
+function scheduleTextFromCron(cron?: string) {
+  const parts = (cron || '').trim().split(/\s+/)
+  if (parts.length < 6) return '未配置'
+  const minute = parts[1] || '0'
+  const hourValue = parts[2] || '*'
+  const dayValue = parts[3] || '*'
+  const monthValue = parts[4] || '*'
+  const month = monthValue === '*' ? '每月' : `${monthValue}月`
+  const day = dayValue === '*' ? '每日' : `${dayValue}日`
+  const hour = hourValue === '*' ? '每小时' : `${hourValue.padStart(2, '0')}时`
+  return `${month} ${day} ${hour} ${minute.padStart(2, '0')}分`
+}
+
 function scheduleText() {
-  if (!form.scheduleEnabled) return '仅手动执行'
-  const month = form.scheduleMonth === '*' ? '每月' : `${form.scheduleMonth}月`
-  const day = form.scheduleDay === '*' ? '每日' : `${form.scheduleDay}日`
-  const hour = form.scheduleHour === '*' ? '每小时' : `${form.scheduleHour.padStart(2, '0')}时`
-  return `${month} ${day} ${hour} ${form.scheduleMinute.padStart(2, '0')}分`
+  return form.scheduleEnabled ? scheduleTextFromCron(form.cronExpression) : '仅手动执行'
 }
 
 const filteredTasks = computed(() => {
@@ -187,15 +197,18 @@ async function openDetail(task: IntegrationTask) {
   detailTask.value = task
   detailBatches.value = []
   detailInstances.value = []
+  detailSchedule.value = null
   try {
-    const [fullTask, batchRows, instanceRows] = await Promise.all([
+    const [fullTask, batchRows, instanceRows, schedule] = await Promise.all([
       integrationApi.get(task.id),
       integrationApi.batches(task.id),
-      integrationApi.instances(task.id)
+      integrationApi.instances(task.id),
+      integrationApi.schedule(task.id)
     ])
     detailTask.value = fullTask
     detailBatches.value = batchRows
     detailInstances.value = instanceRows
+    detailSchedule.value = schedule
   } catch (error) {
     ElMessage.error(messageOf(error))
   } finally {
@@ -887,7 +900,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="ds-page">
+  <div class="ds-page ds-integration-page">
     <PageHeader title="离线同步" subtitle="MySQL → StarRocks 批式同步。用户只配置业务来源和目标，SeaTunnel 执行环境由平台统一管理。">
       <template #actions><el-button type="primary" @click="openCreate">+ 新建离线同步</el-button></template>
     </PageHeader>
@@ -913,9 +926,11 @@ onBeforeUnmount(() => {
         <el-table-column label="执行概况" min-width="165">
           <template #default="scope"><div class="runtime-summary"><span>数据量：<strong>{{ formatCount(taskSummary(scope.row)?.dataCount) }}</strong></span><span>耗时：{{ formatDuration(taskSummary(scope.row)?.durationMs) }}</span></div></template>
         </el-table-column>
-        <el-table-column label="最近状态" width="110"><template #default="scope"><StatusBadge :status="latestStatus(scope.row)" :label="statusLabel(latestStatus(scope.row))" /></template></el-table-column>
-        <el-table-column label="调度" min-width="225">
-          <template #default="scope"><div class="schedule-summary"><span>状态：<strong :class="isOnline(scope.row) ? 'schedule-online' : 'schedule-offline'">{{ isOnline(scope.row) ? '已开启' : '已下线' }}</strong></span><span>上次：{{ formatDateTime(taskSummary(scope.row)?.lastRunAt) }}</span><span>下次：{{ formatDateTime(taskSummary(scope.row)?.nextRunAt) }}</span></div></template>
+        <el-table-column label="状态" width="110">
+          <template #default="scope"><strong :class="isOnline(scope.row) ? 'schedule-online' : 'schedule-offline'">{{ isOnline(scope.row) ? '已开启' : '已下线' }}</strong></template>
+        </el-table-column>
+        <el-table-column label="调度" min-width="205">
+          <template #default="scope"><div class="schedule-summary"><span>上次：{{ formatDateTime(taskSummary(scope.row)?.lastRunAt) }}</span><span>下次：{{ formatDateTime(taskSummary(scope.row)?.nextRunAt) }}</span></div></template>
         </el-table-column>
         <el-table-column label="创建时间" min-width="175"><template #default="scope"><span class="time-cell">{{ taskCreatedAt(scope.row) }}</span></template></el-table-column>
         <el-table-column label="创建人" min-width="100"><template #default="scope">{{ taskCreatedBy(scope.row) }}</template></el-table-column>
@@ -973,6 +988,16 @@ onBeforeUnmount(() => {
                 <el-descriptions-item label="同步方式">{{ modeLabel(detailTask.syncMode) }}</el-descriptions-item>
                 <el-descriptions-item label="目标表策略">{{ schemaModeLabel(detailTask) }}</el-descriptions-item>
                 <el-descriptions-item label="WHERE 条件" :span="2"><code class="readonly-code">{{ detailWhere(detailTask) }}</code></el-descriptions-item>
+              </el-descriptions>
+            </section>
+            <section class="detail-section">
+              <div class="detail-section-title">调度配置</div>
+              <el-descriptions :column="2" border>
+                <el-descriptions-item label="调度状态">{{ detailSchedule?.enabled ? '已启用' : '未启用' }}</el-descriptions-item>
+                <el-descriptions-item label="调度策略">{{ detailSchedule?.enabled ? scheduleTextFromCron(detailSchedule?.cronExpression) : '仅手动执行' }}</el-descriptions-item>
+                <el-descriptions-item label="时区">{{ detailSchedule?.timezone || 'Asia/Shanghai' }}</el-descriptions-item>
+                <el-descriptions-item label="下次执行">{{ formatDateTime(taskSummary(detailTask)?.nextRunAt) }}</el-descriptions-item>
+                <el-descriptions-item label="上线行为" :span="2">上线只启用任务和调度，不会立即执行；手动运行或到达调度时间才会执行。</el-descriptions-item>
               </el-descriptions>
             </section>
             <section class="detail-section">
@@ -1153,7 +1178,9 @@ onBeforeUnmount(() => {
               <el-descriptions-item label="目标策略">{{ targetStrategyLabel(form.targetStrategy) }}</el-descriptions-item>
               <el-descriptions-item label="同步表数">{{ form.selectedTables.length }} 张</el-descriptions-item>
               <el-descriptions-item label="调度状态">{{ form.scheduleEnabled ? '已启用' : '未启用' }}</el-descriptions-item>
-              <el-descriptions-item label="调度规则">{{ form.scheduleEnabled ? `${scheduleText()} / ${form.timezone}` : '仅手动执行' }}</el-descriptions-item>
+              <el-descriptions-item label="调度策略">{{ form.scheduleEnabled ? scheduleText() : '仅手动执行' }}</el-descriptions-item>
+              <el-descriptions-item label="调度时区">{{ form.scheduleEnabled ? form.timezone : '—' }}</el-descriptions-item>
+              <el-descriptions-item label="上线行为">上线后等待手动运行或调度时间，不会立即执行</el-descriptions-item>
               <el-descriptions-item label="增量条件" :span="2">{{ form.where.trim() || '空（全量同步）' }}</el-descriptions-item>
             </el-descriptions>
 

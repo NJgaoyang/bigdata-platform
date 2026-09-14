@@ -20,7 +20,7 @@ function go(path:string){ void router.push(path) }
 onMounted(load)
 </script>
 <template>
-  <div class="ds-page">
+  <div class="ds-page ds-integration-page">
     <PageHeader title="集成概览" subtitle="查看同步任务运行状态和异常情况。" />
     <div v-if="error" class="ds-error">{{ error }} <span class="ds-link" @click="load">重新加载</span></div>
     <el-skeleton v-if="loading" :rows="7" animated />

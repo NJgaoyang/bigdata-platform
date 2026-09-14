@@ -65,16 +65,21 @@ public class IntegrationTaskScheduleService {
         boolean online = Boolean.TRUE.equals(jdbc.queryForObject("SELECT lifecycle_status='ONLINE' FROM integration_task WHERE id=?", Boolean.class, taskId));
         try {
             JobKey jobKey = jobKey(taskId);
+            TriggerKey triggerKey = triggerKey(taskId);
+            if (!online || !config.enabled()) {
+                if (quartz.checkExists(triggerKey)) quartz.unscheduleJob(triggerKey);
+                if (quartz.checkExists(jobKey)) quartz.deleteJob(jobKey);
+                return;
+            }
             JobDetail job = JobBuilder.newJob(IntegrationTaskQuartzJob.class).withIdentity(jobKey)
                     .usingJobData("taskId", String.valueOf(taskId)).storeDurably(true).build();
             if (quartz.checkExists(jobKey)) quartz.addJob(job, true); else quartz.addJob(job, false);
-            TriggerKey triggerKey = triggerKey(taskId);
             CronTrigger trigger = TriggerBuilder.newTrigger().withIdentity(triggerKey).forJob(jobKey)
                     .withSchedule(CronScheduleBuilder.cronSchedule(config.cronExpression())
                             .inTimeZone(TimeZone.getTimeZone(config.timezone())).withMisfireHandlingInstructionDoNothing())
                     .build();
             if (quartz.checkExists(triggerKey)) quartz.rescheduleJob(triggerKey, trigger); else quartz.scheduleJob(trigger);
-            if (online && config.enabled()) quartz.resumeTrigger(triggerKey); else quartz.pauseTrigger(triggerKey);
+            quartz.resumeTrigger(triggerKey);
         } catch (SchedulerException ex) { throw new BadRequestException("保存离线任务调度失败：" + ex.getMessage()); }
     }
 

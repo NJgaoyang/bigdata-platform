@@ -35,7 +35,7 @@ onMounted(load)
 </script>
 
 <template>
-  <div class="ds-page">
+  <div class="ds-page ds-integration-page">
     <PageHeader title="数据源管理" subtitle="集中维护平台允许使用的 MySQL 与 StarRocks 连接。">
       <template #actions><el-button type="primary" @click="openCreate">+ 新建数据源</el-button></template>
     </PageHeader>
