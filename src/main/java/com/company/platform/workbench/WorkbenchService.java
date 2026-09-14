@@ -40,7 +40,7 @@ public class WorkbenchService {
         List<Issue> result = new ArrayList<>();
         result.addAll(jdbc.query("SELECT id,name,status,last_check_message,last_checked_at FROM data_source WHERE UPPER(COALESCE(status,'')) IN ('DOWN','FAIL','FAILED','ERROR','UNAVAILABLE')", (rs,n) ->
                 new Issue("datasource-"+rs.getLong("id"),"数据源",rs.getString("name"),rs.getString("status"),
-                        summaryText(rs.getString("last_check_message"),"数据源连接异常"),date(rs,"last_checked_at"),"/integration/datasources")));
+                        summaryText(rs.getString("last_check_message"),"数据源连接异常"),date(rs,"last_checked_at"),"/system/data-sources")));
         result.addAll(jdbc.query("SELECT wi.id,w.name,wi.status,wi.error_message,COALESCE(wi.finished_at,wi.started_at,wi.created_at) occurred_at FROM workflow_instance wi LEFT JOIN workflow w ON w.workflow_code=wi.workflow_code WHERE wi.status='FAILED' AND COALESCE(wi.finished_at,wi.created_at)>=CURRENT_TIMESTAMP-INTERVAL 24 HOUR", (rs,n) ->
                 issue(rs,"workflow-","工作流",value(rs.getString("name"),"工作流实例"),"/operations/failures")));
         result.addAll(jdbc.query("SELECT ii.id,it.name,ii.status,ii.error_message,COALESCE(ii.finished_at,ii.started_at,ii.created_at) occurred_at FROM integration_instance ii LEFT JOIN integration_task it ON it.id=ii.task_id WHERE ii.status IN ('FAILED','ERROR','LOST') AND COALESCE(ii.finished_at,ii.created_at)>=CURRENT_TIMESTAMP-INTERVAL 24 HOUR", (rs,n) ->
