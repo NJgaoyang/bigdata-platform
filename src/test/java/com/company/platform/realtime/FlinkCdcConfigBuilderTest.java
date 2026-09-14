@@ -43,12 +43,14 @@ class FlinkCdcConfigBuilderTest {
         String yaml = builder.build(spec, true);
         assertTrue(yaml.contains("sink.buffer-flush.max-bytes: 67108864"));
         assertTrue(yaml.contains("sink.buffer-flush.interval-ms: 1500"));
-        assertTrue(yaml.contains("sink.semantic: 'exactly-once'"));
-        assertTrue(yaml.contains("sink.version: 'V2'"));
+        assertFalse(yaml.contains("sink.semantic:"));
+        assertFalse(yaml.contains("sink.version:"));
         assertTrue(yaml.contains("sink.at-least-once.use-transaction-stream-load: false"));
         assertTrue(yaml.contains("sink.properties.max_filter_ratio: '0'"));
         assertTrue(yaml.contains("sink.properties.strict_mode: 'true'"));
-        assertTrue(yaml.contains("scan.incremental.snapshot.backfill.skip: false"));
+        assertFalse(yaml.contains("scan.incremental.snapshot.backfill.skip"));
+        assertTrue(yaml.contains("schema-change.enabled: true"));
+        assertTrue(yaml.contains("scan.newly-added-table.enabled: true"));
         assertTrue(yaml.contains("treat-tinyint1-as-boolean.enabled: false"));
         assertTrue(yaml.contains("debezium.bigint.unsigned.handling.mode: 'precise'"));
         assertFalse(yaml.contains("sink.buffer-flush.max-rows"));

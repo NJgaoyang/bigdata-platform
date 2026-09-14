@@ -41,6 +41,8 @@ public class FlinkCdcConfigBuilder {
          .append("\n  scan.incremental.snapshot.chunk.size: ").append(intValue(spec.get("chunkSize"),8096))
          .append("\n  scan.snapshot.fetch.size: ").append(intValue(spec.get("fetchSize"),1024))
          .append("\n  treat-tinyint1-as-boolean.enabled: false")
+         .append("\n  schema-change.enabled: ").append(boolValue(spec, "syncSchema", true))
+         .append("\n  scan.newly-added-table.enabled: ").append(newTableAuto(spec))
          .append("\n  debezium.bigint.unsigned.handling.mode: ").append(q("precise"))
          .append("\n  heartbeat.interval: ").append(intValue(spec.get("heartbeatMs"),30000)).append("ms")
          .append("\n  server-time-zone: ").append(q(sourceView.timezone()==null||sourceView.timezone().isBlank()?"Asia/Shanghai":sourceView.timezone())).append("\n");
@@ -60,8 +62,6 @@ public class FlinkCdcConfigBuilder {
         String labelPrefix=str(spec.getOrDefault("labelPrefix","datasphere_rt_draft"));
         y.append("  sink.buffer-flush.max-bytes: ").append(maxBytes).append("\n")
          .append("  sink.buffer-flush.interval-ms: ").append(intValue(sinkCfg.get("flushIntervalMs"),2000)).append("\n")
-         .append("  sink.semantic: ").append(q("exactly-once")).append("\n")
-         .append("  sink.version: ").append(q("V2")).append("\n")
          .append("  sink.label-prefix: ").append(q(labelPrefix)).append("\n")
          .append("  sink.at-least-once.use-transaction-stream-load: false\n")
          .append("  sink.properties.max_filter_ratio: '0'\n")
@@ -87,4 +87,6 @@ public class FlinkCdcConfigBuilder {
     private String q(String s){return "'"+(s==null?"":s.replace("'","''"))+"'";}
     private String tableRegex(List<Map<String,Object>> tables,String key){return "("+String.join("|",tables.stream().map(t->str(t.get(key)).replace(".","\\.")).toList())+")";}
     private String startup(String mode){return switch(mode){case "latest-offset"->"latest-offset";case "timestamp"->"timestamp";case "specific-offset"->"specific-offset";default->"initial";};}
+    @SuppressWarnings("unchecked") private boolean newTableAuto(Map<String,Object> spec){Object raw=spec.get("schemaPolicies");if(!(raw instanceof Map<?,?> m))return true;return "AUTO".equalsIgnoreCase(str(((Map<String,Object>)m).getOrDefault("newTable","AUTO")));}
+    @SuppressWarnings("unchecked") private boolean boolValue(Map<String,Object> spec,String key,boolean fallback){Object policies=spec.get("schemaPolicies");if(policies instanceof Map<?,?> m && ((Map<String,Object>)m).containsKey(key)){Object v=((Map<String,Object>)m).get(key);return v instanceof Boolean b?b:Boolean.parseBoolean(String.valueOf(v));}Object v=spec.get(key);return v==null?fallback:(v instanceof Boolean b?b:Boolean.parseBoolean(String.valueOf(v)));}
 }
