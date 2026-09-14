@@ -40,7 +40,6 @@ public class FlinkCdcConfigBuilder {
         y.append("\n  scan.startup.mode: ").append(q(startup(str(spec.getOrDefault("startupMode","initial")))))
          .append("\n  scan.incremental.snapshot.chunk.size: ").append(intValue(spec.get("chunkSize"),8096))
          .append("\n  scan.snapshot.fetch.size: ").append(intValue(spec.get("fetchSize"),1024))
-         .append("\n  scan.incremental.snapshot.backfill.skip: false")
          .append("\n  treat-tinyint1-as-boolean.enabled: false")
          .append("\n  debezium.bigint.unsigned.handling.mode: ").append(q("precise"))
          .append("\n  heartbeat.interval: ").append(intValue(spec.get("heartbeatMs"),30000)).append("ms")
