@@ -3,6 +3,7 @@ package com.company.platform.integration;
 import com.company.platform.cluster.SeaTunnelClusterService;
 import com.company.platform.cluster.SeaTunnelClusterView;
 import com.company.platform.common.Result;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.*;
 
@@ -14,12 +15,14 @@ public class IntegrationController {
     private final IntegrationService service;
     private final IntegrationMetadataService metadataService;
     private final SeaTunnelClusterService clusterService;
+    private final IntegrationTaskSummaryService summaryService;
 
     public IntegrationController(IntegrationService service, IntegrationMetadataService metadataService,
-                                 SeaTunnelClusterService clusterService) {
+                                 SeaTunnelClusterService clusterService, IntegrationTaskSummaryService summaryService) {
         this.service = service;
         this.metadataService = metadataService;
         this.clusterService = clusterService;
+        this.summaryService = summaryService;
     }
 
     @GetMapping public Result<List<IntegrationTaskView>> list() { return Result.ok(service.list()); }
@@ -27,9 +30,15 @@ public class IntegrationController {
     @GetMapping("/source-databases") public Result<List<IntegrationMetadataService.DatabaseOption>> sourceDatabases(@RequestParam long dataSourceId) { return Result.ok(metadataService.mysqlDatabases(dataSourceId)); }
     @GetMapping("/source-tables") public Result<List<IntegrationMetadataService.TableOption>> sourceTables(@RequestParam long dataSourceId, @RequestParam(required = false) String database) { return Result.ok(metadataService.mysqlTables(dataSourceId, database)); }
 
-    @PostMapping public Result<IntegrationTaskView> create(@Valid @RequestBody IntegrationRequests.TaskRequest request) { return Result.ok(service.create(request)); }
+    @PostMapping public Result<IntegrationTaskView> create(@Valid @RequestBody IntegrationRequests.TaskRequest request, HttpServletRequest httpRequest) {
+        IntegrationTaskView created = service.create(request);
+        Object operator = httpRequest.getAttribute("platform.operator");
+        summaryService.recordCreator(created.id(), operator == null ? "platform" : String.valueOf(operator));
+        return Result.ok(created);
+    }
     @PutMapping("/{id}") public Result<IntegrationTaskView> update(@PathVariable long id, @Valid @RequestBody IntegrationRequests.TaskRequest request) { return Result.ok(service.update(id, request), "同步任务已更新"); }
     @GetMapping("/{id}") public Result<IntegrationTaskView> get(@PathVariable long id) { return Result.ok(service.get(id)); }
+    @GetMapping("/{id}/summary") public Result<IntegrationTaskSummaryService.Summary> summary(@PathVariable long id) { service.get(id); return Result.ok(summaryService.summary(id)); }
     @PostMapping("/{id}/online") public Result<IntegrationTaskView> online(@PathVariable long id) { return Result.ok(service.online(id), "离线同步任务已上线"); }
     @PostMapping("/{id}/offline") public Result<IntegrationTaskView> offline(@PathVariable long id) { return Result.ok(service.offline(id), "离线同步任务已下线"); }
     @DeleteMapping("/{id}") public Result<Void> delete(@PathVariable long id) { service.delete(id); return Result.ok(null, "同步任务已删除"); }

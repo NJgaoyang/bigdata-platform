@@ -30,6 +30,16 @@ function fmt(value?: string) {
   if (!value) return '—'
   return value.replace('T', ' ').replace(/\.\d+$/, '').slice(0, 19)
 }
+function statusLabel(status?: string) {
+  const value = (status || '').toUpperCase()
+  if (!value) return '未知'
+  if (value.includes('FINISHED') || value.includes('SUCCESS')) return '成功'
+  if (value.includes('RUNNING')) return '运行中'
+  if (value.includes('START') || value.includes('SUBMIT') || value.includes('QUEUED') || value.includes('PENDING')) return '等待运行'
+  if (value.includes('FAIL') || value.includes('ERROR') || value.includes('LOST') || value.includes('UNKNOWN')) return '失败'
+  if (value.includes('STOP') || value.includes('CANCEL')) return '已停止'
+  return status || '未知'
+}
 function running(row?: OperationInstance | null) {
   return !!row && ['RUNNING', 'STARTING', 'QUEUED', 'SUBMITTED'].some(x => (row.status || '').toUpperCase().includes(x))
 }
@@ -66,10 +76,7 @@ onBeforeUnmount(() => { stopLogPolling(); window.removeEventListener('keydown', 
       </div>
       <el-table :data="rows.filter(r => type === 'ALL' || r.type === type)" v-loading="loading">
         <el-table-column prop="name" label="任务" min-width="180" />
-        <el-table-column prop="type" label="类型" width="110" />
-        <el-table-column prop="engine" label="引擎" width="130" />
-        <el-table-column label="状态" width="130"><template #default="s"><StatusBadge :status="s.row.status" /></template></el-table-column>
-        <el-table-column prop="externalId" label="运行 ID" min-width="190" show-overflow-tooltip />
+        <el-table-column label="状态" width="130"><template #default="s"><StatusBadge :status="s.row.status" :label="statusLabel(s.row.status)" /></template></el-table-column>
         <el-table-column label="开始时间" min-width="170"><template #default="s">{{ fmt(s.row.startedAt || s.row.createdAt) }}</template></el-table-column>
         <el-table-column label="结束时间" min-width="170"><template #default="s">{{ fmt(s.row.finishedAt) }}</template></el-table-column>
         <el-table-column label="操作" width="160" fixed="right">

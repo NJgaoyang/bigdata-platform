@@ -4,12 +4,13 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import PageHeader from '../../components/PageHeader.vue'
 import StatusBadge from '../../components/StatusBadge.vue'
 import { dataSourceApi, type DataSourceView } from '../../api/platform'
-import { integrationApi, type IntegrationAttempt, type IntegrationBatch, type IntegrationCursor, type IntegrationInstance, type IntegrationTask, type IntegrationTaskPayload } from '../../api/domain'
+import { integrationApi, type IntegrationAttempt, type IntegrationBatch, type IntegrationCursor, type IntegrationInstance, type IntegrationTask, type IntegrationTaskPayload, type IntegrationTaskSummary } from '../../api/domain'
 
 const tasks = ref<IntegrationTask[]>([])
 const sources = ref<DataSourceView[]>([])
 const latest = ref<Record<number, IntegrationInstance | undefined>>({})
 const latestBatch = ref<Record<number, IntegrationBatch | undefined>>({})
+const taskSummaries = ref<Record<number, IntegrationTaskSummary | undefined>>({})
 const loading = ref(false)
 const saving = ref(false)
 const editorVisible = ref(false)
@@ -83,11 +84,12 @@ async function load() {
     tasks.value = taskRows.filter(task => task.syncMode !== 'REALTIME')
     sources.value = sourceRows
     const states = await Promise.all(tasks.value.map(async task => {
-      const [batchRows, instanceRows] = await Promise.all([integrationApi.batches(task.id), integrationApi.instances(task.id)])
-      return { taskId: task.id, batch: batchRows[0], instance: instanceRows[0] }
+      const [batchRows, instanceRows, summary] = await Promise.all([integrationApi.batches(task.id), integrationApi.instances(task.id), integrationApi.summary(task.id)])
+      return { taskId: task.id, batch: batchRows[0], instance: instanceRows[0], summary }
     }))
     latestBatch.value = Object.fromEntries(states.map(item => [item.taskId, item.batch]))
     latest.value = Object.fromEntries(states.map(item => [item.taskId, item.instance]))
+    taskSummaries.value = Object.fromEntries(states.map(item => [item.taskId, item.summary]))
   } catch (error) {
     ElMessage.error(messageOf(error))
   } finally {
@@ -602,6 +604,27 @@ function formatDateTime(value?: string) {
   return value.replace('T', ' ').replace(/\.\d+$/, '').slice(0, 19)
 }
 
+function formatCount(value?: number) {
+  if (value === undefined || value === null) return '—'
+  return new Intl.NumberFormat('zh-CN').format(value)
+}
+
+function formatDuration(ms?: number) {
+  if (ms === undefined || ms === null) return '—'
+  const seconds = Math.max(0, Math.round(ms / 1000))
+  if (seconds < 60) return `${seconds}秒`
+  const minutes = Math.floor(seconds / 60)
+  const rest = seconds % 60
+  if (minutes < 60) return `${minutes}分${rest ? `${rest}秒` : ''}`
+  const hours = Math.floor(minutes / 60)
+  const min = minutes % 60
+  return `${hours}小时${min ? `${min}分` : ''}`
+}
+
+function taskSummary(task: IntegrationTask) { return taskSummaries.value[task.id] }
+function taskCreatedAt(task: IntegrationTask) { return formatDateTime(taskSummary(task)?.createdAt) }
+function taskCreatedBy(task: IntegrationTask) { return taskSummary(task)?.createdBy || 'platform' }
+
 function statusLabel(status?: string) {
   const value = (status || '').toUpperCase()
   if (!value || value === '未运行' || value === 'UNKNOWN') return value === '未运行' ? '未运行' : '未知'
@@ -705,7 +728,14 @@ onBeforeUnmount(() => {
         <el-table-column label="表数" width="72"><template #default="scope">{{ scope.row.tables?.length || 0 }}</template></el-table-column>
         <el-table-column label="同步方式" width="105"><template #default="scope">{{ modeLabel(scope.row.syncMode) }}</template></el-table-column>
         <el-table-column label="最近状态" width="120"><template #default="scope"><StatusBadge :status="latestStatus(scope.row)" :label="statusLabel(latestStatus(scope.row))" /></template></el-table-column>
-        <el-table-column label="最近运行" width="175"><template #default="scope"><span class="time-cell">{{ latestStartedAt(scope.row) }}</span></template></el-table-column>
+        <el-table-column label="执行概况" min-width="150">
+          <template #default="scope"><div class="runtime-summary"><span>数据量：<strong>{{ formatCount(taskSummary(scope.row)?.dataCount) }}</strong></span><span>耗时：{{ formatDuration(taskSummary(scope.row)?.durationMs) }}</span></div></template>
+        </el-table-column>
+        <el-table-column label="调度" min-width="210">
+          <template #default="scope"><div class="schedule-summary"><span>状态：<strong :class="isOnline(scope.row) ? 'schedule-online' : 'schedule-offline'">{{ isOnline(scope.row) ? '已开启' : '已下线' }}</strong></span><span>上次：{{ formatDateTime(taskSummary(scope.row)?.lastRunAt) }}</span><span>下次：{{ formatDateTime(taskSummary(scope.row)?.nextRunAt) }}</span></div></template>
+        </el-table-column>
+        <el-table-column label="创建时间" width="175"><template #default="scope"><span class="time-cell">{{ taskCreatedAt(scope.row) }}</span></template></el-table-column>
+        <el-table-column label="创建人" width="110"><template #default="scope">{{ taskCreatedBy(scope.row) }}</template></el-table-column>
         <el-table-column label="操作" width="260" fixed="right">
           <template #default="scope">
             <template v-if="isOnline(scope.row)">
@@ -1032,7 +1062,7 @@ onBeforeUnmount(() => {
 .mapping-table{width:100%;border:1px solid var(--ds-border);border-radius:4px;overflow:hidden}.mapping-head,.mapping-row{display:grid;grid-template-columns:1fr 1fr;gap:18px;align-items:center;padding:10px 14px}.mapping-head{background:#f7f8fa;color:var(--ds-text-secondary);font-size:12px}.mapping-row{border-top:1px solid var(--ds-border)}.mapping-source{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px}
 .confirm-mappings{margin-top:20px;border:1px solid var(--ds-border);border-radius:4px}.confirm-title{padding:10px 14px;background:#f7f8fa;font-weight:600}.confirm-row{display:grid;grid-template-columns:1fr 36px 1fr;padding:9px 14px;border-top:1px solid var(--ds-border);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px}.drawer-footer{display:flex;align-items:center;width:100%}.log-box{min-height:300px;max-height:520px;overflow:auto;background:#111827;border-radius:4px;padding:14px}.log-box pre{margin:0;color:#d1d5db;white-space:pre-wrap;word-break:break-word;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;line-height:1.65}
 
-.task-name-link{border:0;background:transparent;padding:0;color:var(--el-color-primary);font:inherit;cursor:pointer;text-align:left}.task-name-link:hover{text-decoration:underline}.time-cell{white-space:nowrap;font-size:13px;color:var(--ds-text-primary)}.task-more{display:inline-flex;margin-left:12px}.danger-menu-item{color:var(--el-color-danger)}
+.runtime-summary,.schedule-summary{display:flex;flex-direction:column;gap:4px;font-size:12px;line-height:1.45;color:var(--ds-text-secondary)}.runtime-summary strong{color:var(--ds-text-primary);font-weight:600}.schedule-online{color:var(--ds-success)}.schedule-offline{color:#98a2b3}.task-name-link{border:0;background:transparent;padding:0;color:var(--el-color-primary);font:inherit;cursor:pointer;text-align:left}.task-name-link:hover{text-decoration:underline}.time-cell{white-space:nowrap;font-size:13px;color:var(--ds-text-primary)}.task-more{display:inline-flex;margin-left:12px}.danger-menu-item{color:var(--el-color-danger)}
 :deep(.offline-task-row){cursor:pointer}:deep(.offline-task-row:hover>td.el-table__cell){background:#f5f8ff!important}
 .detail-head{width:100%;display:flex;align-items:flex-start;justify-content:space-between;gap:24px;padding-right:8px}.detail-head h3{margin:4px 0 6px;font-size:20px;color:var(--ds-text-primary)}.detail-eyebrow{font-size:12px;color:var(--el-color-primary);font-weight:600}.detail-subtitle{font-size:12px;color:var(--ds-text-secondary)}.detail-actions{display:flex;gap:8px;flex:0 0 auto}.task-detail{padding:0 2px 24px}.detail-summary{display:grid;grid-template-columns:repeat(4,1fr);border:1px solid var(--ds-border);background:#fff;margin:2px 0 18px}.summary-item{min-height:72px;padding:12px 16px;border-right:1px solid var(--ds-border);display:flex;flex-direction:column;justify-content:center;gap:8px}.summary-item:last-child{border-right:0}.summary-item>span{font-size:12px;color:var(--ds-text-secondary)}.summary-item>strong{font-size:14px;color:var(--ds-text-primary);font-weight:600}.detail-tabs{margin-top:4px}.detail-section{margin-top:14px}.detail-section.no-top{margin-top:0}.detail-section-title{font-size:14px;font-weight:600;color:var(--ds-text-primary);margin:0 0 10px}.readonly-code{display:block;white-space:pre-wrap;word-break:break-all;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;color:#475467;background:#f8fafc;padding:2px 6px;border-radius:3px}.object-name{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:#344054}.object-name.target{color:var(--el-color-primary)}
 
