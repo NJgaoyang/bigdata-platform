@@ -72,5 +72,6 @@ export const dataSourceApi = {
   create: (payload: DataSourcePayload) => api.post<DataSourceView>('/data-sources', payload),
   update: (id: number, payload: DataSourcePayload) => api.put<DataSourceView>(`/data-sources/${id}`, payload),
   remove: (id: number) => api.delete<void>(`/data-sources/${id}`),
-  test: (id: number) => api.post<unknown>(`/data-sources/${id}/test`)
+  test: (id: number) => api.post<unknown>(`/data-sources/${id}/test`),
+  setMetadataVisible: (id:number, visible:boolean) => api.put<DataSourceView>(`/data-sources/${id}/metadata-visibility`, { visible })
 }

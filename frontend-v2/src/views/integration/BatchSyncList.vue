@@ -43,10 +43,8 @@ const selectedHistoryLogTitle = ref('')
 const historyLogMaximized = ref(false)
 const seatunnelPreview = ref('')
 const previewLoading = ref(false)
-const scheduleConfigMode = ref<'quick'|'custom'>('custom')
 const scheduleTab = ref<'minute'|'hour'|'day'|'month'|'week'>('minute')
 const schedulePreviewTimes = ref<string[]>([])
-const quickPreset = ref('DAILY_0200')
 let historyPollTimer: ReturnType<typeof setInterval> | null = null
 const backfillVisible = ref(false)
 const backfillTask = ref<IntegrationTask | null>(null)
@@ -103,12 +101,6 @@ function syncCronFromParts() {
 function selectScheduleDay(value: string) { form.scheduleDay = value; form.scheduleWeek = '?'; syncCronFromParts() }
 function selectScheduleWeek(value: string) { form.scheduleWeek = value; if (value !== '?') form.scheduleDay = '*'; syncCronFromParts() }
 
-function applyQuickPreset() {
-  if (quickPreset.value === 'HOURLY') { form.scheduleMinute='0'; form.scheduleHour='*'; form.scheduleDay='*'; form.scheduleMonth='*'; form.scheduleWeek='?' }
-  else if (quickPreset.value === 'DAILY_0000') { form.scheduleMinute='0'; form.scheduleHour='0'; form.scheduleDay='*'; form.scheduleMonth='*'; form.scheduleWeek='?' }
-  else { form.scheduleMinute='0'; form.scheduleHour='2'; form.scheduleDay='*'; form.scheduleMonth='*'; form.scheduleWeek='?' }
-  syncCronFromParts()
-}
 
 async function refreshSchedulePreview() {
   if (!form.scheduleEnabled || !form.cronExpression) { schedulePreviewTimes.value = []; return }
@@ -211,7 +203,6 @@ function resetEditor() {
   editorStep.value = 0
   seatunnelPreview.value = ''
   schedulePreviewTimes.value = []
-  scheduleConfigMode.value = 'custom'
   scheduleTab.value = 'minute'
   editingId.value = null
   for (const key of Object.keys(targetTables)) delete targetTables[key]
@@ -1030,14 +1021,14 @@ onBeforeUnmount(() => {
             </section>
             <section class="detail-section">
               <div class="detail-section-title">调度配置</div>
-              <el-descriptions :column="2" border>
+              <el-descriptions :column="5" border class="schedule-detail-line">
                 <el-descriptions-item label="任务上线状态"><strong :class="isOnline(detailTask) ? 'schedule-online' : 'schedule-offline'">{{ isOnline(detailTask) ? '已上线' : '已下线' }}</strong></el-descriptions-item>
                 <el-descriptions-item label="调度状态">{{ detailSchedule?.enabled ? '已启用' : '未启用' }}</el-descriptions-item>
-                <el-descriptions-item label="调度策略">{{ detailSchedule?.enabled ? scheduleTextFromCron(detailSchedule?.cronExpression) : '仅手动执行' }}</el-descriptions-item>
-                <el-descriptions-item label="时区">{{ detailSchedule?.timezone || 'Asia/Shanghai' }}</el-descriptions-item>
-                <el-descriptions-item label="下次执行">{{ formatDateTime(taskSummary(detailTask)?.nextRunAt) }}</el-descriptions-item>
-                <el-descriptions-item label="上线行为" :span="2">上线只启用任务和调度，不会立即执行；手动运行或到达调度时间才会执行。</el-descriptions-item>
+                <el-descriptions-item label="调度策略"><span class="nowrap-value" :title="detailSchedule?.enabled ? scheduleTextFromCron(detailSchedule?.cronExpression) : '仅手动执行'">{{ detailSchedule?.enabled ? scheduleTextFromCron(detailSchedule?.cronExpression) : '仅手动执行' }}</span></el-descriptions-item>
+                <el-descriptions-item label="时区"><span class="nowrap-value">{{ detailSchedule?.timezone || 'Asia/Shanghai' }}</span></el-descriptions-item>
+                <el-descriptions-item label="下次执行"><span class="nowrap-value">{{ formatDateTime(taskSummary(detailTask)?.nextRunAt) }}</span></el-descriptions-item>
               </el-descriptions>
+              <div class="schedule-detail-note">上线只启用任务和调度，不会立即执行；手动运行或到达调度时间才会执行。</div>
             </section>
             <section class="detail-section">
               <div class="detail-section-title">最近运行</div>
@@ -1066,15 +1057,15 @@ onBeforeUnmount(() => {
                 <el-table-column prop="batchCode" label="批次" min-width="190" show-overflow-tooltip />
                 <el-table-column label="触发方式" width="100"><template #default="scope">{{ triggerLabel(scope.row.triggerType) }}</template></el-table-column>
                 <el-table-column label="状态" width="110"><template #default="scope"><StatusBadge :status="scope.row.status" /></template></el-table-column>
-                <el-table-column prop="startedAt" label="开始时间" width="175" />
-                <el-table-column prop="finishedAt" label="结束时间" width="175" />
+                <el-table-column label="开始时间" width="175"><template #default="scope">{{ formatDateTime(scope.row.startedAt) }}</template></el-table-column>
+                <el-table-column label="结束时间" width="175"><template #default="scope">{{ formatDateTime(scope.row.finishedAt) }}</template></el-table-column>
                 <el-table-column label="日志" width="110"><template #default><span class="muted-inline">见运行记录</span></template></el-table-column>
               </el-table>
               <el-table v-else :data="detailInstances" border>
                 <el-table-column prop="executionId" label="执行 ID" min-width="220" show-overflow-tooltip />
                 <el-table-column label="状态" width="110"><template #default="scope"><StatusBadge :status="scope.row.status" /></template></el-table-column>
-                <el-table-column prop="startedAt" label="开始时间" width="175" />
-                <el-table-column prop="finishedAt" label="结束时间" width="175" />
+                <el-table-column label="开始时间" width="175"><template #default="scope">{{ formatDateTime(scope.row.startedAt) }}</template></el-table-column>
+                <el-table-column label="结束时间" width="175"><template #default="scope">{{ formatDateTime(scope.row.finishedAt) }}</template></el-table-column>
                 <el-table-column label="日志" width="100"><template #default><span class="muted-inline">见运行记录</span></template></el-table-column>
               </el-table>
             </section>
@@ -1185,18 +1176,8 @@ onBeforeUnmount(() => {
               </el-form-item>
               <el-form-item label="执行时间">
                 <div class="schedule-config-box" :class="{ disabled: !form.scheduleEnabled }">
-                  <div class="schedule-mode-tabs">
-                    <button type="button" :class="{ active: scheduleConfigMode === 'quick' }" @click="scheduleConfigMode='quick'">快速配置</button>
-                    <button type="button" :class="{ active: scheduleConfigMode === 'custom' }" @click="scheduleConfigMode='custom'">定时配置</button>
-                  </div>
-                  <div v-if="scheduleConfigMode === 'quick'" class="schedule-quick">
-                    <el-select v-model="quickPreset" :disabled="!form.scheduleEnabled" style="width:100%" @change="applyQuickPreset">
-                      <el-option label="每天 02:00" value="DAILY_0200" />
-                      <el-option label="每天 00:00" value="DAILY_0000" />
-                      <el-option label="每小时整点" value="HOURLY" />
-                    </el-select>
-                  </div>
-                  <div v-else class="schedule-custom">
+                  <div class="schedule-config-title">定时配置</div>
+                  <div class="schedule-custom">
                     <div class="schedule-unit-tabs">
                       <button v-for="item in [{k:'minute',t:'分'},{k:'hour',t:'时'},{k:'day',t:'日'},{k:'month',t:'月'},{k:'week',t:'周'}]" :key="item.k" type="button" :class="{ active: scheduleTab === item.k }" @click="scheduleTab = item.k as any">{{ item.t }}</button>
                     </div>
@@ -1379,8 +1360,8 @@ onBeforeUnmount(() => {
 .editor-steps :deep(.el-step__title){white-space:nowrap!important;font-size:14px!important}.editor-steps :deep(.el-step.is-simple .el-step__main){min-width:max-content}.editor-steps :deep(.el-step.is-simple){min-width:0;padding:0 14px}
 .history-shell{height:calc(100vh - 104px);display:flex;flex-direction:column;gap:10px;min-height:520px}.history-records{flex:0 0 auto;max-height:255px;overflow:auto;display:flex;flex-direction:column;gap:10px;padding-right:2px}.history-batch-card{border:1px solid var(--ds-border);background:#fff}.history-batch-head{min-height:48px;padding:8px 12px;display:grid;grid-template-columns:minmax(220px,1fr) 100px 285px auto;align-items:center;gap:12px;background:#f8fafc;border-bottom:1px solid var(--ds-border);font-size:12px;color:var(--ds-text-secondary)}.history-batch-head>div:first-child{display:flex;align-items:center;gap:10px;min-width:0}.history-batch-head strong{color:var(--ds-text-primary)}.history-batch-head span{white-space:nowrap}.history-batch-actions{display:flex;justify-content:flex-end}.history-attempts{display:flex;flex-direction:column}.history-attempt-row,.legacy-run-row{width:100%;border:0;border-bottom:1px solid #eef0f2;background:#fff;padding:9px 12px;display:grid;grid-template-columns:100px 100px minmax(220px,1fr) 170px 72px;align-items:center;gap:10px;text-align:left;font:inherit;color:var(--ds-text-secondary);cursor:pointer}.history-attempt-row:last-child{border-bottom:0}.history-attempt-row:hover,.legacy-run-row:hover,.history-attempt-row.selected,.legacy-run-row.selected{background:#f5f8ff}.history-attempt-row.selected,.legacy-run-row.selected{box-shadow:inset 3px 0 0 var(--el-color-primary)}.history-attempt-row strong,.legacy-run-row strong{color:var(--ds-text-primary)}.legacy-run-row{grid-template-columns:minmax(260px,1fr) 110px 320px 72px;border:1px solid var(--ds-border);margin-bottom:8px}.view-log-text{color:var(--el-color-primary);white-space:nowrap}.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.compact-note{margin:0;padding:9px 12px}.history-log-panel{flex:1;min-height:0;display:flex;flex-direction:column;border:1px solid var(--ds-border);background:#fff}.history-log-toolbar{min-height:52px;padding:8px 12px;border-bottom:1px solid var(--ds-border);display:flex;align-items:center;justify-content:space-between;gap:16px}.history-log-toolbar>div:first-child{display:flex;align-items:center;gap:10px;min-width:0}.history-log-toolbar strong{color:var(--ds-text-primary)}.history-log-toolbar span{font-size:12px;color:var(--ds-text-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.history-log-toolbar em{font-style:normal;font-size:12px;color:var(--ds-success);white-space:nowrap}.history-log-actions{display:flex;gap:6px;flex:0 0 auto}.history-log-viewer{flex:1;min-height:260px;overflow:auto;background:#111827;padding:14px 16px}.history-log-viewer pre{margin:0;color:#d1d5db;white-space:pre-wrap;word-break:break-word;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;line-height:1.65}.history-log-panel.is-maximized{position:fixed;z-index:4000;inset:18px;background:#fff;border:1px solid #cfd4dc;box-shadow:0 16px 48px rgba(0,0,0,.24)}.history-log-panel.is-maximized .history-log-viewer{min-height:0}.muted-inline{font-size:12px;color:var(--ds-text-tertiary)}.detail-run-toolbar{display:flex;justify-content:flex-end;margin:0 0 10px}
 @media (max-width:1000px){.form-grid,.table-selector,.confirm-grid,.database-pair{grid-template-columns:1fr}.database-arrow{transform:rotate(90deg)}.span-2{grid-column:auto}.table-source-pane{border-right:0;border-bottom:1px solid var(--ds-border)}}
-.schedule-form{max-width:720px}.field-tip{margin-top:6px;font-size:12px;color:var(--ds-text-secondary)}.schedule-behavior-note{display:flex;flex-direction:column;gap:8px;margin-top:10px;padding:14px 16px;border:1px solid var(--ds-border);background:var(--ds-fill-lighter);border-radius:6px;font-size:13px;color:var(--ds-text-secondary)}.schedule-behavior-note strong{color:var(--ds-text-primary)}
+.schedule-detail-line{width:100%}.schedule-detail-line :deep(.el-descriptions__body){table-layout:fixed}.schedule-detail-line :deep(.el-descriptions__cell){min-width:0}.nowrap-value{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.schedule-detail-note{margin-top:8px;padding:9px 12px;background:#f8fafc;border:1px solid var(--ds-border);color:var(--ds-text-secondary);font-size:12px;line-height:1.5}.schedule-form{max-width:720px}.field-tip{margin-top:6px;font-size:12px;color:var(--ds-text-secondary)}.schedule-behavior-note{display:flex;flex-direction:column;gap:8px;margin-top:10px;padding:14px 16px;border:1px solid var(--ds-border);background:var(--ds-fill-lighter);border-radius:6px;font-size:13px;color:var(--ds-text-secondary)}.schedule-behavior-note strong{color:var(--ds-text-primary)}
 
 .schedule-wheel-grid{display:grid;grid-template-columns:repeat(4,minmax(96px,1fr));gap:12px;width:100%}.schedule-wheel{display:flex;flex-direction:column;gap:6px}.schedule-wheel>span{font-size:12px;color:var(--ds-text-secondary);text-align:center}.schedule-wheel :deep(.el-select){width:100%}.schedule-wheel-grid.disabled{opacity:.65}@media(max-width:1100px){.schedule-wheel-grid{grid-template-columns:repeat(2,minmax(110px,1fr))}}
-.schedule-config-box{width:100%;border:1px solid var(--ds-border);border-radius:6px;background:#fff;overflow:hidden}.schedule-config-box.disabled{opacity:.65}.schedule-mode-tabs{display:flex;border-bottom:1px solid var(--ds-border);background:#fafbfc}.schedule-mode-tabs button{height:38px;padding:0 20px;border:0;border-right:1px solid var(--ds-border);background:transparent;color:var(--ds-text-secondary);cursor:pointer;font-weight:600}.schedule-mode-tabs button.active{background:#fff;color:var(--el-color-primary);box-shadow:inset 0 -2px 0 var(--el-color-primary)}.schedule-quick{padding:14px}.schedule-custom{padding:0 14px 14px}.schedule-unit-tabs{display:grid;grid-template-columns:repeat(5,1fr);border:1px solid var(--ds-border);border-top:0;background:#f7f8fa}.schedule-unit-tabs button{height:38px;border:0;border-right:1px solid var(--ds-border);background:transparent;color:var(--ds-text-secondary);cursor:pointer;font-weight:600}.schedule-unit-tabs button:last-child{border-right:0}.schedule-unit-tabs button.active{background:#fff;color:var(--el-color-primary)}.schedule-unit-picker{padding:14px 0 0}.schedule-preview-card{margin:0 14px 14px;padding:12px 14px;border:1px solid #d8e5f5;border-radius:6px;background:#f7fbff}.schedule-preview-title{font-size:12px;color:#8793a5;margin-bottom:8px}.schedule-preview-row{display:flex;align-items:center;gap:8px;height:28px;font-size:13px;color:#344054}.schedule-preview-row i{width:20px;height:20px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;background:var(--el-color-primary);color:#fff;font-style:normal;font-size:11px}.schedule-preview-empty{font-size:12px;color:var(--ds-text-tertiary)}
+.schedule-config-box{width:100%;border:1px solid var(--ds-border);border-radius:6px;background:#fff;overflow:hidden}.schedule-config-box.disabled{opacity:.65}.schedule-config-title{height:40px;padding:0 16px;display:flex;align-items:center;border-bottom:1px solid var(--ds-border);background:#fafbfc;color:var(--el-color-primary);font-weight:650}.schedule-custom{padding:0 14px 14px}.schedule-unit-tabs{display:grid;grid-template-columns:repeat(5,1fr);border:1px solid var(--ds-border);border-top:0;background:#f7f8fa}.schedule-unit-tabs button{height:38px;border:0;border-right:1px solid var(--ds-border);background:transparent;color:var(--ds-text-secondary);cursor:pointer;font-weight:600}.schedule-unit-tabs button:last-child{border-right:0}.schedule-unit-tabs button.active{background:#fff;color:var(--el-color-primary)}.schedule-unit-picker{padding:14px 0 0}.schedule-preview-card{margin:0 14px 14px;padding:12px 14px;border:1px solid #d8e5f5;border-radius:6px;background:#f7fbff}.schedule-preview-title{font-size:12px;color:#8793a5;margin-bottom:8px}.schedule-preview-row{display:flex;align-items:center;gap:8px;height:28px;font-size:13px;color:#344054}.schedule-preview-row i{width:20px;height:20px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;background:var(--el-color-primary);color:#fff;font-style:normal;font-size:11px}.schedule-preview-empty{font-size:12px;color:var(--ds-text-tertiary)}
 </style>

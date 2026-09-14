@@ -4,6 +4,7 @@ import { useRoute } from 'vue-router'
 import { ElMessage,ElMessageBox } from 'element-plus'
 import PageHeader from '../../components/PageHeader.vue'
 import StatusBadge from '../../components/StatusBadge.vue'
+import { formatDateTime } from '../../utils/display'
 import { accessApi, type AuditLog, type PlatformRole, type PlatformUser } from '../../api/access'
 import { authApi, type CurrentUser } from '../../api/auth'
 import { hasPermission } from '../../auth/permissions'
@@ -44,7 +45,7 @@ function editRolePermissions(r:PlatformRole){selectedPermissions.value=(r.permis
 function normalizePermissions(){const set=new Set(selectedPermissions.value);for(const [key] of modules)if(set.has(`${key}_EDIT`))set.add(`${key}_VIEW`);return [...set]}
 async function savePermissions(){if(!permissionTarget.value)return;try{const values=normalizePermissions();if(permissionTarget.value.kind==='user')await accessApi.setUserPermissions(permissionTarget.value.id,values);else await accessApi.setRolePermissions(permissionTarget.value.id,values);ElMessage.success('权限已更新');permissionDialog.value=false;await load()}catch(e){ElMessage.error(msg(e))}}
 function rolePermissionSummary(r:PlatformRole){const values=(r.permissions||[]).filter(x=>/_VIEW$|_EDIT$/.test(x));return values.length?`${values.length} 项权限`:'未配置（用户使用默认查看权限）'}
-function fmt(v?:string){return v?v.replace('T',' ').slice(0,16):'—'}
+function fmt(v?:string){return formatDateTime(v)}
 function msg(e:unknown){return e instanceof Error?e.message:'操作失败'}
 watch(()=>route.path,load);onMounted(load)
 </script>

@@ -5,7 +5,6 @@ export const productNavigation: ProductNavItem[] = [
   { key: 'workbench', label: '工作台', path: '/' },
   { key: 'integration', label: '数据集成', path: '/integration/overview', side: [
     { label: '集成概览', path: '/integration/overview' },
-    { label: '数据源管理', path: '/integration/datasources' },
     { label: '离线同步', path: '/integration/batch' },
     { label: '实时同步', path: '/integration/realtime' },
     { label: '运行实例', path: '/integration/instances' }
@@ -43,6 +42,7 @@ export const releaseNavigation: SideNavItem[] = [
 ]
 
 export const systemNavigation: SideNavItem[] = [
+  { label: '数据源设置', path: '/system/data-sources' },
   { label: '用户管理', path: '/system/users' },
   { label: '角色权限', path: '/system/roles' },
   { label: '数据源权限', path: '/system/data-source-permissions' },

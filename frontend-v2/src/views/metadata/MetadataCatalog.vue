@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { dataSourceApi } from '../../api/platform'
 import { metadataApi, type ColumnView, type DataSourceView, type DatabaseView, type LineageView, type TablePreview, type TableProfile, type TableView } from '../../api/domain'
+import { formatDateTime } from '../../utils/display'
 
 const sources=ref<DataSourceView[]>([]), databases=ref<DatabaseView[]>([]), tables=ref<TableView[]>([])
 const columns=ref<ColumnView[]>([]), profile=ref<TableProfile>(), lineage=ref<LineageView[]>([]), preview=ref<TablePreview>()
@@ -24,7 +25,7 @@ const filteredTables=computed(()=>{
   return q?tables.value.filter(item=>`${item.name} ${item.comment||''} ${item.type||''}`.toLowerCase().includes(q)):tables.value
 })
 function fmtSize(v?:number){if(v==null)return '—';if(v>=1024**3)return `${(v/1024**3).toFixed(2)} GB`;if(v>=1024**2)return `${(v/1024**2).toFixed(1)} MB`;if(v>=1024)return `${(v/1024).toFixed(1)} KB`;return `${v} B`}
-function fmtTime(v?:string){return v?String(v).replace('T',' ').slice(0,19):'—'}
+function fmtTime(v?:string){return formatDateTime(v)}
 
 async function loadSources(){
   error.value='';loading.value=true

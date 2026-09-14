@@ -8,7 +8,7 @@ import { productNavigation } from '../navigation'
 const routes:RouteRecordRaw[]=[{path:'/login',name:'login',component:LoginView,meta:{public:true}},{path:'/forbidden',name:'forbidden',component:()=>import('../views/auth/ForbiddenView.vue'),meta:{public:true}},{path:'/',component:PlatformLayout,children:[
 {path:'',name:'workbench',component:WorkbenchView,meta:{module:'workbench'}},
 {path:'integration/overview',component:()=>import('../views/integration/IntegrationOverview.vue'),meta:{module:'integration'}},
-{path:'integration/datasources',component:()=>import('../views/integration/DataSourceList.vue'),meta:{module:'integration'}},
+{path:'integration/datasources',redirect:'/system/data-sources'},
 {path:'integration/batch',component:()=>import('../views/integration/BatchSyncList.vue'),meta:{module:'integration'}},
 {path:'integration/realtime',component:()=>import('../views/integration/RealtimeSyncList.vue'),meta:{module:'integration'}},
 {path:'integration/instances',component:()=>import('../views/integration/IntegrationInstances.vue'),meta:{module:'integration'}},
@@ -29,6 +29,7 @@ const routes:RouteRecordRaw[]=[{path:'/login',name:'login',component:LoginView,m
 {path:'release/history',component:()=>import('../views/release/ReleaseCenter.vue'),meta:{module:'release'}},
 {path:'release/queue',component:()=>import('../views/release/ReleaseCenter.vue'),meta:{module:'release'}},
 {path:'release/policy',component:()=>import('../views/release/ReleaseCenter.vue'),meta:{module:'release'}},
+{path:'system/data-sources',component:()=>import('../views/integration/DataSourceList.vue'),meta:{module:'system'}},
 {path:'system/users',component:()=>import('../views/system/SystemAccess.vue'),meta:{module:'system'}},
 {path:'system/roles',component:()=>import('../views/system/SystemAccess.vue'),meta:{module:'system'}},
 {path:'system/data-source-permissions',component:()=>import('../views/system/DataSourcePermissions.vue'),meta:{module:'system'}},

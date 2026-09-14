@@ -4,6 +4,7 @@ import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import PageHeader from '../../components/PageHeader.vue'
 import StatusBadge from '../../components/StatusBadge.vue'
+import { formatDateTime } from '../../utils/display'
 import { releaseApi, type ReleasePolicy, type ReleaseRecord, type ReleaseRequestView } from '../../api/domain'
 const route=useRoute();const loading=ref(true);const policy=ref<ReleasePolicy|null>(null),requests=ref<ReleaseRequestView[]>([]),records=ref<ReleaseRecord[]>([])
 const mode=computed(()=>route.path.split('/').pop()||'history')
@@ -13,7 +14,7 @@ async function load(){loading.value=true;try{policy.value=await releaseApi.polic
 async function toggle(v:boolean){try{policy.value=await releaseApi.updatePolicy(v);ElMessage.success(v?'人工审批已开启':'人工审批已关闭，后续发布自动审批通过')}catch(e){ElMessage.error(e instanceof Error?e.message:'更新失败')}}
 async function approve(r:ReleaseRequestView){try{const comment=await ElMessageBox.prompt('可填写审批意见','审批通过',{confirmButtonText:'通过',cancelButtonText:'取消',inputType:'textarea'});await releaseApi.approve(r.id,comment.value||'');ElMessage.success('已审批并发布');await load()}catch(e){if(e!=='cancel'&&e!=='close')ElMessage.error(e instanceof Error?e.message:'审批失败')}}
 async function reject(r:ReleaseRequestView){try{const comment=await ElMessageBox.prompt('请输入驳回原因','驳回发布',{confirmButtonText:'驳回',cancelButtonText:'取消',inputValidator:v=>!!String(v||'').trim()||'请填写驳回原因'});await releaseApi.reject(r.id,comment.value||'');ElMessage.success('已驳回');await load()}catch(e){if(e!=='cancel'&&e!=='close')ElMessage.error(e instanceof Error?e.message:'驳回失败')}}
-function fmt(v?:string){return v?v.replace('T',' ').slice(0,16):'—'}
+function fmt(v?:string){return formatDateTime(v)}
 watch(()=>route.path,load);onMounted(load)
 </script><template><div class="ds-page"><PageHeader :title="title" :subtitle="subtitle"/><el-skeleton v-if="loading" :rows="7" animated/>
 <div v-else-if="mode==='history'" class="ds-card"><div class="ds-toolbar"><strong>生产发布记录</strong><div class="ds-spacer"/><span class="policy-tip">{{policy?.approvalRequired?'人工审批已开启':'自动审批'}}</span></div><div v-if="!records.length" class="ds-empty"><div><div class="ds-empty__title">暂无发布记录</div></div></div><table v-else class="ds-table"><thead><tr><th>资源</th><th>类型</th><th>版本</th><th>结果</th><th>发布人</th><th>发布时间</th><th>详情</th></tr></thead><tbody><tr v-for="r in records" :key="r.id"><td class="ds-resource">{{r.resourceName||`${r.resourceType} #${r.resourceId}`}}</td><td>{{r.resourceType}}</td><td>{{r.releasedVersion?`V${r.releasedVersion}`:'—'}}</td><td><StatusBadge :status="r.resultStatus"/></td><td>{{r.operatorName}}</td><td>{{fmt(r.releasedAt)}}</td><td :title="r.detail">{{r.detail||'—'}}</td></tr></tbody></table></div>

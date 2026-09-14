@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import PageHeader from '../../components/PageHeader.vue'
 import StatusBadge from '../../components/StatusBadge.vue'
+import { formatDateTime } from '../../utils/display'
 import { workbenchApi, type WorkbenchIssue, type WorkbenchRun, type WorkbenchSummary } from '../../api/platform'
 
 const router = useRouter()
@@ -17,7 +18,7 @@ const visibleIssues = computed(() => issues.value.slice(0, 6))
 const visibleRuns = computed(() => recentRuns.value.slice(0, 8))
 
 function go(path?: string) { if (path) void router.push(path) }
-function formatTime(value?: string) { return value ? value.replace('T', ' ').slice(5, 16) : '—' }
+function formatTime(value?: string) { return formatDateTime(value) }
 
 async function load() {
   loading.value = true

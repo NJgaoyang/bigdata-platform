@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { statusLabel } from '../utils/display'
 const props = defineProps<{ status?: string; label?: string }>()
 const normalized = computed(() => (props.status || 'UNKNOWN').toUpperCase())
 const tone = computed(() => {
@@ -10,7 +11,7 @@ const tone = computed(() => {
   return 'neutral'
 })
 </script>
-<template><span :class="['status-badge', `status-badge--${tone}`]"><i />{{ props.label || normalized }}</span></template>
+<template><span :class="['status-badge', `status-badge--${tone}`]"><i />{{ props.label || statusLabel(normalized) }}</span></template>
 <style scoped>
 .status-badge { display: inline-flex; align-items: center; gap: 6px; color: #475467; font-size: 12px; }
 .status-badge i { width: 7px; height: 7px; border-radius: 50%; background: #98a2b3; }

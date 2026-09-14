@@ -16,7 +16,7 @@ const canSystem=computed(()=>hasPermission(me.value,moduleViewPermission.system)
 const isFullWidth = computed(() => moduleKey.value === 'workbench' || moduleKey.value === 'metadata')
 const sideTitle = computed(() => {
   if (moduleKey.value === 'release') return '发布中心'
-  if (moduleKey.value === 'system') return '系统管理'
+  if (moduleKey.value === 'system') return '系统设置'
   return activeProduct.value?.label || ''
 })
 const sideItems = computed(() => {
@@ -54,11 +54,8 @@ onMounted(loadMe)
           </button>
           <template #dropdown>
             <el-dropdown-menu>
-              <template v-if="canSystem"><el-dropdown-item @click="go('/system/users')">用户管理</el-dropdown-item>
-              <el-dropdown-item @click="go('/system/roles')">角色权限</el-dropdown-item>
-              <el-dropdown-item @click="go('/system/data-source-permissions')">数据源权限</el-dropdown-item>
-              <el-dropdown-item @click="go('/system/audit')">审计日志</el-dropdown-item></template>
-              <el-dropdown-item divided @click="logout">退出登录</el-dropdown-item>
+              <el-dropdown-item v-if="canSystem" @click="go('/system/data-sources')">系统设置</el-dropdown-item>
+              <el-dropdown-item :divided="canSystem" @click="logout">退出登录</el-dropdown-item>
             </el-dropdown-menu>
           </template>
         </el-dropdown>

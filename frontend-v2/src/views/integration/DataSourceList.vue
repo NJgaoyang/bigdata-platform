@@ -30,13 +30,14 @@ function onTypeChange(){ if(!editingId.value) form.port=form.type==='MYSQL'?3306
 async function save(){ if(!formRef.value || !(await formRef.value.validate().catch(()=>false))) return; saving.value=true; try{ if(editingId.value) await dataSourceApi.update(editingId.value,{...form}); else await dataSourceApi.create({...form}); ElMessage.success(editingId.value?'数据源已更新':'数据源已创建'); dialogVisible.value=false; await load() }catch(e){ ElMessage.error(e instanceof Error?e.message:'保存失败') }finally{ saving.value=false } }
 async function test(row:DataSourceView){ testingId.value=row.id; try{ await dataSourceApi.test(row.id); ElMessage.success(`${row.name} 连接成功`); await load() }catch(e){ ElMessage.error(e instanceof Error?e.message:'连接测试失败') }finally{ testingId.value=null } }
 async function remove(row:DataSourceView){ try{ await ElMessageBox.confirm(`确认删除数据源“${row.name}”？此操作不会删除源端或 StarRocks 中的数据。`,'删除数据源',{type:'warning',confirmButtonText:'删除',cancelButtonText:'取消'}); await dataSourceApi.remove(row.id); ElMessage.success('已删除'); await load() }catch(e){ if(e!=='cancel' && e!=='close') ElMessage.error(e instanceof Error?e.message:'删除失败') } }
+async function setMetadataVisible(row:DataSourceView, visible:boolean){ try{ await dataSourceApi.setMetadataVisible(row.id, visible); row.metadataVisible=visible; ElMessage.success(visible?'已开启元数据展示':'已关闭元数据展示') }catch(e){ row.metadataVisible=!visible; ElMessage.error(e instanceof Error?e.message:'设置失败') } }
 function address(row:DataSourceView){ return `${row.host}:${row.port}${row.databaseName?` / ${row.databaseName}`:''}` }
 onMounted(load)
 </script>
 
 <template>
-  <div class="ds-page ds-integration-page">
-    <PageHeader title="数据源管理" subtitle="集中维护平台允许使用的 MySQL 与 StarRocks 连接。">
+  <div class="ds-page">
+    <PageHeader title="数据源设置" subtitle="集中维护平台允许使用的 MySQL 与 StarRocks 连接，并控制是否在元数据中展示。">
       <template #actions><el-button type="primary" @click="openCreate">+ 新建数据源</el-button></template>
     </PageHeader>
     <div v-if="error" class="ds-error">{{ error }} <span class="ds-link" @click="load">重新加载</span></div>
@@ -45,8 +46,8 @@ onMounted(load)
       <el-skeleton v-if="loading" :rows="5" animated class="source-skeleton" />
       <div v-else-if="!rows.length" class="ds-empty"><div><div class="ds-empty__title">暂无数据源</div><div>创建 MySQL 或 StarRocks 连接后即可开始使用。</div></div></div>
       <table v-else class="ds-table">
-        <thead><tr><th style="width:16%">名称</th><th style="width:11%">类型</th><th style="width:29%">地址</th><th style="width:12%">用途</th><th style="width:13%">状态</th><th>操作</th></tr></thead>
-        <tbody><tr v-for="row in rows" :key="row.id"><td class="ds-resource">{{ row.name }}</td><td>{{ row.type }}</td><td>{{ address(row) }}</td><td>{{ row.type==='MYSQL'?'同步源':'同步目标 / 查询' }}</td><td><StatusBadge :status="row.status" /></td><td><span class="ds-link" @click="test(row)">{{ testingId===row.id?'测试中...':'测试' }}</span><span class="op-sep">·</span><span class="ds-link" @click="openEdit(row)">编辑</span><span class="op-sep">·</span><span class="danger-link" @click="remove(row)">删除</span></td></tr></tbody>
+        <thead><tr><th style="width:15%">名称</th><th style="width:9%">类型</th><th style="width:25%">地址</th><th style="width:12%">用途</th><th style="width:12%">状态</th><th style="width:13%">元数据展示</th><th>操作</th></tr></thead>
+        <tbody><tr v-for="row in rows" :key="row.id"><td class="ds-resource">{{ row.name }}</td><td>{{ row.type }}</td><td>{{ address(row) }}</td><td>{{ row.type==='MYSQL'?'同步源':'同步目标 / 查询' }}</td><td><StatusBadge :status="row.status" /></td><td><el-switch :model-value="row.metadataVisible" @change="(value:any)=>setMetadataVisible(row, Boolean(value))" /></td><td><span class="ds-link" @click="test(row)">{{ testingId===row.id?'测试中...':'测试' }}</span><span class="op-sep">·</span><span class="ds-link" @click="openEdit(row)">编辑</span><span class="op-sep">·</span><span class="danger-link" @click="remove(row)">删除</span></td></tr></tbody>
       </table>
     </div>
 
@@ -62,7 +63,7 @@ onMounted(load)
           <el-form-item label="用户名" prop="username"><el-input v-model="form.username" /></el-form-item>
         </div>
         <el-form-item :label="editingId?'密码（留空表示不修改）':'密码'"><el-input v-model="form.password" type="password" show-password autocomplete="new-password" /></el-form-item>
-        <el-form-item><el-checkbox v-model="form.metadataVisible">在元数据目录中可见</el-checkbox></el-form-item>
+        <el-form-item label="元数据展示"><el-switch v-model="form.metadataVisible" active-text="开启" inactive-text="关闭" /></el-form-item>
       </el-form>
       <template #footer><el-button @click="dialogVisible=false">取消</el-button><el-button type="primary" :loading="saving" @click="save">保存</el-button></template>
     </el-dialog>

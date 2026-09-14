@@ -3,6 +3,7 @@ import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import PageHeader from '../../components/PageHeader.vue'
 import StatusBadge from '../../components/StatusBadge.vue'
+import { formatDateTime } from '../../utils/display'
 import { operationsApi, type OperationInstance } from '../../api/domain'
 
 const rows = ref<OperationInstance[]>([])
@@ -26,10 +27,7 @@ async function stop(row: OperationInstance) {
   try { await operationsApi.stop(row.type, row.id); ElMessage.success('停止请求已提交'); await load() }
   catch (e) { ElMessage.error(e instanceof Error ? e.message : '停止失败') }
 }
-function fmt(value?: string) {
-  if (!value) return '—'
-  return value.replace('T', ' ').replace(/\.\d+$/, '').slice(0, 19)
-}
+function fmt(value?: string) { return formatDateTime(value) }
 function statusLabel(status?: string) {
   const value = (status || '').toUpperCase()
   if (!value) return '未知'
