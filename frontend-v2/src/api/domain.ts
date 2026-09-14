@@ -140,6 +140,7 @@ export const realtimeApi = {
   publish: (id:number) => api.post<RealtimeJob>(`/realtime/jobs/${id}/publish`),
   start: (id:number) => api.post<RealtimeRuntime>(`/realtime/jobs/${id}/start`),
   stop: (id:number) => api.post<RealtimeRuntime>(`/realtime/jobs/${id}/stop`),
+  remove: (id:number) => api.delete<void>(`/realtime/jobs/${id}`),
   restart: (id:number) => api.post<RealtimeRuntime>(`/realtime/jobs/${id}/restart`),
   runtime: (id:number) => api.get<RealtimeRuntime>(`/realtime/jobs/${id}/runtime`),
   checkpoints: (id:number) => api.get<any>(`/realtime/jobs/${id}/checkpoints`),

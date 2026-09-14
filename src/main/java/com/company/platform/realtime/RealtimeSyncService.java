@@ -42,7 +42,8 @@ public class RealtimeSyncService {
                 request.name(),request.description(),env,json,digest,operator(operator));
         Long id=jdbc.queryForObject("SELECT id FROM realtime_sync_definition WHERE name=? AND created_by=? ORDER BY id DESC LIMIT 1",Long.class,request.name(),operator(operator));
         jdbc.update("INSERT INTO realtime_sync_version(job_id,version_no,spec_json,config_digest,published,created_by) VALUES(?,?,?,?,FALSE,?)",id,1,json,digest,operator(operator));
-        event(id,null,"CREATED","创建实时同步草稿 V1");return get(id);
+        event(id,null,"CREATED","创建实时同步任务 V1");
+        return prepareRunnableVersion(id,operator,"READY");
     }
 
     @Transactional
@@ -50,9 +51,11 @@ public class RealtimeSyncService {
         RealtimeViews.Job current=get(id);Map<String,Object> spec=new LinkedHashMap<>(request.spec()==null?current.spec():request.spec());
         String name=request.name()==null||request.name().isBlank()?current.name():request.name().trim();spec.put("name",name);String json=json(spec),digest=digest(json);int version=current.definitionVersion()+1;
         Long env=request.runtimeEnvironmentId()==null?current.runtimeEnvironmentId():request.runtimeEnvironmentId();String desc=request.description()==null?current.description():request.description();
+        if(Set.of("STARTING","RUNNING","STOPPING").contains(current.observedState())) throw new BadRequestException("实时任务运行中，请先停止后再修改配置");
         jdbc.update("UPDATE realtime_sync_definition SET name=?,description=?,runtime_environment_id=?,release_state='DRAFT',definition_version=?,spec_json=?,config_digest=?,last_error=NULL WHERE id=?",name,desc,env,version,json,digest,id);
         jdbc.update("INSERT INTO realtime_sync_version(job_id,version_no,spec_json,config_digest,published,created_by) VALUES(?,?,?,?,FALSE,?)",id,version,json,digest,operator(operator));
-        event(id,null,"DRAFT_SAVED","保存草稿 V"+version);return get(id);
+        event(id,null,"CONFIG_UPDATED","保存配置 V"+version);
+        return prepareRunnableVersion(id,operator,"READY");
     }
 
     public Validation validateDraft(RealtimeRequests.CreateJobRequest request){
@@ -84,8 +87,12 @@ public class RealtimeSyncService {
 
     @Transactional
     public RealtimeViews.Job publish(long id,String operator){
+        return prepareRunnableVersion(id,operator,"PUBLISHED");
+    }
+
+    private RealtimeViews.Job prepareRunnableVersion(long id,String operator,String eventType){
         RealtimeViews.Job job=get(id);
-        if(job.runtimeEnvironmentId()==null)throw new BadRequestException("发布前必须选择 Flink 运行环境");
+        if(job.runtimeEnvironmentId()==null)throw new BadRequestException("必须选择 Flink 运行环境");
         if(!environments.get(job.runtimeEnvironmentId()).enabled())throw new BadRequestException("Flink 运行环境已禁用");
         int parallelism=intValue(job.spec().get("parallelism"),1);
         String serverId=serverIds.allocate(id,parallelism);
@@ -96,18 +103,20 @@ public class RealtimeSyncService {
         configBuilder.validate(effective);
         RealtimePreCheckService.Report report=preCheck.check(effective);
         if(!report.allowed()){
-            String errors=report.items().stream().filter(RealtimePreCheckService.Item::blocking).map(i->i.message()+"（"+i.detail()+"）").reduce((a,b)->a+"；"+b).orElse("发布前检查失败");
+            String errors=report.items().stream().filter(RealtimePreCheckService.Item::blocking).map(i->i.message()+"（"+i.detail()+"）").reduce((a,b)->a+"；"+b).orElse("创建前检查失败");
             throw new BadRequestException(errors);
         }
         preCheck.prepareTargets(effective);
         String effectiveJson=json(effective), effectiveDigest=digest(effectiveJson);
-        jdbc.update("UPDATE realtime_sync_version SET spec_json=?,config_digest=?,published=(version_no=?) WHERE job_id=? AND version_no=?",effectiveJson,effectiveDigest,job.definitionVersion(),id,job.definitionVersion());
+        jdbc.update("UPDATE realtime_sync_version SET published=FALSE WHERE job_id=?",id);
+        jdbc.update("UPDATE realtime_sync_version SET spec_json=?,config_digest=?,published=TRUE WHERE job_id=? AND version_no=?",effectiveJson,effectiveDigest,id,job.definitionVersion());
         jdbc.update("UPDATE realtime_sync_definition SET spec_json=?,config_digest=?,release_state='PUBLISHED',published_version=?,last_error=NULL WHERE id=?",effectiveJson,effectiveDigest,job.definitionVersion(),id);
-        event(id,null,"PUBLISHED","发布 V"+job.definitionVersion()+"，Server ID="+serverId+" by "+operator(operator));return get(id);
+        event(id,null,eventType,"运行配置已就绪 V"+job.definitionVersion()+"，Server ID="+serverId+" by "+operator(operator));
+        return get(id);
     }
 
     @Transactional
-    public RealtimeViews.Runtime start(long id,String operator){RealtimeViews.Job job=get(id);if(job.publishedVersion()==null)throw new BadRequestException("请先发布实时同步任务");if(job.runtimeEnvironmentId()==null)throw new BadRequestException("未配置 Flink 运行环境");if(Set.of("STARTING","RUNNING","STOPPING").contains(job.observedState()))throw new BadRequestException("实时任务当前正在运行或状态切换中，请勿重复启动");
+    public RealtimeViews.Runtime start(long id,String operator){RealtimeViews.Job job=get(id);if(job.publishedVersion()==null||job.publishedVersion()!=job.definitionVersion()){prepareRunnableVersion(id,operator,"READY");job=get(id);}if(job.runtimeEnvironmentId()==null)throw new BadRequestException("未配置 Flink 运行环境");if(Set.of("STARTING","RUNNING","STOPPING").contains(job.observedState()))throw new BadRequestException("实时任务当前正在运行或状态切换中，请勿重复启动");
         Map<String,Object> spec=publishedSpec(id,job.publishedVersion());FlinkEnvironmentService.RuntimeEnvironment env=environments.runtime(job.runtimeEnvironmentId());String yaml=configBuilder.build(spec,false);
         jdbc.update("UPDATE realtime_sync_definition SET desired_state='RUNNING',observed_state='STARTING',last_error=NULL WHERE id=?",id);
         jdbc.update("INSERT INTO realtime_sync_execution(job_id,definition_version,runtime_environment_snapshot,status,started_at) VALUES(?,?,?,'STARTING',CURRENT_TIMESTAMP)",id,job.publishedVersion(),json(env.view()));
@@ -158,6 +167,20 @@ public class RealtimeSyncService {
 
     public RealtimeViews.Runtime restart(long id,String operator){RealtimeViews.Job job=get(id);if(!"STOPPED".equals(job.observedState()))try{stop(id,operator);}catch(RuntimeException ignored){}return start(id,operator);}
     public RealtimeViews.Runtime applyPublishedVersion(long id,String operator){return restart(id,operator);}
+
+    @Transactional
+    public void remove(long id,String operator){
+        RealtimeViews.Job job=get(id);
+        if(Set.of("STARTING","RUNNING","STOPPING").contains(job.observedState())) throw new BadRequestException("实时任务正在运行，请先停止后再删除");
+        jdbc.update("DELETE FROM realtime_validation_result WHERE job_id=?",id);
+        jdbc.update("DELETE FROM realtime_schema_change WHERE job_id=?",id);
+        jdbc.update("DELETE FROM realtime_schema_snapshot WHERE job_id=?",id);
+        jdbc.update("DELETE FROM realtime_checkpoint WHERE job_id=?",id);
+        jdbc.update("DELETE FROM realtime_sync_event WHERE job_id=?",id);
+        jdbc.update("DELETE FROM realtime_sync_execution WHERE job_id=?",id);
+        jdbc.update("DELETE FROM realtime_sync_version WHERE job_id=?",id);
+        jdbc.update("DELETE FROM realtime_sync_definition WHERE id=?",id);
+    }
 
     public RealtimeViews.Runtime runtime(long id){
         RealtimeViews.Job job=get(id);

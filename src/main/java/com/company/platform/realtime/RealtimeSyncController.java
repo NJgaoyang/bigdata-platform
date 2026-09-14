@@ -26,6 +26,7 @@ public class RealtimeSyncController {
     @PostMapping("/{id}/publish") public Result<RealtimeViews.Job> publish(@PathVariable long id,HttpServletRequest req){return Result.ok(service.publish(id,operator(req)),"实时任务已发布");}
     @PostMapping("/{id}/start") public Result<RealtimeViews.Runtime> start(@PathVariable long id,HttpServletRequest req){return Result.ok(service.start(id,operator(req)),"实时任务已启动");}
     @PostMapping("/{id}/stop") public Result<RealtimeViews.Runtime> stop(@PathVariable long id,HttpServletRequest req){return Result.ok(service.stop(id,operator(req)),"实时任务已停止");}
+    @DeleteMapping("/{id}") public Result<Void> remove(@PathVariable long id,HttpServletRequest req){service.remove(id,operator(req));return Result.ok(null,"实时任务已删除");}
     @PostMapping("/{id}/restart") public Result<RealtimeViews.Runtime> restart(@PathVariable long id,HttpServletRequest req){return Result.ok(service.restart(id,operator(req)),"实时任务已重启");}
     @PostMapping("/{id}/apply-published-version") public Result<RealtimeViews.Runtime> apply(@PathVariable long id,HttpServletRequest req){return Result.ok(service.applyPublishedVersion(id,operator(req)),"已应用发布版本");}
     @GetMapping("/{id}/runtime") public Result<RealtimeViews.Runtime> runtime(@PathVariable long id){return Result.ok(service.runtime(id));}
