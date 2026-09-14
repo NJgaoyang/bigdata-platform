@@ -232,6 +232,11 @@ function clearSelectedTables() {
   form.selectedTables = []
 }
 
+function removeSelectedTable(table: string) {
+  form.selectedTables = form.selectedTables.filter(item => item !== table)
+  delete targetTables[table]
+}
+
 function validateStep(step: number) {
   if (step === 0) {
     if (!form.name.trim()) return '请输入任务名称'
@@ -739,8 +744,9 @@ onMounted(load)
               <div class="table-selected-pane">
                 <div class="pane-title"><strong>已选择 {{ form.selectedTables.length }} 张表</strong><el-button link @click="clearSelectedTables">清空</el-button></div>
                 <div v-if="!form.selectedTables.length" class="empty-selection">从左侧勾选需要同步的表</div>
-                <div v-for="table in form.selectedTables" :key="table" class="selected-row">
+                <div v-for="table in form.selectedTables" :key="table" class="selected-row selected-row-editable">
                   <span>{{ table }}</span><span class="arrow">→</span><span>{{ targetTables[table] }}</span>
+                  <el-button link type="danger" @click="removeSelectedTable(table)">移除</el-button>
                 </div>
               </div>
             </div>
@@ -890,7 +896,7 @@ onMounted(load)
 .editor-shell{display:flex;flex-direction:column;min-height:620px}.editor-steps{margin-bottom:24px}.editor-body{flex:1;padding:0 4px}
 .section-title{font-size:16px;font-weight:600;color:var(--ds-text-primary);margin-bottom:8px}.section-tip{font-size:13px;color:var(--ds-text-secondary);margin-bottom:22px;line-height:1.7}
 .form-grid{display:grid;grid-template-columns:1fr 1fr;gap:0 20px}.span-2{grid-column:1 / -1}.prefix-input{display:flex;gap:8px;width:100%}
-.table-selector{display:grid;grid-template-columns:1.1fr .9fr;border:1px solid var(--ds-border);border-radius:4px;min-height:470px;overflow:hidden}.table-source-pane{border-right:1px solid var(--ds-border);padding:16px}.table-selected-pane{padding:16px;background:#fafbfc}.pane-toolbar{display:flex;gap:8px;margin-bottom:12px}.pane-title{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}.table-check-list{display:flex;flex-direction:column;max-height:405px;overflow:auto}.table-check-item{margin-right:0!important;padding:9px 8px;border-bottom:1px solid #f1f3f5}.table-name{display:inline-block;min-width:180px;color:var(--ds-text-primary)}.table-comment{color:var(--ds-text-secondary);font-size:12px}.empty-selection{padding:48px 0;text-align:center;color:var(--ds-text-secondary)}.selected-row{display:grid;grid-template-columns:1fr 24px 1fr;align-items:center;padding:9px 0;border-bottom:1px solid var(--ds-border);font-size:13px}.arrow{text-align:center;color:var(--el-color-primary)}
+.table-selector{display:grid;grid-template-columns:1.1fr .9fr;border:1px solid var(--ds-border);border-radius:4px;min-height:470px;overflow:hidden}.table-source-pane{border-right:1px solid var(--ds-border);padding:16px}.table-selected-pane{padding:16px;background:#fafbfc}.pane-toolbar{display:flex;gap:8px;margin-bottom:12px}.pane-title{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}.table-check-list{display:flex;flex-direction:column;max-height:405px;overflow:auto}.table-check-item{margin-right:0!important;padding:9px 8px;border-bottom:1px solid #f1f3f5}.table-name{display:inline-block;min-width:180px;color:var(--ds-text-primary)}.table-comment{color:var(--ds-text-secondary);font-size:12px}.empty-selection{padding:48px 0;text-align:center;color:var(--ds-text-secondary)}.selected-row{display:grid;grid-template-columns:1fr 24px 1fr;align-items:center;padding:9px 0;border-bottom:1px solid var(--ds-border);font-size:13px}.selected-row-editable{grid-template-columns:minmax(0,1fr) 24px minmax(0,1fr) 52px;gap:6px}.selected-row-editable>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.arrow{text-align:center;color:var(--el-color-primary)}
 .mapping-table{width:100%;border:1px solid var(--ds-border);border-radius:4px;overflow:hidden}.mapping-head,.mapping-row{display:grid;grid-template-columns:1fr 1fr;gap:18px;align-items:center;padding:10px 14px}.mapping-head{background:#f7f8fa;color:var(--ds-text-secondary);font-size:12px}.mapping-row{border-top:1px solid var(--ds-border)}.mapping-source{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px}
 .confirm-mappings{margin-top:20px;border:1px solid var(--ds-border);border-radius:4px}.confirm-title{padding:10px 14px;background:#f7f8fa;font-weight:600}.confirm-row{display:grid;grid-template-columns:1fr 36px 1fr;padding:9px 14px;border-top:1px solid var(--ds-border);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px}.drawer-footer{display:flex;align-items:center;width:100%}.log-box{min-height:300px;max-height:520px;overflow:auto;background:#111827;border-radius:4px;padding:14px}.log-box pre{margin:0;color:#d1d5db;white-space:pre-wrap;word-break:break-word;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;line-height:1.65}
 
