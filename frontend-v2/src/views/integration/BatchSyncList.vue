@@ -838,7 +838,7 @@ onBeforeUnmount(() => {
       </el-table>
     </div>
 
-    <el-drawer v-model="detailVisible" size="1080px" destroy-on-close class="task-detail-drawer">
+    <el-drawer v-model="detailVisible" size="70%" destroy-on-close class="task-detail-drawer">
       <template #header>
         <div class="detail-head">
           <div>
@@ -921,7 +921,7 @@ onBeforeUnmount(() => {
       </div>
     </el-drawer>
 
-    <el-drawer v-model="editorVisible" :title="editorMode === 'edit' ? '编辑离线同步任务' : '新建离线同步任务'" size="1080px" destroy-on-close>
+    <el-drawer v-model="editorVisible" :title="editorMode === 'edit' ? '编辑离线同步任务' : '新建离线同步任务'" size="70%" destroy-on-close>
       <div class="editor-shell">
         <el-steps :active="editorStep" finish-status="success" simple class="editor-steps editor-steps-3">
           <el-step title="基本配置" />
