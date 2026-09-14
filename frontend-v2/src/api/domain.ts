@@ -40,7 +40,7 @@ export const developmentApi = {
 }
 
 export interface IntegrationTable { id:number; taskId:number; sourceDatabase:string; sourceTable:string; targetDatabase:string; targetTable:string; partitionColumn?:string }
-export interface IntegrationTask { id:number; name:string; sourceType:string; targetType:string; syncMode:string; status:string; sourceConfigJson:string; targetConfigJson:string; transformConfigJson:string; seatunnelConfig:string; tables:IntegrationTable[] }
+export interface IntegrationTask { id:number; name:string; sourceType:string; targetType:string; syncMode:string; status:string; lifecycleStatus:string; sourceConfigJson:string; targetConfigJson:string; transformConfigJson:string; seatunnelConfig:string; tables:IntegrationTable[] }
 export interface IntegrationInstance { id:number; taskId:number; executionId:string; status:string; startedAt?:string; finishedAt?:string; message?:string }
 export interface IntegrationBatch { id:number; taskId:number; batchCode:string; triggerType:string; status:string; clusterId?:number; parametersJson?:string; sourceBatchId?:number; createdBy:string; startedAt?:string; finishedAt?:string; errorMessage?:string; createdAt?:string }
 export interface IntegrationAttempt { id:number; batchId:number; attemptNo:number; executionId?:string; status:string; startedAt?:string; finishedAt?:string; errorMessage?:string; createdAt?:string }
@@ -57,6 +57,8 @@ export const integrationApi = {
   get: (id:number) => api.get<IntegrationTask>(`/integration/tasks/${id}`),
   create: (payload:IntegrationTaskPayload) => api.post<IntegrationTask>('/integration/tasks',payload),
   update: (id:number,payload:IntegrationTaskPayload) => api.put<IntegrationTask>(`/integration/tasks/${id}`,payload),
+  online: (id:number) => api.post<IntegrationTask>(`/integration/tasks/${id}/online`),
+  offline: (id:number) => api.post<IntegrationTask>(`/integration/tasks/${id}/offline`),
   remove: (id:number) => api.delete<void>(`/integration/tasks/${id}`),
   run: (id:number) => api.post<{executionId:string;status:string}>(`/integration/tasks/${id}/run`),
   stop: (id:number) => api.post<void>(`/integration/tasks/${id}/stop`),

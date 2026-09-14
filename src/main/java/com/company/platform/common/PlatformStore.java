@@ -137,10 +137,10 @@ public class PlatformStore {
                         rs.getString("target_database"), rs.getString("target_table"), rs.getString("partition_column")));
                 advanceId(rs.getLong("id"));
             });
-            jdbc.query("SELECT id,name,source_type,target_type,sync_mode,status,source_config_json,target_config_json,transform_config_json,seatunnel_config FROM integration_task", rs -> {
+            jdbc.query("SELECT id,name,source_type,target_type,sync_mode,status,lifecycle_status,source_config_json,target_config_json,transform_config_json,seatunnel_config FROM integration_task", rs -> {
                 long id = rs.getLong("id");
                 integrationTasks.put(id, new IntegrationTaskView(id, rs.getString("name"), rs.getString("source_type"),
-                        rs.getString("target_type"), rs.getString("sync_mode"), rs.getString("status"),
+                        rs.getString("target_type"), rs.getString("sync_mode"), rs.getString("status"), rs.getString("lifecycle_status"),
                         rs.getString("source_config_json"), rs.getString("target_config_json"), rs.getString("transform_config_json"), rs.getString("seatunnel_config"),
                         integrationTaskTables.getOrDefault(id, List.of())));
                 advanceId(id);
@@ -320,10 +320,10 @@ public class PlatformStore {
     }
     public void persistIntegrationTask(IntegrationTaskView task) {
         if (jdbc == null) return;
-        int updated = jdbc.update("UPDATE integration_task SET name=?,source_type=?,target_type=?,sync_mode=?,status=?,source_config_json=?,target_config_json=?,transform_config_json=?,seatunnel_config=?,updated_at=CURRENT_TIMESTAMP WHERE id=?",
-                task.name(), task.sourceType(), task.targetType(), task.syncMode(), task.status(), task.sourceConfigJson(), task.targetConfigJson(), task.transformConfigJson(), task.seatunnelConfig(), task.id());
-        if (updated == 0) jdbc.update("INSERT INTO integration_task (id,name,source_type,target_type,source_config_json,target_config_json,transform_config_json,sync_mode,status,seatunnel_config) VALUES (?,?,?,?,?,?,?,?,?,?)",
-                task.id(), task.name(), task.sourceType(), task.targetType(), task.sourceConfigJson(), task.targetConfigJson(), task.transformConfigJson(), task.syncMode(), task.status(), task.seatunnelConfig());
+        int updated = jdbc.update("UPDATE integration_task SET name=?,source_type=?,target_type=?,sync_mode=?,status=?,lifecycle_status=?,source_config_json=?,target_config_json=?,transform_config_json=?,seatunnel_config=?,updated_at=CURRENT_TIMESTAMP WHERE id=?",
+                task.name(), task.sourceType(), task.targetType(), task.syncMode(), task.status(), task.lifecycleStatus(), task.sourceConfigJson(), task.targetConfigJson(), task.transformConfigJson(), task.seatunnelConfig(), task.id());
+        if (updated == 0) jdbc.update("INSERT INTO integration_task (id,name,source_type,target_type,source_config_json,target_config_json,transform_config_json,sync_mode,status,lifecycle_status,seatunnel_config) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                task.id(), task.name(), task.sourceType(), task.targetType(), task.sourceConfigJson(), task.targetConfigJson(), task.transformConfigJson(), task.syncMode(), task.status(), task.lifecycleStatus(), task.seatunnelConfig());
         jdbc.update("DELETE FROM integration_task_table WHERE task_id=?", task.id());
         for (IntegrationTableView table : task.tables()) {
             jdbc.update("INSERT INTO integration_task_table (id,task_id,source_database,source_table,target_database,target_table,partition_column) VALUES (?,?,?,?,?,?,?)",

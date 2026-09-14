@@ -68,7 +68,7 @@ public class IntegrationService {
         builder.build(task);
         long id = store.nextId();
         IntegrationTaskView view = new IntegrationTaskView(id, request.name(), request.sourceType(), request.targetType(),
-                normalizeMode(request.syncMode()), "GENERATED", secureEndpoint(source), secureEndpoint(target),
+                normalizeMode(request.syncMode()), "GENERATED", "OFFLINE", secureEndpoint(source), secureEndpoint(target),
                 secureTransform(request.mappings(), request.options(), tables), safeConfig(task), tableViews(id, tables));
         store.persistIntegrationTask(view);
         store.integrationTasks.put(id, view);
@@ -80,6 +80,7 @@ public class IntegrationService {
     public IntegrationTaskView update(long id, IntegrationRequests.TaskRequest request) {
         validateMode(request.syncMode(), request.options());
         IntegrationTaskView currentView = raw(id);
+        ensureOffline(currentView);
         IntegrationTask current = hasStructuredConfig(currentView) ? task(id) : null;
         IntegrationRequests.Endpoint source = request.sourceDataSourceId() == null
                 ? preservePassword(request.source(), current == null ? null : current.source())
@@ -92,7 +93,7 @@ public class IntegrationService {
                 request.syncMode(), source, target, request.mappings(), request.options(), tables);
         builder.build(task);
         IntegrationTaskView view = new IntegrationTaskView(id, request.name(), request.sourceType(), request.targetType(),
-                normalizeMode(request.syncMode()), "GENERATED", secureEndpoint(source), secureEndpoint(target),
+                normalizeMode(request.syncMode()), currentView.status(), currentView.lifecycleStatus(), secureEndpoint(source), secureEndpoint(target),
                 secureTransform(request.mappings(), request.options(), tables), safeConfig(task), tableViews(id, tables));
         store.persistIntegrationTask(view);
         store.integrationTasks.put(id, view);
@@ -107,9 +108,30 @@ public class IntegrationService {
     }
 
     @Transactional
+    public IntegrationTaskView online(long id) {
+        IntegrationTaskView current = raw(id);
+        if (isOnline(current)) return masked(current);
+        SeaTunnelGateway.ValidationResult validation = validate(id);
+        if (!validation.valid()) throw new BadRequestException(validation.message() == null || validation.message().isBlank()
+                ? "任务配置校验失败，无法上线" : validation.message());
+        return updateLifecycle(current, "ONLINE");
+    }
+
+    @Transactional
+    public IntegrationTaskView offline(long id) {
+        IntegrationTaskView current = raw(id);
+        if (!isOnline(current)) return masked(current);
+        if (instances(id).stream().anyMatch(item -> active(item.status()))) {
+            throw new BadRequestException("任务正在运行，请停止后再下线");
+        }
+        return updateLifecycle(current, "OFFLINE");
+    }
+
+    @Transactional
     public void delete(long id) {
-        raw(id);
-        if (instances(id).stream().anyMatch(item -> "RUNNING".equalsIgnoreCase(item.status()))) {
+        IntegrationTaskView current = raw(id);
+        ensureOffline(current);
+        if (instances(id).stream().anyMatch(item -> active(item.status()))) {
             throw new BadRequestException("任务运行中，请先停止任务再删除");
         }
         store.deleteIntegrationTask(id);
@@ -140,14 +162,20 @@ public class IntegrationService {
 
     public SeaTunnelGateway.SubmitResult execute(long id, String triggerType) {
         IntegrationTaskView view = raw(id);
+        String normalizedTrigger = normalizeTrigger(triggerType);
+        if (!isOnline(view)) {
+            throw new BadRequestException("离线同步任务已下线，请先上线后再运行");
+        }
         IntegrationTask runtimeTask = hasStructuredConfig(view) ? task(id) : null;
         String config = runtimeTask == null ? view.seatunnelConfig() : builder.build(runtimeTask);
         Long clusterId = runtimeClusterId();
-        BatchExecution execution = submitNewBatch(id, normalizeTrigger(triggerType), "{}", null, runtimeTask, config, clusterId);
+        BatchExecution execution = submitNewBatch(id, normalizedTrigger, "{}", null, runtimeTask, config, clusterId);
         return execution.result();
     }
 
     public IntegrationBatchView backfill(long id, IntegrationRequests.BackfillRequest request) {
+        IntegrationTaskView view = raw(id);
+        if (!isOnline(view)) throw new BadRequestException("离线同步任务已下线，请先上线后再补数");
         IntegrationTask runtimeTask = task(id);
         Map<String, Object> options = new HashMap<>(runtimeTask.options() == null ? Map.of() : runtimeTask.options());
         options.put("where", request.where().trim());
@@ -162,6 +190,8 @@ public class IntegrationService {
     public IntegrationBatchView retryBatch(long batchId) {
         ensureRuntimeRepository();
         IntegrationBatchView batch = runtimeRepository.getBatch(batchId);
+        IntegrationTaskView task = raw(batch.taskId());
+        if (!isOnline(task)) throw new BadRequestException("离线同步任务已下线，请先上线后再重试");
         IntegrationAttemptView latest = runtimeRepository.latestAttempt(batchId);
         if (latest != null && active(latest.status())) throw new BadRequestException("该批次仍在运行，不能重复重试");
         String config = runtimeRepository.runtimeConfig(batchId);
@@ -221,6 +251,7 @@ public class IntegrationService {
     @Transactional
     public IntegrationTaskView deleteTable(long taskId, long tableId) {
         IntegrationTaskView currentView = raw(taskId);
+        ensureOffline(currentView);
         if (instances(taskId).stream().anyMatch(item -> "RUNNING".equalsIgnoreCase(item.status()))) {
             throw new BadRequestException("任务运行中，不能删除表");
         }
@@ -233,7 +264,7 @@ public class IntegrationService {
         IntegrationRequests.Endpoint remainingSource = remaining.isEmpty() ? withTable(task.source(), "") : withTable(task.source(), remaining.get(0).sourceTable());
         IntegrationRequests.Endpoint remainingTarget = remaining.isEmpty() ? withTable(task.target(), "") : withTable(task.target(), remaining.get(0).targetTable());
         IntegrationTaskView updated = new IntegrationTaskView(currentView.id(), currentView.name(), currentView.sourceType(), currentView.targetType(),
-                currentView.syncMode(), "GENERATED", secureEndpoint(remainingSource), secureEndpoint(remainingTarget),
+                currentView.syncMode(), currentView.status(), currentView.lifecycleStatus(), secureEndpoint(remainingSource), secureEndpoint(remainingTarget),
                 secureTransform(task.mappings(), task.options(), toRequests(remaining)), config, remaining);
         store.persistIntegrationTask(updated);
         store.integrationTasks.put(taskId, updated);
@@ -353,7 +384,7 @@ public class IntegrationService {
                 .replaceAll("(\"password\"\\s*:\\s*\")[^\"]*(\")", "$1***$2")
                 .replaceAll("(?m)(password\\s*=\\s*\")[^\"]*(\")", "$1***$2");
         List<IntegrationTableView> tables = view.tables() == null || view.tables().isEmpty() ? legacyTable(view) : view.tables();
-        return new IntegrationTaskView(view.id(), view.name(), view.sourceType(), view.targetType(), view.syncMode(), view.status(),
+        return new IntegrationTaskView(view.id(), view.name(), view.sourceType(), view.targetType(), view.syncMode(), view.status(), view.lifecycleStatus(),
                 maskJson(view.sourceConfigJson()), maskJson(view.targetConfigJson()), view.transformConfigJson(), masked, tables);
     }
 
@@ -391,6 +422,23 @@ public class IntegrationService {
                         .thenComparing(com.company.platform.cluster.SeaTunnelClusterView::id, Comparator.reverseOrder()))
                 .map(com.company.platform.cluster.SeaTunnelClusterView::id)
                 .findFirst().orElse(null);
+    }
+
+    private IntegrationTaskView updateLifecycle(IntegrationTaskView current, String lifecycleStatus) {
+        IntegrationTaskView updated = new IntegrationTaskView(current.id(), current.name(), current.sourceType(), current.targetType(),
+                current.syncMode(), current.status(), lifecycleStatus, current.sourceConfigJson(), current.targetConfigJson(),
+                current.transformConfigJson(), current.seatunnelConfig(), current.tables());
+        store.persistIntegrationTask(updated);
+        store.integrationTasks.put(updated.id(), updated);
+        return masked(updated);
+    }
+
+    private boolean isOnline(IntegrationTaskView task) {
+        return "ONLINE".equalsIgnoreCase(task.lifecycleStatus());
+    }
+
+    private void ensureOffline(IntegrationTaskView task) {
+        if (isOnline(task)) throw new BadRequestException("任务已上线，请先下线后再编辑");
     }
 
     private void validateMode(String syncMode, Map<String, Object> options) {

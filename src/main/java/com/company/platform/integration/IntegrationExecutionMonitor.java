@@ -112,7 +112,7 @@ public class IntegrationExecutionMonitor {
                 ? "RUNNING" : taskStatus(instances.get(0).status());
         if (status.equalsIgnoreCase(task.status())) return;
         IntegrationTaskView updated = new IntegrationTaskView(task.id(), task.name(), task.sourceType(), task.targetType(),
-                task.syncMode(), status, task.sourceConfigJson(), task.targetConfigJson(), task.transformConfigJson(),
+                task.syncMode(), status, task.lifecycleStatus(), task.sourceConfigJson(), task.targetConfigJson(), task.transformConfigJson(),
                 task.seatunnelConfig(), task.tables());
         store.persistIntegrationTask(updated);
         store.integrationTasks.put(updated.id(), updated);

@@ -156,6 +156,7 @@ async function editFromDetail() {
 }
 
 async function openEdit(task: IntegrationTask) {
+  if (isOnline(task)) return ElMessage.warning('任务已上线，请先下线后再编辑')
   editorMode.value = 'edit'
   resetEditor()
   editingId.value = task.id
@@ -332,6 +333,7 @@ async function saveTask() {
 }
 
 async function run(task: IntegrationTask) {
+  if (!isOnline(task)) return ElMessage.warning('任务已下线，请先上线后再运行')
   try {
     const result = await integrationApi.validate(task.id)
     if (!result.valid) return ElMessage.error(result.message || 'SeaTunnel 配置校验失败')
@@ -354,9 +356,32 @@ async function stop(task: IntegrationTask) {
 }
 
 async function remove(task: IntegrationTask) {
+  if (isOnline(task)) return ElMessage.warning('任务已上线，请先下线后再删除')
   try {
     await ElMessageBox.confirm(`删除“${task.name}”？删除后无法恢复。`, '删除离线同步任务', { type: 'warning' })
     await integrationApi.remove(task.id)
+    await load()
+  } catch (error) {
+    if (error !== 'cancel' && error !== 'close') ElMessage.error(messageOf(error))
+  }
+}
+
+async function onlineTask(task: IntegrationTask) {
+  try {
+    await ElMessageBox.confirm(`上线“${task.name}”？上线后任务配置将只读，并允许手工运行和工作流调度。`, '上线离线同步任务', { type: 'warning' })
+    await integrationApi.online(task.id)
+    ElMessage.success('任务已上线')
+    await load()
+  } catch (error) {
+    if (error !== 'cancel' && error !== 'close') ElMessage.error(messageOf(error))
+  }
+}
+
+async function offlineTask(task: IntegrationTask) {
+  try {
+    await ElMessageBox.confirm(`下线“${task.name}”？下线后将禁止手工运行和工作流调度，允许重新编辑配置。`, '下线离线同步任务', { type: 'warning' })
+    await integrationApi.offline(task.id)
+    ElMessage.success('任务已下线')
     await load()
   } catch (error) {
     if (error !== 'cancel' && error !== 'close') ElMessage.error(messageOf(error))
@@ -388,6 +413,8 @@ async function showAttempts(batch: IntegrationBatch) {
 }
 
 async function retryBatch(batch: IntegrationBatch) {
+  const task = tasks.value.find(item => item.id === batch.taskId)
+  if (task && !isOnline(task)) return ElMessage.warning('任务已下线，请先上线后再重试')
   try {
     await ElMessageBox.confirm('重试会复用该批次创建时固化的运行快照，不使用任务当前的新配置。确认重试？', '重试离线批次', { type: 'warning' })
     await integrationApi.retryBatch(batch.id)
@@ -407,6 +434,7 @@ async function reconcileBatch(batch: IntegrationBatch) {
 }
 
 function openBackfill(task: IntegrationTask) {
+  if (!isOnline(task)) return ElMessage.warning('任务已下线，请先上线后再补数')
   backfillTask.value = task
   backfillForm.where = task.syncMode === 'INCREMENTAL' ? formWhere(task) : ''
   backfillForm.startLabel = ''
@@ -504,6 +532,10 @@ function latestStartedAt(task: IntegrationTask) {
   return latestBatch.value[task.id]?.startedAt || latestBatch.value[task.id]?.createdAt || latest.value[task.id]?.startedAt || '—'
 }
 
+function isOnline(task: IntegrationTask) {
+  return (task.lifecycleStatus || 'ONLINE').toUpperCase() === 'ONLINE'
+}
+
 function canStop(task: IntegrationTask) {
   return ['RUNNING', 'STARTING', 'SUBMITTED'].includes((latest.value[task.id]?.status || '').toUpperCase())
 }
@@ -515,37 +547,6 @@ function path(task: IntegrationTask) {
 
 function modeLabel(mode: string) {
   return mode === 'INCREMENTAL' ? '条件增量' : '全量同步'
-}
-
-function statusLabel(task: IntegrationTask) {
-  const status = latestStatus(task).toUpperCase()
-  if (['FINISHED', 'SUCCESS'].includes(status)) return '成功'
-  if (['RUNNING', 'STARTING', 'SUBMITTED', 'QUEUED'].includes(status)) return '运行中'
-  if (['FAILED', 'ERROR'].includes(status)) return '失败'
-  if (status === 'CANCELLED' || status === 'CANCELED') return '已停止'
-  return '未运行'
-}
-
-function statusClass(task: IntegrationTask) {
-  const label = statusLabel(task)
-  return label === '成功' ? 'success' : label === '运行中' ? 'running' : label === '失败' ? 'failed' : 'idle'
-}
-
-function durationLabel(task: IntegrationTask) {
-  const batch = latestBatch.value[task.id]
-  if (!batch?.startedAt) return '—'
-  const start = Date.parse(batch.startedAt)
-  const end = batch.finishedAt ? Date.parse(batch.finishedAt) : Date.now()
-  if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) return '—'
-  const seconds = Math.max(0, Math.round((end - start) / 1000))
-  if (seconds < 60) return `${seconds}秒`
-  const minutes = Math.floor(seconds / 60)
-  const rest = seconds % 60
-  return rest ? `${minutes}分${rest}秒` : `${minutes}分钟`
-}
-
-function compactModeLabel(mode: string) {
-  return mode === 'INCREMENTAL' ? '增量' : '全量'
 }
 
 function canRetryBatch(batch: IntegrationBatch) {
@@ -607,48 +608,29 @@ onMounted(load)
         <el-button @click="load" :loading="loading">刷新</el-button>
       </div>
 
-      <el-table :data="filteredTasks" v-loading="loading" class="task-list-table" row-class-name="offline-task-row" @row-click="openDetail">
-        <el-table-column label="名称" min-width="290">
+      <el-table :data="filteredTasks" v-loading="loading" row-class-name="offline-task-row" @row-click="openDetail">
+        <el-table-column label="任务名称" min-width="210">
           <template #default="scope">
-            <button class="task-name-main" @click.stop="openDetail(scope.row)">{{ scope.row.name }}</button>
-            <div class="task-name-meta">ID: {{ scope.row.id }} · {{ path(scope.row) }} · {{ scope.row.tables?.length || 0 }} 张表</div>
+            <button class="task-name-link" @click.stop="openDetail(scope.row)">{{ scope.row.name }}</button>
           </template>
         </el-table-column>
-        <el-table-column label="状态" width="125">
-          <template #default="scope"><span class="runtime-status" :class="statusClass(scope.row)"><i></i>{{ statusLabel(scope.row) }}</span></template>
-        </el-table-column>
-        <el-table-column label="执行概况" width="190">
+        <el-table-column label="来源 → 目标" min-width="180"><template #default="scope">{{ path(scope.row) }}</template></el-table-column>
+        <el-table-column label="表数" width="72"><template #default="scope">{{ scope.row.tables?.length || 0 }}</template></el-table-column>
+        <el-table-column label="同步方式" width="105"><template #default="scope">{{ modeLabel(scope.row.syncMode) }}</template></el-table-column>
+        <el-table-column label="最近状态" width="120"><template #default="scope"><StatusBadge :status="latestStatus(scope.row)" /></template></el-table-column>
+        <el-table-column label="最近运行" width="175"><template #default="scope"><span class="time-cell">{{ latestStartedAt(scope.row) }}</span></template></el-table-column>
+        <el-table-column label="操作" width="260" fixed="right">
           <template #default="scope">
-            <div class="runtime-overview"><div>耗时: <strong>{{ durationLabel(scope.row) }}</strong></div><div>数据量: <span>—</span></div><div>QPS: <span>—</span></div></div>
-          </template>
-        </el-table-column>
-        <el-table-column label="同步方式" width="110">
-          <template #default="scope"><span class="sync-mode-tag" :class="scope.row.syncMode === 'INCREMENTAL' ? 'incremental' : 'full'">{{ compactModeLabel(scope.row.syncMode) }}</span></template>
-        </el-table-column>
-        <el-table-column label="调度" min-width="265">
-          <template #default="scope">
-            <div class="schedule-overview"><div>状态: <strong>工作流管理</strong></div><div>上次: {{ latestStartedAt(scope.row) }}</div><div>下次: —</div></div>
-          </template>
-        </el-table-column>
-        <el-table-column label="操作" width="245" fixed="right">
-          <template #default="scope">
-            <el-button class="run-action" @click.stop="run(scope.row)">运行</el-button>
-            <el-button class="stop-action" :disabled="!canStop(scope.row)" @click.stop="stop(scope.row)">停止</el-button>
-            <span class="task-more" @click.stop>
-              <el-dropdown trigger="click" @command="commandHandler(scope.row)">
-                <el-button class="more-action">更多⌄</el-button>
-                <template #dropdown>
-                  <el-dropdown-menu>
-                    <el-dropdown-item command="detail">查看详情</el-dropdown-item>
-                    <el-dropdown-item command="edit">编辑任务</el-dropdown-item>
-                    <el-dropdown-item command="backfill">补数</el-dropdown-item>
-                    <el-dropdown-item v-if="scope.row.syncMode === 'INCREMENTAL'" command="cursor">增量游标</el-dropdown-item>
-                    <el-dropdown-item command="history">运行记录</el-dropdown-item>
-                    <el-dropdown-item divided command="delete"><span class="danger-menu-item">删除任务</span></el-dropdown-item>
-                  </el-dropdown-menu>
-                </template>
-              </el-dropdown>
-            </span>
+            <template v-if="isOnline(scope.row)">
+              <el-button link type="primary" @click.stop="run(scope.row)">运行</el-button>
+              <el-button link type="primary" @click.stop="openDetail(scope.row)">查看</el-button>
+              <el-button link type="warning" @click.stop="offlineTask(scope.row)">下线</el-button>
+            </template>
+            <template v-else>
+              <el-button link type="primary" @click.stop="openEdit(scope.row)">编辑</el-button>
+              <el-button link type="success" @click.stop="onlineTask(scope.row)">上线</el-button>
+              <el-button link type="danger" @click.stop="remove(scope.row)">删除</el-button>
+            </template>
           </template>
         </el-table-column>
       </el-table>
@@ -664,7 +646,7 @@ onMounted(load)
           </div>
           <div class="detail-actions" v-if="detailTask">
             <el-button @click="detailTab = 'runs'">运行记录</el-button>
-            <el-button type="primary" @click="editFromDetail">编辑任务</el-button>
+            <el-button v-if="!isOnline(detailTask)" type="primary" @click="editFromDetail">编辑任务</el-button>
           </div>
         </div>
       </template>
@@ -948,6 +930,5 @@ onMounted(load)
 .detail-head{width:100%;display:flex;align-items:flex-start;justify-content:space-between;gap:24px;padding-right:8px}.detail-head h3{margin:4px 0 6px;font-size:20px;color:var(--ds-text-primary)}.detail-eyebrow{font-size:12px;color:var(--el-color-primary);font-weight:600}.detail-subtitle{font-size:12px;color:var(--ds-text-secondary)}.detail-actions{display:flex;gap:8px;flex:0 0 auto}.task-detail{padding:0 2px 24px}.detail-summary{display:grid;grid-template-columns:repeat(4,1fr);border:1px solid var(--ds-border);background:#fff;margin:2px 0 18px}.summary-item{min-height:72px;padding:12px 16px;border-right:1px solid var(--ds-border);display:flex;flex-direction:column;justify-content:center;gap:8px}.summary-item:last-child{border-right:0}.summary-item>span{font-size:12px;color:var(--ds-text-secondary)}.summary-item>strong{font-size:14px;color:var(--ds-text-primary);font-weight:600}.detail-tabs{margin-top:4px}.detail-section{margin-top:14px}.detail-section.no-top{margin-top:0}.detail-section-title{font-size:14px;font-weight:600;color:var(--ds-text-primary);margin:0 0 10px}.readonly-code{display:block;white-space:pre-wrap;word-break:break-all;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;color:#475467;background:#f8fafc;padding:2px 6px;border-radius:3px}.object-name{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:#344054}.object-name.target{color:var(--el-color-primary)}
 
 .editor-steps :deep(.el-step__title){white-space:nowrap!important;font-size:14px!important}.editor-steps :deep(.el-step.is-simple .el-step__main){min-width:max-content}.editor-steps :deep(.el-step.is-simple){min-width:0;padding:0 14px}
-.task-list-table{--el-table-header-bg-color:#f3f6fa;--el-table-row-hover-bg-color:#f8fbff}.task-list-table :deep(th.el-table__cell){height:58px;color:#52627a;font-size:14px;font-weight:700}.task-list-table :deep(td.el-table__cell){padding:18px 0}.task-list-table :deep(.offline-task-row){cursor:pointer}.task-name-main{border:0;background:transparent;padding:0;color:#172033;font-size:16px;font-weight:700;cursor:pointer;text-align:left}.task-name-main:hover{color:var(--el-color-primary)}.task-name-meta{margin-top:7px;color:#8792a6;font-size:12px;white-space:nowrap}.runtime-status{display:inline-flex;align-items:center;gap:7px;padding:7px 14px;border-radius:18px;font-size:13px;font-weight:700}.runtime-status i{width:8px;height:8px;border-radius:50%;background:currentColor}.runtime-status.success{color:#069b67;background:#def5ed;border:1px solid #b8e9d8}.runtime-status.running{color:#1677ff;background:#eaf3ff;border:1px solid #c9ddff}.runtime-status.failed{color:#d92d20;background:#fff0ee;border:1px solid #ffcfc9}.runtime-status.idle{color:#667085;background:#f2f4f7;border:1px solid #e4e7ec}.runtime-overview,.schedule-overview{display:flex;flex-direction:column;gap:4px;color:#607089;font-size:12px;line-height:1.35}.runtime-overview strong,.schedule-overview strong{color:#344054;font-weight:600}.sync-mode-tag{display:inline-flex;align-items:center;justify-content:center;min-width:54px;padding:6px 10px;border-radius:14px;font-size:12px;font-weight:700}.sync-mode-tag.full{background:#eef4ff;color:#315edb}.sync-mode-tag.incremental{background:#fff4e8;color:#c65d00}.run-action,.stop-action,.more-action{border-radius:18px!important;padding:7px 15px!important;font-weight:700!important}.run-action{background:#0aa574!important;border-color:#0aa574!important;color:#fff!important}.stop-action:not(.is-disabled){background:#ed8b00!important;border-color:#ed8b00!important;color:#fff!important}.more-action{background:#fff!important;border-color:#d6dae2!important;color:#4b5565!important}.task-more{margin-left:8px}
 @media (max-width:1000px){.form-grid,.table-selector{grid-template-columns:1fr}.span-2{grid-column:auto}.table-source-pane{border-right:0;border-bottom:1px solid var(--ds-border)}}
 </style>

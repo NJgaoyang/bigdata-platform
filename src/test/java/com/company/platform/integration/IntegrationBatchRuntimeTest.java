@@ -56,4 +56,25 @@ class IntegrationBatchRuntimeTest {
         assertEquals(7L, service.runtimeClusterId());
     }
 
+    @Test
+    void offlineTaskCannotRunAndOnlineTaskCannotDelete() {
+        PlatformStore store = new PlatformStore();
+        IntegrationTaskView offline = new IntegrationTaskView(8L, "offline-orders", "MYSQL", "STARROCKS",
+                "FULL", "GENERATED", "OFFLINE", "{}", "{}", "{}", "env {}", List.of());
+        IntegrationTaskView online = new IntegrationTaskView(9L, "online-orders", "MYSQL", "STARROCKS",
+                "FULL", "GENERATED", "ONLINE", "{}", "{}", "{}", "env {}", List.of());
+        store.integrationTasks.put(8L, offline);
+        store.integrationTasks.put(9L, online);
+
+        SeaTunnelGateway gateway = mock(SeaTunnelGateway.class);
+        IntegrationService service = new IntegrationService(
+                store, mock(SeaTunnelConfigBuilder.class), gateway, new ObjectMapper(),
+                mock(PasswordCipher.class), mock(DataSourceService.class), null, mock(IntegrationRuntimeRepository.class));
+
+        assertThrows(BadRequestException.class, () -> service.execute(8L));
+        assertThrows(BadRequestException.class, () -> service.backfill(8L, new IntegrationRequests.BackfillRequest("id > 0", null, null)));
+        assertThrows(BadRequestException.class, () -> service.delete(9L));
+        verifyNoInteractions(gateway);
+    }
+
 }
