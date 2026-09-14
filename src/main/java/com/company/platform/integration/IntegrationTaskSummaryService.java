@@ -55,7 +55,7 @@ public class IntegrationTaskSummaryService {
 
     private LocalDateTime nextRun(long taskId) {
         try {
-            List<DirectSchedule> direct = jdbc.query("SELECT s.cron_expression,s.timezone FROM integration_task_schedule s JOIN integration_task t ON t.id=s.task_id WHERE s.task_id=? AND s.enabled=TRUE AND t.lifecycle_status='ONLINE'",
+            List<DirectSchedule> direct = jdbc.query("SELECT s.cron_expression,s.timezone FROM integration_task_schedule s WHERE s.task_id=? AND s.enabled=TRUE",
                     (rs,n) -> new DirectSchedule(rs.getString("cron_expression"), rs.getString("timezone")), taskId);
             if (!direct.isEmpty()) {
                 DirectSchedule schedule = direct.getFirst();

@@ -7,7 +7,9 @@ import org.springframework.context.event.EventListener;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.time.ZonedDateTime;
 import java.util.List;
 import java.util.TimeZone;
 
@@ -34,6 +36,21 @@ public class IntegrationTaskScheduleService {
                 taskId, request.cronExpression().trim(), request.timezone().trim(), request.enabled());
         syncQuartz(taskId);
         return get(taskId);
+    }
+
+    public List<LocalDateTime> preview(ScheduleRequest request) {
+        validate(request);
+        ZoneId zone = ZoneId.of(request.timezone().trim());
+        org.springframework.scheduling.support.CronExpression cron = org.springframework.scheduling.support.CronExpression.parse(request.cronExpression().trim());
+        ZonedDateTime cursor = ZonedDateTime.now(zone);
+        java.util.ArrayList<LocalDateTime> values = new java.util.ArrayList<>();
+        for (int i = 0; i < 2; i++) {
+            ZonedDateTime next = cron.next(cursor);
+            if (next == null) break;
+            values.add(next.toLocalDateTime());
+            cursor = next;
+        }
+        return values;
     }
 
     public void activate(long taskId) { syncQuartz(taskId); }

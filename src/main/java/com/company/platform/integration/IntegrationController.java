@@ -29,6 +29,7 @@ public class IntegrationController {
     }
 
     @GetMapping public Result<List<IntegrationTaskView>> list() { return Result.ok(service.list()); }
+    @PostMapping("/schedule/preview") public Result<List<java.time.LocalDateTime>> previewSchedule(@RequestBody IntegrationTaskScheduleService.ScheduleRequest request) { return Result.ok(taskScheduleService.preview(request)); }
     @GetMapping("/runtime-clusters") public Result<List<SeaTunnelClusterView>> runtimeClusters() { return Result.ok(clusterService.list()); }
     @GetMapping("/source-databases") public Result<List<IntegrationMetadataService.DatabaseOption>> sourceDatabases(@RequestParam long dataSourceId) { return Result.ok(metadataService.mysqlDatabases(dataSourceId)); }
     @GetMapping("/source-tables") public Result<List<IntegrationMetadataService.TableOption>> sourceTables(@RequestParam long dataSourceId, @RequestParam(required = false) String database) { return Result.ok(metadataService.mysqlTables(dataSourceId, database)); }

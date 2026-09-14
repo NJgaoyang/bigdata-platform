@@ -43,6 +43,10 @@ const selectedHistoryLogTitle = ref('')
 const historyLogMaximized = ref(false)
 const seatunnelPreview = ref('')
 const previewLoading = ref(false)
+const scheduleConfigMode = ref<'quick'|'custom'>('custom')
+const scheduleTab = ref<'minute'|'hour'|'day'|'month'|'week'>('minute')
+const schedulePreviewTimes = ref<string[]>([])
+const quickPreset = ref('DAILY_0200')
 let historyPollTimer: ReturnType<typeof setInterval> | null = null
 const backfillVisible = ref(false)
 const backfillTask = ref<IntegrationTask | null>(null)
@@ -70,6 +74,7 @@ const form = reactive({
   scheduleHour: '2',
   scheduleDay: '*',
   scheduleMonth: '*',
+  scheduleWeek: '?',
   timezone: 'Asia/Shanghai'
 })
 
@@ -83,9 +88,32 @@ const minuteOptions = Array.from({ length: 60 }, (_, value) => String(value))
 const hourOptions = Array.from({ length: 24 }, (_, value) => String(value))
 const dayOptions = ['*', ...Array.from({ length: 31 }, (_, value) => String(value + 1))]
 const monthOptions = ['*', ...Array.from({ length: 12 }, (_, value) => String(value + 1))]
+const weekOptions = [
+  { label:'不指定', value:'?' }, { label:'周日', value:'1' }, { label:'周一', value:'2' },
+  { label:'周二', value:'3' }, { label:'周三', value:'4' }, { label:'周四', value:'5' },
+  { label:'周五', value:'6' }, { label:'周六', value:'7' }
+]
 
 function syncCronFromParts() {
-  form.cronExpression = `0 ${form.scheduleMinute} ${form.scheduleHour} ${form.scheduleDay} ${form.scheduleMonth} ?`
+  const day = form.scheduleWeek !== '?' ? '?' : form.scheduleDay
+  form.cronExpression = `0 ${form.scheduleMinute} ${form.scheduleHour} ${day} ${form.scheduleMonth} ${form.scheduleWeek}`
+  void refreshSchedulePreview()
+}
+
+function selectScheduleDay(value: string) { form.scheduleDay = value; form.scheduleWeek = '?'; syncCronFromParts() }
+function selectScheduleWeek(value: string) { form.scheduleWeek = value; if (value !== '?') form.scheduleDay = '*'; syncCronFromParts() }
+
+function applyQuickPreset() {
+  if (quickPreset.value === 'HOURLY') { form.scheduleMinute='0'; form.scheduleHour='*'; form.scheduleDay='*'; form.scheduleMonth='*'; form.scheduleWeek='?' }
+  else if (quickPreset.value === 'DAILY_0000') { form.scheduleMinute='0'; form.scheduleHour='0'; form.scheduleDay='*'; form.scheduleMonth='*'; form.scheduleWeek='?' }
+  else { form.scheduleMinute='0'; form.scheduleHour='2'; form.scheduleDay='*'; form.scheduleMonth='*'; form.scheduleWeek='?' }
+  syncCronFromParts()
+}
+
+async function refreshSchedulePreview() {
+  if (!form.scheduleEnabled || !form.cronExpression) { schedulePreviewTimes.value = []; return }
+  try { schedulePreviewTimes.value = await integrationApi.previewSchedule({ cronExpression: form.cronExpression, timezone: form.timezone, enabled: true }) }
+  catch { schedulePreviewTimes.value = [] }
 }
 
 function parseCronToParts(cron?: string) {
@@ -95,11 +123,14 @@ function parseCronToParts(cron?: string) {
     form.scheduleHour = [...hourOptions, '*'].includes(parts[2]) ? parts[2] : '2'
     form.scheduleDay = dayOptions.includes(parts[3]) ? parts[3] : '*'
     form.scheduleMonth = monthOptions.includes(parts[4]) ? parts[4] : '*'
+    form.scheduleWeek = ['?','1','2','3','4','5','6','7'].includes(parts[5]) ? parts[5] : '?'
+    if (form.scheduleDay === '?') form.scheduleDay = '*'
   } else {
     form.scheduleMinute = '0'
     form.scheduleHour = '2'
     form.scheduleDay = '*'
     form.scheduleMonth = '*'
+    form.scheduleWeek = '?'
   }
   syncCronFromParts()
 }
@@ -111,10 +142,12 @@ function scheduleTextFromCron(cron?: string) {
   const hourValue = parts[2] || '*'
   const dayValue = parts[3] || '*'
   const monthValue = parts[4] || '*'
+  const weekValue = parts[5] || '?'
   const month = monthValue === '*' ? '每月' : `${monthValue}月`
-  const day = dayValue === '*' ? '每日' : `${dayValue}日`
+  const day = dayValue === '*' ? '每日' : dayValue === '?' ? '' : `${dayValue}日`
   const hour = hourValue === '*' ? '每小时' : `${hourValue.padStart(2, '0')}时`
-  return `${month} ${day} ${hour} ${minute.padStart(2, '0')}分`
+  const week = weekValue === '?' || weekValue === '*' ? '' : ` ${weekOptions.find(v => v.value === weekValue)?.label || ''}`
+  return [month, day, hour, `${minute.padStart(2, '0')}分${week}`].filter(Boolean).join(' ')
 }
 
 function scheduleText() {
@@ -168,6 +201,7 @@ function resetEditor() {
     scheduleHour: '2',
     scheduleDay: '*',
     scheduleMonth: '*',
+    scheduleWeek: '?',
     timezone: 'Asia/Shanghai'
   })
   sourceDbs.value = []
@@ -176,6 +210,9 @@ function resetEditor() {
   tableKeyword.value = ''
   editorStep.value = 0
   seatunnelPreview.value = ''
+  schedulePreviewTimes.value = []
+  scheduleConfigMode.value = 'custom'
+  scheduleTab.value = 'minute'
   editingId.value = null
   for (const key of Object.keys(targetTables)) delete targetTables[key]
 }
@@ -188,6 +225,7 @@ async function openCreate() {
     form.sourceDataSourceId ? loadSourceDatabases(true) : Promise.resolve(),
     form.targetDataSourceId ? loadTargetDatabases(true) : Promise.resolve()
   ])
+  await refreshSchedulePreview()
 }
 
 async function openDetail(task: IntegrationTask) {
@@ -927,7 +965,7 @@ onBeforeUnmount(() => {
           <template #default="scope"><div class="runtime-summary"><span>数据量：<strong>{{ formatCount(taskSummary(scope.row)?.dataCount) }}</strong></span><span>耗时：{{ formatDuration(taskSummary(scope.row)?.durationMs) }}</span></div></template>
         </el-table-column>
         <el-table-column label="状态" width="110">
-          <template #default="scope"><strong :class="isOnline(scope.row) ? 'schedule-online' : 'schedule-offline'">{{ isOnline(scope.row) ? '已开启' : '已下线' }}</strong></template>
+          <template #default="scope"><strong :class="isOnline(scope.row) ? 'schedule-online' : 'schedule-offline'">{{ isOnline(scope.row) ? '已上线' : '已下线' }}</strong></template>
         </el-table-column>
         <el-table-column label="调度" min-width="205">
           <template #default="scope"><div class="schedule-summary"><span>上次：{{ formatDateTime(taskSummary(scope.row)?.lastRunAt) }}</span><span>下次：{{ formatDateTime(taskSummary(scope.row)?.nextRunAt) }}</span></div></template>
@@ -993,6 +1031,7 @@ onBeforeUnmount(() => {
             <section class="detail-section">
               <div class="detail-section-title">调度配置</div>
               <el-descriptions :column="2" border>
+                <el-descriptions-item label="任务上线状态"><strong :class="isOnline(detailTask) ? 'schedule-online' : 'schedule-offline'">{{ isOnline(detailTask) ? '已上线' : '已下线' }}</strong></el-descriptions-item>
                 <el-descriptions-item label="调度状态">{{ detailSchedule?.enabled ? '已启用' : '未启用' }}</el-descriptions-item>
                 <el-descriptions-item label="调度策略">{{ detailSchedule?.enabled ? scheduleTextFromCron(detailSchedule?.cronExpression) : '仅手动执行' }}</el-descriptions-item>
                 <el-descriptions-item label="时区">{{ detailSchedule?.timezone || 'Asia/Shanghai' }}</el-descriptions-item>
@@ -1142,19 +1181,44 @@ onBeforeUnmount(() => {
             <div class="section-tip">上线只启用任务和调度，不会立即执行。任务仅在手动点击“运行”或到达调度时间时执行。</div>
             <el-form label-position="top" class="schedule-form">
               <el-form-item label="启用调度">
-                <el-switch v-model="form.scheduleEnabled" active-text="启用" inactive-text="关闭" />
+                <el-switch v-model="form.scheduleEnabled" active-text="启用" inactive-text="关闭" @change="refreshSchedulePreview" />
               </el-form-item>
               <el-form-item label="执行时间">
-                <div class="schedule-wheel-grid" :class="{ disabled: !form.scheduleEnabled }">
-                  <div class="schedule-wheel"><span>分</span><el-select v-model="form.scheduleMinute" :disabled="!form.scheduleEnabled" @change="syncCronFromParts"><el-option v-for="item in minuteOptions" :key="`m-${item}`" :label="item.padStart(2, '0')" :value="item" /></el-select></div>
-                  <div class="schedule-wheel"><span>时</span><el-select v-model="form.scheduleHour" :disabled="!form.scheduleEnabled" @change="syncCronFromParts"><el-option label="每小时" value="*" /><el-option v-for="item in hourOptions" :key="`h-${item}`" :label="item.padStart(2, '0')" :value="item" /></el-select></div>
-                  <div class="schedule-wheel"><span>日</span><el-select v-model="form.scheduleDay" :disabled="!form.scheduleEnabled" @change="syncCronFromParts"><el-option label="每日" value="*" /><el-option v-for="item in dayOptions.filter(v => v !== '*')" :key="`d-${item}`" :label="`${item} 日`" :value="item" /></el-select></div>
-                  <div class="schedule-wheel"><span>月</span><el-select v-model="form.scheduleMonth" :disabled="!form.scheduleEnabled" @change="syncCronFromParts"><el-option label="每月" value="*" /><el-option v-for="item in monthOptions.filter(v => v !== '*')" :key="`mo-${item}`" :label="`${item} 月`" :value="item" /></el-select></div>
+                <div class="schedule-config-box" :class="{ disabled: !form.scheduleEnabled }">
+                  <div class="schedule-mode-tabs">
+                    <button type="button" :class="{ active: scheduleConfigMode === 'quick' }" @click="scheduleConfigMode='quick'">快速配置</button>
+                    <button type="button" :class="{ active: scheduleConfigMode === 'custom' }" @click="scheduleConfigMode='custom'">定时配置</button>
+                  </div>
+                  <div v-if="scheduleConfigMode === 'quick'" class="schedule-quick">
+                    <el-select v-model="quickPreset" :disabled="!form.scheduleEnabled" style="width:100%" @change="applyQuickPreset">
+                      <el-option label="每天 02:00" value="DAILY_0200" />
+                      <el-option label="每天 00:00" value="DAILY_0000" />
+                      <el-option label="每小时整点" value="HOURLY" />
+                    </el-select>
+                  </div>
+                  <div v-else class="schedule-custom">
+                    <div class="schedule-unit-tabs">
+                      <button v-for="item in [{k:'minute',t:'分'},{k:'hour',t:'时'},{k:'day',t:'日'},{k:'month',t:'月'},{k:'week',t:'周'}]" :key="item.k" type="button" :class="{ active: scheduleTab === item.k }" @click="scheduleTab = item.k as any">{{ item.t }}</button>
+                    </div>
+                    <div class="schedule-unit-picker">
+                      <el-select v-if="scheduleTab==='minute'" v-model="form.scheduleMinute" :disabled="!form.scheduleEnabled" style="width:100%" @change="syncCronFromParts"><el-option v-for="item in minuteOptions" :key="`m-${item}`" :label="`${item.padStart(2,'0')}分`" :value="item" /></el-select>
+                      <el-select v-else-if="scheduleTab==='hour'" v-model="form.scheduleHour" :disabled="!form.scheduleEnabled" style="width:100%" @change="syncCronFromParts"><el-option label="每小时" value="*" /><el-option v-for="item in hourOptions" :key="`h-${item}`" :label="`${item.padStart(2,'0')}时`" :value="item" /></el-select>
+                      <el-select v-else-if="scheduleTab==='day'" :model-value="form.scheduleDay" :disabled="!form.scheduleEnabled" style="width:100%" @change="selectScheduleDay"><el-option label="每日" value="*" /><el-option v-for="item in dayOptions.filter(v=>v!=='*')" :key="`d-${item}`" :label="`${item}日`" :value="item" /></el-select>
+                      <el-select v-else-if="scheduleTab==='month'" v-model="form.scheduleMonth" :disabled="!form.scheduleEnabled" style="width:100%" @change="syncCronFromParts"><el-option label="每月" value="*" /><el-option v-for="item in monthOptions.filter(v=>v!=='*')" :key="`mo-${item}`" :label="`${item}月`" :value="item" /></el-select>
+                      <el-select v-else :model-value="form.scheduleWeek" :disabled="!form.scheduleEnabled" style="width:100%" @change="selectScheduleWeek"><el-option v-for="item in weekOptions" :key="item.value" :label="item.label" :value="item.value" /></el-select>
+                    </div>
+                  </div>
+                  <div class="schedule-preview-card">
+                    <div class="schedule-preview-title">预计下次执行时间（前2次）</div>
+                    <div v-if="!form.scheduleEnabled" class="schedule-preview-empty">调度已关闭</div>
+                    <div v-else-if="!schedulePreviewTimes.length" class="schedule-preview-empty">正在计算…</div>
+                    <div v-for="(time,index) in schedulePreviewTimes" :key="time" class="schedule-preview-row"><i>{{ index + 1 }}</i><span>{{ formatDateTime(time).replace(/-/g,'/') }}</span></div>
+                  </div>
                 </div>
                 <div class="field-tip">{{ scheduleText() }}<span v-if="form.scheduleEnabled"> · 系统表达式：{{ form.cronExpression }}</span></div>
               </el-form-item>
               <el-form-item label="时区">
-                <el-select v-model="form.timezone" :disabled="!form.scheduleEnabled" style="width:100%">
+                <el-select v-model="form.timezone" :disabled="!form.scheduleEnabled" style="width:100%" @change="refreshSchedulePreview">
                   <el-option label="Asia/Shanghai" value="Asia/Shanghai" />
                   <el-option label="Asia/Singapore" value="Asia/Singapore" />
                   <el-option label="UTC" value="UTC" />
@@ -1177,6 +1241,7 @@ onBeforeUnmount(() => {
               <el-descriptions-item label="目标">{{ starrocks.find(item => item.id === form.targetDataSourceId)?.name || '—' }} / {{ form.targetDatabase }}</el-descriptions-item>
               <el-descriptions-item label="目标策略">{{ targetStrategyLabel(form.targetStrategy) }}</el-descriptions-item>
               <el-descriptions-item label="同步表数">{{ form.selectedTables.length }} 张</el-descriptions-item>
+              <el-descriptions-item label="任务上线状态">{{ editorMode === 'create' ? '已下线' : (editingId && tasks.find(t=>t.id===editingId)?.lifecycleStatus==='ONLINE' ? '已上线' : '已下线') }}</el-descriptions-item>
               <el-descriptions-item label="调度状态">{{ form.scheduleEnabled ? '已启用' : '未启用' }}</el-descriptions-item>
               <el-descriptions-item label="调度策略">{{ form.scheduleEnabled ? scheduleText() : '仅手动执行' }}</el-descriptions-item>
               <el-descriptions-item label="调度时区">{{ form.scheduleEnabled ? form.timezone : '—' }}</el-descriptions-item>
@@ -1317,4 +1382,5 @@ onBeforeUnmount(() => {
 .schedule-form{max-width:720px}.field-tip{margin-top:6px;font-size:12px;color:var(--ds-text-secondary)}.schedule-behavior-note{display:flex;flex-direction:column;gap:8px;margin-top:10px;padding:14px 16px;border:1px solid var(--ds-border);background:var(--ds-fill-lighter);border-radius:6px;font-size:13px;color:var(--ds-text-secondary)}.schedule-behavior-note strong{color:var(--ds-text-primary)}
 
 .schedule-wheel-grid{display:grid;grid-template-columns:repeat(4,minmax(96px,1fr));gap:12px;width:100%}.schedule-wheel{display:flex;flex-direction:column;gap:6px}.schedule-wheel>span{font-size:12px;color:var(--ds-text-secondary);text-align:center}.schedule-wheel :deep(.el-select){width:100%}.schedule-wheel-grid.disabled{opacity:.65}@media(max-width:1100px){.schedule-wheel-grid{grid-template-columns:repeat(2,minmax(110px,1fr))}}
+.schedule-config-box{width:100%;border:1px solid var(--ds-border);border-radius:6px;background:#fff;overflow:hidden}.schedule-config-box.disabled{opacity:.65}.schedule-mode-tabs{display:flex;border-bottom:1px solid var(--ds-border);background:#fafbfc}.schedule-mode-tabs button{height:38px;padding:0 20px;border:0;border-right:1px solid var(--ds-border);background:transparent;color:var(--ds-text-secondary);cursor:pointer;font-weight:600}.schedule-mode-tabs button.active{background:#fff;color:var(--el-color-primary);box-shadow:inset 0 -2px 0 var(--el-color-primary)}.schedule-quick{padding:14px}.schedule-custom{padding:0 14px 14px}.schedule-unit-tabs{display:grid;grid-template-columns:repeat(5,1fr);border:1px solid var(--ds-border);border-top:0;background:#f7f8fa}.schedule-unit-tabs button{height:38px;border:0;border-right:1px solid var(--ds-border);background:transparent;color:var(--ds-text-secondary);cursor:pointer;font-weight:600}.schedule-unit-tabs button:last-child{border-right:0}.schedule-unit-tabs button.active{background:#fff;color:var(--el-color-primary)}.schedule-unit-picker{padding:14px 0 0}.schedule-preview-card{margin:0 14px 14px;padding:12px 14px;border:1px solid #d8e5f5;border-radius:6px;background:#f7fbff}.schedule-preview-title{font-size:12px;color:#8793a5;margin-bottom:8px}.schedule-preview-row{display:flex;align-items:center;gap:8px;height:28px;font-size:13px;color:#344054}.schedule-preview-row i{width:20px;height:20px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;background:var(--el-color-primary);color:#fff;font-style:normal;font-size:11px}.schedule-preview-empty{font-size:12px;color:var(--ds-text-tertiary)}
 </style>

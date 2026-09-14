@@ -59,6 +59,7 @@ export const integrationApi = {
   get: (id:number) => api.get<IntegrationTask>(`/integration/tasks/${id}`),
   summary: (id:number) => api.get<IntegrationTaskSummary>(`/integration/tasks/${id}/summary`),
   schedule: (id:number) => api.get<IntegrationTaskSchedule>(`/integration/tasks/${id}/schedule`),
+  previewSchedule: (payload:{cronExpression:string;timezone:string;enabled:boolean}) => api.post<string[]>('/integration/tasks/schedule/preview',payload),
   saveSchedule: (id:number,payload:{cronExpression:string;timezone:string;enabled:boolean}) => api.put<IntegrationTaskSchedule>(`/integration/tasks/${id}/schedule`,payload),
   create: (payload:IntegrationTaskPayload) => api.post<IntegrationTask>('/integration/tasks',payload),
   update: (id:number,payload:IntegrationTaskPayload) => api.put<IntegrationTask>(`/integration/tasks/${id}`,payload),
