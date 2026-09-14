@@ -62,7 +62,10 @@ const form = reactive({
   selectedTables: [] as string[],
   targetPrefix: '',
   where: '',
-  targetStrategy: 'AUTO_EVOLVE'
+  targetStrategy: 'AUTO_EVOLVE',
+  scheduleEnabled: true,
+  cronExpression: '0 0 2 * * ?',
+  timezone: 'Asia/Shanghai'
 })
 
 const mysql = computed(() => sources.value.filter(source => source.type === 'MYSQL'))
@@ -111,7 +114,10 @@ function resetEditor() {
     selectedTables: [],
     targetPrefix: '',
     where: '',
-    targetStrategy: 'AUTO_EVOLVE'
+    targetStrategy: 'AUTO_EVOLVE',
+    scheduleEnabled: true,
+    cronExpression: '0 0 2 * * ?',
+    timezone: 'Asia/Shanghai'
   })
   sourceDbs.value = []
   targetDbs.value = []
@@ -185,6 +191,16 @@ async function openEdit(task: IntegrationTask) {
     form.sourceDataSourceId ? loadSourceDatabases(false) : Promise.resolve(),
     form.targetDataSourceId ? loadTargetDatabases(false) : Promise.resolve()
   ])
+  try {
+    const schedule = await integrationApi.schedule(task.id)
+    form.scheduleEnabled = schedule.enabled
+    form.cronExpression = schedule.cronExpression || '0 0 2 * * ?'
+    form.timezone = schedule.timezone || 'Asia/Shanghai'
+  } catch {
+    form.scheduleEnabled = true
+    form.cronExpression = '0 0 2 * * ?'
+    form.timezone = 'Asia/Shanghai'
+  }
   form.selectedTables = (task.tables || []).map(table => table.sourceTable)
   for (const table of task.tables || []) targetTables[table.sourceTable] = table.targetTable
   form.targetPrefix = inferTargetPrefix(task)
@@ -278,17 +294,21 @@ function validateStep(step: number) {
     if (!form.selectedTables.length) return '请至少选择一张来源表'
     if (form.selectedTables.some(table => !targetTables[table]?.trim())) return '请为所有来源表配置目标表名'
   }
+  if (step === 2 && form.scheduleEnabled) {
+    if (!form.cronExpression.trim()) return '请输入 Cron 表达式'
+    if (!form.timezone.trim()) return '请选择时区'
+  }
   return ''
 }
 
 async function nextStep() {
   const error = validateStep(editorStep.value)
   if (error) return ElMessage.warning(error)
-  if (editorStep.value === 1) {
+  if (editorStep.value === 2) {
     const ok = await loadSeaTunnelPreview()
     if (!ok) return
   }
-  editorStep.value = Math.min(2, editorStep.value + 1)
+  editorStep.value = Math.min(3, editorStep.value + 1)
 }
 
 function previousStep() {
@@ -383,7 +403,7 @@ async function copySeaTunnelConfig() {
 }
 
 async function saveTask() {
-  for (let step = 0; step <= 1; step += 1) {
+  for (let step = 0; step <= 2; step += 1) {
     const error = validateStep(step)
     if (error) {
       editorStep.value = step
@@ -393,13 +413,19 @@ async function saveTask() {
   saving.value = true
   try {
     const payload = buildPayload()
+    let savedTask: IntegrationTask
     if (editorMode.value === 'edit' && editingId.value) {
-      await integrationApi.update(editingId.value, payload)
+      savedTask = await integrationApi.update(editingId.value, payload)
       ElMessage.success('离线同步任务已更新')
     } else {
-      await integrationApi.create(payload)
+      savedTask = await integrationApi.create(payload)
       ElMessage.success('离线同步任务已创建')
     }
+    await integrationApi.saveSchedule(savedTask.id, {
+      cronExpression: form.cronExpression.trim(),
+      timezone: form.timezone.trim(),
+      enabled: form.scheduleEnabled
+    })
     editorVisible.value = false
     await load()
   } catch (error) {
@@ -942,9 +968,10 @@ onBeforeUnmount(() => {
 
     <el-drawer v-model="editorVisible" :title="editorMode === 'edit' ? '编辑离线同步任务' : '新建离线同步任务'" size="60%" destroy-on-close>
       <div class="editor-shell">
-        <el-steps :active="editorStep" finish-status="success" simple class="editor-steps editor-steps-3">
+        <el-steps :active="editorStep" finish-status="success" simple class="editor-steps editor-steps-4">
           <el-step title="基本配置" />
           <el-step title="选择表" />
+          <el-step title="调度配置" />
           <el-step title="确认配置" />
         </el-steps>
 
@@ -1032,6 +1059,32 @@ onBeforeUnmount(() => {
             </div>
           </template>
 
+          <template v-else-if="editorStep === 2">
+            <div class="section-title">调度配置</div>
+            <div class="section-tip">上线只启用任务和调度，不会立即执行。任务仅在手动点击“运行”或到达调度时间时执行。</div>
+            <el-form label-position="top" class="schedule-form">
+              <el-form-item label="启用调度">
+                <el-switch v-model="form.scheduleEnabled" active-text="启用" inactive-text="关闭" />
+              </el-form-item>
+              <el-form-item label="Cron 表达式">
+                <el-input v-model="form.cronExpression" :disabled="!form.scheduleEnabled" placeholder="例如：0 0 2 * * ?" />
+                <div class="field-tip">Quartz Cron，例：每天 02:00 = 0 0 2 * * ?；每小时整点 = 0 0 * * * ?</div>
+              </el-form-item>
+              <el-form-item label="时区">
+                <el-select v-model="form.timezone" :disabled="!form.scheduleEnabled" style="width:100%">
+                  <el-option label="Asia/Shanghai" value="Asia/Shanghai" />
+                  <el-option label="Asia/Singapore" value="Asia/Singapore" />
+                  <el-option label="UTC" value="UTC" />
+                </el-select>
+              </el-form-item>
+              <div class="schedule-behavior-note">
+                <strong>执行规则</strong>
+                <span>保存任务后仍为下线状态；上线时只恢复调度，不会立即执行 SeaTunnel。</span>
+                <span>手动运行：MANUAL ｜ 定时触发：SCHEDULED</span>
+              </div>
+            </el-form>
+          </template>
+
           <template v-else>
             <div class="section-title">确认配置</div>
             <el-descriptions :column="2" border class="confirm-overview">
@@ -1041,6 +1094,8 @@ onBeforeUnmount(() => {
               <el-descriptions-item label="目标">{{ starrocks.find(item => item.id === form.targetDataSourceId)?.name || '—' }} / {{ form.targetDatabase }}</el-descriptions-item>
               <el-descriptions-item label="目标策略">{{ targetStrategyLabel(form.targetStrategy) }}</el-descriptions-item>
               <el-descriptions-item label="同步表数">{{ form.selectedTables.length }} 张</el-descriptions-item>
+              <el-descriptions-item label="调度状态">{{ form.scheduleEnabled ? '已启用' : '未启用' }}</el-descriptions-item>
+              <el-descriptions-item label="调度规则">{{ form.scheduleEnabled ? `${form.cronExpression} / ${form.timezone}` : '仅手动执行' }}</el-descriptions-item>
               <el-descriptions-item label="增量条件" :span="2">{{ form.where.trim() || '空（全量同步）' }}</el-descriptions-item>
             </el-descriptions>
 
@@ -1068,7 +1123,7 @@ onBeforeUnmount(() => {
           <el-button @click="editorVisible = false">取消</el-button>
           <div class="ds-spacer" />
           <el-button v-if="editorStep > 0" @click="previousStep">上一步</el-button>
-          <el-button v-if="editorStep < 2" type="primary" @click="nextStep">下一步</el-button>
+          <el-button v-if="editorStep < 3" type="primary" @click="nextStep">下一步</el-button>
           <el-button v-else type="primary" :loading="saving" @click="saveTask">{{ editorMode === 'edit' ? '保存修改' : '创建任务' }}</el-button>
         </div>
       </template>
@@ -1174,4 +1229,5 @@ onBeforeUnmount(() => {
 .editor-steps :deep(.el-step__title){white-space:nowrap!important;font-size:14px!important}.editor-steps :deep(.el-step.is-simple .el-step__main){min-width:max-content}.editor-steps :deep(.el-step.is-simple){min-width:0;padding:0 14px}
 .history-shell{height:calc(100vh - 104px);display:flex;flex-direction:column;gap:10px;min-height:520px}.history-records{flex:0 0 auto;max-height:255px;overflow:auto;display:flex;flex-direction:column;gap:10px;padding-right:2px}.history-batch-card{border:1px solid var(--ds-border);background:#fff}.history-batch-head{min-height:48px;padding:8px 12px;display:grid;grid-template-columns:minmax(220px,1fr) 100px 285px auto;align-items:center;gap:12px;background:#f8fafc;border-bottom:1px solid var(--ds-border);font-size:12px;color:var(--ds-text-secondary)}.history-batch-head>div:first-child{display:flex;align-items:center;gap:10px;min-width:0}.history-batch-head strong{color:var(--ds-text-primary)}.history-batch-head span{white-space:nowrap}.history-batch-actions{display:flex;justify-content:flex-end}.history-attempts{display:flex;flex-direction:column}.history-attempt-row,.legacy-run-row{width:100%;border:0;border-bottom:1px solid #eef0f2;background:#fff;padding:9px 12px;display:grid;grid-template-columns:100px 100px minmax(220px,1fr) 170px 72px;align-items:center;gap:10px;text-align:left;font:inherit;color:var(--ds-text-secondary);cursor:pointer}.history-attempt-row:last-child{border-bottom:0}.history-attempt-row:hover,.legacy-run-row:hover,.history-attempt-row.selected,.legacy-run-row.selected{background:#f5f8ff}.history-attempt-row.selected,.legacy-run-row.selected{box-shadow:inset 3px 0 0 var(--el-color-primary)}.history-attempt-row strong,.legacy-run-row strong{color:var(--ds-text-primary)}.legacy-run-row{grid-template-columns:minmax(260px,1fr) 110px 320px 72px;border:1px solid var(--ds-border);margin-bottom:8px}.view-log-text{color:var(--el-color-primary);white-space:nowrap}.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.compact-note{margin:0;padding:9px 12px}.history-log-panel{flex:1;min-height:0;display:flex;flex-direction:column;border:1px solid var(--ds-border);background:#fff}.history-log-toolbar{min-height:52px;padding:8px 12px;border-bottom:1px solid var(--ds-border);display:flex;align-items:center;justify-content:space-between;gap:16px}.history-log-toolbar>div:first-child{display:flex;align-items:center;gap:10px;min-width:0}.history-log-toolbar strong{color:var(--ds-text-primary)}.history-log-toolbar span{font-size:12px;color:var(--ds-text-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.history-log-toolbar em{font-style:normal;font-size:12px;color:var(--ds-success);white-space:nowrap}.history-log-actions{display:flex;gap:6px;flex:0 0 auto}.history-log-viewer{flex:1;min-height:260px;overflow:auto;background:#111827;padding:14px 16px}.history-log-viewer pre{margin:0;color:#d1d5db;white-space:pre-wrap;word-break:break-word;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;line-height:1.65}.history-log-panel.is-maximized{position:fixed;z-index:4000;inset:18px;background:#fff;border:1px solid #cfd4dc;box-shadow:0 16px 48px rgba(0,0,0,.24)}.history-log-panel.is-maximized .history-log-viewer{min-height:0}.muted-inline{font-size:12px;color:var(--ds-text-tertiary)}.detail-run-toolbar{display:flex;justify-content:flex-end;margin:0 0 10px}
 @media (max-width:1000px){.form-grid,.table-selector,.confirm-grid,.database-pair{grid-template-columns:1fr}.database-arrow{transform:rotate(90deg)}.span-2{grid-column:auto}.table-source-pane{border-right:0;border-bottom:1px solid var(--ds-border)}}
+.schedule-form{max-width:720px}.field-tip{margin-top:6px;font-size:12px;color:var(--ds-text-secondary)}.schedule-behavior-note{display:flex;flex-direction:column;gap:8px;margin-top:10px;padding:14px 16px;border:1px solid var(--ds-border);background:var(--ds-fill-lighter);border-radius:6px;font-size:13px;color:var(--ds-text-secondary)}.schedule-behavior-note strong{color:var(--ds-text-primary)}
 </style>

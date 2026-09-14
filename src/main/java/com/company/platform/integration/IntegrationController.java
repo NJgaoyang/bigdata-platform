@@ -16,13 +16,16 @@ public class IntegrationController {
     private final IntegrationMetadataService metadataService;
     private final SeaTunnelClusterService clusterService;
     private final IntegrationTaskSummaryService summaryService;
+    private final IntegrationTaskScheduleService taskScheduleService;
 
     public IntegrationController(IntegrationService service, IntegrationMetadataService metadataService,
-                                 SeaTunnelClusterService clusterService, IntegrationTaskSummaryService summaryService) {
+                                 SeaTunnelClusterService clusterService, IntegrationTaskSummaryService summaryService,
+                                 IntegrationTaskScheduleService taskScheduleService) {
         this.service = service;
         this.metadataService = metadataService;
         this.clusterService = clusterService;
         this.summaryService = summaryService;
+        this.taskScheduleService = taskScheduleService;
     }
 
     @GetMapping public Result<List<IntegrationTaskView>> list() { return Result.ok(service.list()); }
@@ -40,9 +43,11 @@ public class IntegrationController {
     @PutMapping("/{id}") public Result<IntegrationTaskView> update(@PathVariable long id, @Valid @RequestBody IntegrationRequests.TaskRequest request) { return Result.ok(service.update(id, request), "同步任务已更新"); }
     @GetMapping("/{id}") public Result<IntegrationTaskView> get(@PathVariable long id) { return Result.ok(service.get(id)); }
     @GetMapping("/{id}/summary") public Result<IntegrationTaskSummaryService.Summary> summary(@PathVariable long id) { service.get(id); return Result.ok(summaryService.summary(id)); }
-    @PostMapping("/{id}/online") public Result<IntegrationTaskView> online(@PathVariable long id) { return Result.ok(service.online(id), "离线同步任务已上线"); }
-    @PostMapping("/{id}/offline") public Result<IntegrationTaskView> offline(@PathVariable long id) { return Result.ok(service.offline(id), "离线同步任务已下线"); }
-    @DeleteMapping("/{id}") public Result<Void> delete(@PathVariable long id) { service.delete(id); return Result.ok(null, "同步任务已删除"); }
+    @GetMapping("/{id}/schedule") public Result<IntegrationTaskScheduleService.ScheduleView> schedule(@PathVariable long id) { service.get(id); return Result.ok(taskScheduleService.get(id)); }
+    @PutMapping("/{id}/schedule") public Result<IntegrationTaskScheduleService.ScheduleView> saveSchedule(@PathVariable long id, @RequestBody IntegrationTaskScheduleService.ScheduleRequest request) { service.get(id); return Result.ok(taskScheduleService.save(id, request), "调度配置已保存"); }
+    @PostMapping("/{id}/online") public Result<IntegrationTaskView> online(@PathVariable long id) { IntegrationTaskView view = service.online(id); taskScheduleService.activate(id); return Result.ok(view, "离线同步任务已上线，等待手动触发或调度时间"); }
+    @PostMapping("/{id}/offline") public Result<IntegrationTaskView> offline(@PathVariable long id) { IntegrationTaskView view = service.offline(id); taskScheduleService.pause(id); return Result.ok(view, "离线同步任务已下线"); }
+    @DeleteMapping("/{id}") public Result<Void> delete(@PathVariable long id) { taskScheduleService.delete(id); service.delete(id); return Result.ok(null, "同步任务已删除"); }
     @GetMapping("/{id}/tables") public Result<List<IntegrationTableView>> tables(@PathVariable long id) { return Result.ok(service.tables(id)); }
     @DeleteMapping("/{id}/tables/{tableId}") public Result<IntegrationTaskView> deleteTable(@PathVariable long id, @PathVariable long tableId) { return Result.ok(service.deleteTable(id, tableId), "任务表已删除，配置已重新生成"); }
 

@@ -55,6 +55,14 @@ public class IntegrationTaskSummaryService {
 
     private LocalDateTime nextRun(long taskId) {
         try {
+            List<DirectSchedule> direct = jdbc.query("SELECT s.cron_expression,s.timezone FROM integration_task_schedule s JOIN integration_task t ON t.id=s.task_id WHERE s.task_id=? AND s.enabled=TRUE AND t.lifecycle_status='ONLINE'",
+                    (rs,n) -> new DirectSchedule(rs.getString("cron_expression"), rs.getString("timezone")), taskId);
+            if (!direct.isEmpty()) {
+                DirectSchedule schedule = direct.getFirst();
+                ZoneId zone = ZoneId.of(schedule.timezone() == null || schedule.timezone().isBlank() ? "Asia/Shanghai" : schedule.timezone());
+                ZonedDateTime next = CronExpression.parse(schedule.cron()).next(ZonedDateTime.now(zone));
+                if (next != null) return next.toLocalDateTime();
+            }
             List<ScheduleRef> refs = jdbc.query("SELECT wn.config_json,sc.cron_expression,sc.timezone FROM workflow_node wn " +
                             "JOIN schedule_config sc ON sc.workflow_id=wn.workflow_id " +
                             "WHERE wn.node_type='SEATUNNEL' AND sc.enabled=TRUE",
@@ -80,4 +88,5 @@ public class IntegrationTaskSummaryService {
     private record TaskMeta(LocalDateTime createdAt, String createdBy) { }
     private record LatestRun(LocalDateTime startedAt, Long durationMs, Long dataCount) { }
     private record ScheduleRef(String configJson, String cron, String timezone) { }
+    private record DirectSchedule(String cron, String timezone) { }
 }
