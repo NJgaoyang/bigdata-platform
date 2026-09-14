@@ -83,12 +83,12 @@ public class RealtimeManagementService {
             List<ColumnOption> removed=before.stream().filter(c->!newMap.containsKey(c.name())).toList();
             List<ColumnOption> added=current.stream().filter(c->!oldMap.containsKey(c.name())).toList();
             if(removed.size()==1&&added.size()==1&&removed.get(0).mysqlType().equalsIgnoreCase(added.get(0).mysqlType())&&removed.get(0).ordinalPosition()==added.get(0).ordinalPosition()){
-                ColumnOption a=removed.get(0),b=added.get(0);recordSchemaChange(job.id(),sourceTable,"RENAME_COLUMN","`"+a.name()+"` → `"+b.name()+"`",str(policies.getOrDefault("renameColumn","MANUAL")),"待人工确认","NEEDS_CONFIRMATION","基于字段位置和类型推断为可能的重命名；平台不会在无法确认 DDL 语义时自动删除目标字段");
+                ColumnOption a=removed.get(0),b=added.get(0);recordSchemaChange(job.id(),sourceTable,"RENAME_COLUMN","`"+a.name()+"` → `"+b.name()+"`",str(policies.getOrDefault("renameColumn","AUTO")),"由 Flink CDC Schema Evolution 自动处理","DETECTED","字段重命名按任务策略自动同步；平台仍保留变更记录用于审计");
             } else {
                 for(ColumnOption c:added)recordSchemaChange(job.id(),sourceTable,"ADD_COLUMN","ADD COLUMN `"+c.name()+"` "+c.mysqlType(),str(policies.getOrDefault("addColumn","AUTO")),"由 Flink CDC Schema Evolution 处理","DETECTED","目标类型 "+c.starRocksType());
                 for(ColumnOption c:removed)recordSchemaChange(job.id(),sourceTable,"DROP_COLUMN","DROP COLUMN `"+c.name()+"`",str(policies.getOrDefault("dropColumn","KEEP_TARGET")),"按策略保留/阻断","DETECTED","删除字段默认保留目标字段，避免破坏性 DDL");
             }
-            for(ColumnOption c:current){ColumnOption old=oldMap.get(c.name());if(old!=null&&!old.mysqlType().equalsIgnoreCase(c.mysqlType()))recordSchemaChange(job.id(),sourceTable,"ALTER_COLUMN_TYPE","MODIFY COLUMN `"+c.name()+"` "+c.mysqlType(),str(policies.getOrDefault("typeChange","MANUAL")),"待兼容性检查","NEEDS_CONFIRMATION",old.mysqlType()+" → "+c.mysqlType()+" / StarRocks "+c.starRocksType());}
+            for(ColumnOption c:current){ColumnOption old=oldMap.get(c.name());if(old!=null&&!old.mysqlType().equalsIgnoreCase(c.mysqlType()))recordSchemaChange(job.id(),sourceTable,"ALTER_COLUMN_TYPE","MODIFY COLUMN `"+c.name()+"` "+c.mysqlType(),str(policies.getOrDefault("typeChange","AUTO")),"自动兼容映射","DETECTED",old.mysqlType()+" → "+c.mysqlType()+" / StarRocks "+c.starRocksType());}
             jdbc.update("UPDATE realtime_schema_snapshot SET schema_json=?,updated_at=CURRENT_TIMESTAMP WHERE job_id=? AND source_table=?",currentJson,job.id(),sourceTable);
         }
         return schemaChanges(job.id());
