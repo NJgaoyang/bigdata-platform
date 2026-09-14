@@ -807,21 +807,21 @@ onBeforeUnmount(() => {
       </div>
 
       <el-table :data="filteredTasks" v-loading="loading" row-class-name="offline-task-row" @row-click="openDetail">
-        <el-table-column label="任务名称" min-width="155">
+        <el-table-column label="任务名称" width="132" show-overflow-tooltip>
           <template #default="scope">
             <button class="task-name-link" @click.stop="openDetail(scope.row)">{{ scope.row.name }}</button>
           </template>
         </el-table-column>
-        <el-table-column label="执行概况" width="128">
+        <el-table-column label="执行概况" width="142">
           <template #default="scope"><div class="runtime-summary"><span>数据量：<strong>{{ formatCount(taskSummary(scope.row)?.dataCount) }}</strong></span><span>耗时：{{ formatDuration(taskSummary(scope.row)?.durationMs) }}</span></div></template>
         </el-table-column>
-        <el-table-column label="最近状态" width="102"><template #default="scope"><StatusBadge :status="latestStatus(scope.row)" :label="statusLabel(latestStatus(scope.row))" /></template></el-table-column>
-        <el-table-column label="调度" width="190">
+        <el-table-column label="最近状态" width="104"><template #default="scope"><StatusBadge :status="latestStatus(scope.row)" :label="statusLabel(latestStatus(scope.row))" /></template></el-table-column>
+        <el-table-column label="调度" width="184">
           <template #default="scope"><div class="schedule-summary"><span>状态：<strong :class="isOnline(scope.row) ? 'schedule-online' : 'schedule-offline'">{{ isOnline(scope.row) ? '已开启' : '已下线' }}</strong></span><span>上次：{{ formatDateTime(taskSummary(scope.row)?.lastRunAt) }}</span><span>下次：{{ formatDateTime(taskSummary(scope.row)?.nextRunAt) }}</span></div></template>
         </el-table-column>
-        <el-table-column label="创建时间" width="154"><template #default="scope"><span class="time-cell">{{ taskCreatedAt(scope.row) }}</span></template></el-table-column>
-        <el-table-column label="创建人" width="88"><template #default="scope">{{ taskCreatedBy(scope.row) }}</template></el-table-column>
-        <el-table-column label="操作" width="190" fixed="right">
+        <el-table-column label="创建时间" width="150"><template #default="scope"><span class="time-cell">{{ taskCreatedAt(scope.row) }}</span></template></el-table-column>
+        <el-table-column label="创建人" width="82"><template #default="scope">{{ taskCreatedBy(scope.row) }}</template></el-table-column>
+        <el-table-column label="操作" width="176" fixed="right">
           <template #default="scope">
             <template v-if="isOnline(scope.row)">
               <el-button link type="primary" @click.stop="run(scope.row)">运行</el-button>
