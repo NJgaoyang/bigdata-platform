@@ -838,7 +838,7 @@ onBeforeUnmount(() => {
       </el-table>
     </div>
 
-    <el-drawer v-model="detailVisible" size="960px" destroy-on-close class="task-detail-drawer">
+    <el-drawer v-model="detailVisible" size="1080px" destroy-on-close class="task-detail-drawer">
       <template #header>
         <div class="detail-head">
           <div>
