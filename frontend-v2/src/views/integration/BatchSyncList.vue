@@ -13,6 +13,12 @@ const latestBatch = ref<Record<number, IntegrationBatch | undefined>>({})
 const loading = ref(false)
 const saving = ref(false)
 const editorVisible = ref(false)
+const detailVisible = ref(false)
+const detailLoading = ref(false)
+const detailTask = ref<IntegrationTask | null>(null)
+const detailBatches = ref<IntegrationBatch[]>([])
+const detailInstances = ref<IntegrationInstance[]>([])
+const detailTab = ref('overview')
 const editorStep = ref(0)
 const editorMode = ref<'create' | 'edit'>('create')
 const editingId = ref<number | null>(null)
@@ -117,6 +123,36 @@ async function openCreate() {
   resetEditor()
   editorVisible.value = true
   if (form.sourceDataSourceId) await loadSourceDatabases(true)
+}
+
+async function openDetail(task: IntegrationTask) {
+  detailVisible.value = true
+  detailLoading.value = true
+  detailTab.value = 'overview'
+  detailTask.value = task
+  detailBatches.value = []
+  detailInstances.value = []
+  try {
+    const [fullTask, batchRows, instanceRows] = await Promise.all([
+      integrationApi.get(task.id),
+      integrationApi.batches(task.id),
+      integrationApi.instances(task.id)
+    ])
+    detailTask.value = fullTask
+    detailBatches.value = batchRows
+    detailInstances.value = instanceRows
+  } catch (error) {
+    ElMessage.error(messageOf(error))
+  } finally {
+    detailLoading.value = false
+  }
+}
+
+async function editFromDetail() {
+  if (!detailTask.value) return
+  const task = detailTask.value
+  detailVisible.value = false
+  await openEdit(task)
 }
 
 async function openEdit(task: IntegrationTask) {
@@ -413,6 +449,48 @@ async function showLog(instance: { executionId?: string }) {
   finally { logLoading.value = false }
 }
 
+function sourceLabel(task: IntegrationTask) {
+  const config = safeJson(task.sourceConfigJson)
+  const source = sources.value.find(item => item.type === 'MYSQL'
+    && item.host === stringValue(config.host)
+    && item.port === Number(config.port || 0))
+  return source?.name || `${stringValue(config.host) || task.sourceType}:${Number(config.port || 0) || '—'}`
+}
+
+function targetLabel(task: IntegrationTask) {
+  const config = safeJson(task.targetConfigJson)
+  const source = sources.value.find(item => item.type === 'STARROCKS'
+    && item.host === stringValue(config.host)
+    && item.port === Number(config.port || 0))
+  return source?.name || `${stringValue(config.host) || task.targetType}:${Number(config.port || 0) || '—'}`
+}
+
+function schemaModeLabel(task: IntegrationTask) {
+  const transform = safeJson(task.transformConfigJson)
+  const mode = stringValue(objectValue(transform.options).schemaSaveMode)
+  return mode === 'RECREATE_SCHEMA' ? '运行前重建目标表' : '目标表不存在时自动创建'
+}
+
+function detailWhere(task: IntegrationTask) {
+  const value = formWhere(task)
+  return value || '—'
+}
+
+function latestDetailBatch() {
+  return detailBatches.value[0]
+}
+
+function commandHandler(task: IntegrationTask) {
+  return (command: string | number | object) => handleTaskCommand(String(command), task)
+}
+
+function handleTaskCommand(command: string, task: IntegrationTask) {
+  if (command === 'backfill') return openBackfill(task)
+  if (command === 'cursor') return openCursor(task)
+  if (command === 'history') return showHistory(task)
+  if (command === 'delete') return remove(task)
+}
+
 function latestStatus(task: IntegrationTask) {
   return latestBatch.value[task.id]?.status || latest.value[task.id]?.status || '未运行'
 }
@@ -493,26 +571,122 @@ onMounted(load)
         <el-button @click="load" :loading="loading">刷新</el-button>
       </div>
 
-      <el-table :data="filteredTasks" v-loading="loading">
-        <el-table-column prop="name" label="任务名称" min-width="180" />
-        <el-table-column label="来源 → 目标" min-width="190"><template #default="scope">{{ path(scope.row) }}</template></el-table-column>
-        <el-table-column label="表数" width="80"><template #default="scope">{{ scope.row.tables?.length || 0 }}</template></el-table-column>
-        <el-table-column label="同步方式" width="110"><template #default="scope">{{ modeLabel(scope.row.syncMode) }}</template></el-table-column>
-        <el-table-column label="最近状态" width="130"><template #default="scope"><StatusBadge :status="latestStatus(scope.row)" /></template></el-table-column>
-        <el-table-column label="最近运行" min-width="165"><template #default="scope">{{ latestStartedAt(scope.row) }}</template></el-table-column>
-        <el-table-column label="操作" width="390" fixed="right">
+      <el-table :data="filteredTasks" v-loading="loading" row-class-name="offline-task-row" @row-click="openDetail">
+        <el-table-column label="任务名称" min-width="210">
           <template #default="scope">
-            <el-button link type="primary" @click="openEdit(scope.row)">编辑</el-button>
-            <el-button link type="primary" @click="run(scope.row)">运行</el-button>
-            <el-button link :disabled="!canStop(scope.row)" @click="stop(scope.row)">停止</el-button>
-            <el-button link @click="openBackfill(scope.row)">补数</el-button>
-            <el-button v-if="scope.row.syncMode === 'INCREMENTAL'" link @click="openCursor(scope.row)">游标</el-button>
-            <el-button link @click="showHistory(scope.row)">运行记录</el-button>
-            <el-button link type="danger" @click="remove(scope.row)">删除</el-button>
+            <button class="task-name-link" @click.stop="openDetail(scope.row)">{{ scope.row.name }}</button>
+          </template>
+        </el-table-column>
+        <el-table-column label="来源 → 目标" min-width="180"><template #default="scope">{{ path(scope.row) }}</template></el-table-column>
+        <el-table-column label="表数" width="72"><template #default="scope">{{ scope.row.tables?.length || 0 }}</template></el-table-column>
+        <el-table-column label="同步方式" width="105"><template #default="scope">{{ modeLabel(scope.row.syncMode) }}</template></el-table-column>
+        <el-table-column label="最近状态" width="120"><template #default="scope"><StatusBadge :status="latestStatus(scope.row)" /></template></el-table-column>
+        <el-table-column label="最近运行" width="175"><template #default="scope"><span class="time-cell">{{ latestStartedAt(scope.row) }}</span></template></el-table-column>
+        <el-table-column label="操作" width="285" fixed="right">
+          <template #default="scope">
+            <el-button link type="primary" @click.stop="openDetail(scope.row)">查看</el-button>
+            <el-button link type="primary" @click.stop="openEdit(scope.row)">编辑</el-button>
+            <el-button link type="primary" @click.stop="run(scope.row)">运行</el-button>
+            <el-button link :disabled="!canStop(scope.row)" @click.stop="stop(scope.row)">停止</el-button>
+            <span class="task-more" @click.stop>
+              <el-dropdown trigger="click" @command="commandHandler(scope.row)">
+                <el-button link>更多</el-button>
+                <template #dropdown>
+                  <el-dropdown-menu>
+                    <el-dropdown-item command="backfill">补数</el-dropdown-item>
+                    <el-dropdown-item v-if="scope.row.syncMode === 'INCREMENTAL'" command="cursor">增量游标</el-dropdown-item>
+                    <el-dropdown-item command="history">运行记录</el-dropdown-item>
+                    <el-dropdown-item divided command="delete"><span class="danger-menu-item">删除任务</span></el-dropdown-item>
+                  </el-dropdown-menu>
+                </template>
+              </el-dropdown>
+            </span>
           </template>
         </el-table-column>
       </el-table>
     </div>
+
+    <el-drawer v-model="detailVisible" size="960px" destroy-on-close class="task-detail-drawer">
+      <template #header>
+        <div class="detail-head">
+          <div>
+            <div class="detail-eyebrow">离线同步任务</div>
+            <h3>{{ detailTask?.name || '任务详情' }}</h3>
+            <div class="detail-subtitle">点击任务默认进入只读详情；只有进入编辑向导后才可以修改任务配置。</div>
+          </div>
+          <div class="detail-actions" v-if="detailTask">
+            <el-button @click="detailTab = 'runs'">运行记录</el-button>
+            <el-button type="primary" @click="editFromDetail">编辑任务</el-button>
+          </div>
+        </div>
+      </template>
+
+      <div class="task-detail" v-loading="detailLoading" v-if="detailTask">
+        <div class="detail-summary">
+          <div class="summary-item"><span>当前状态</span><StatusBadge :status="latestDetailBatch()?.status || latestStatus(detailTask)" /></div>
+          <div class="summary-item"><span>同步方式</span><strong>{{ modeLabel(detailTask.syncMode) }}</strong></div>
+          <div class="summary-item"><span>同步表数</span><strong>{{ detailTask.tables?.length || 0 }} 张</strong></div>
+          <div class="summary-item"><span>最近运行</span><strong>{{ latestDetailBatch()?.startedAt || latestStartedAt(detailTask) }}</strong></div>
+        </div>
+
+        <el-tabs v-model="detailTab" class="detail-tabs">
+          <el-tab-pane label="任务信息" name="overview">
+            <section class="detail-section">
+              <div class="detail-section-title">基本信息</div>
+              <el-descriptions :column="2" border>
+                <el-descriptions-item label="任务名称">{{ detailTask.name }}</el-descriptions-item>
+                <el-descriptions-item label="任务 ID">{{ detailTask.id }}</el-descriptions-item>
+                <el-descriptions-item label="来源数据源">{{ sourceLabel(detailTask) }}</el-descriptions-item>
+                <el-descriptions-item label="目标数据源">{{ targetLabel(detailTask) }}</el-descriptions-item>
+                <el-descriptions-item label="来源 → 目标">{{ path(detailTask) }}</el-descriptions-item>
+                <el-descriptions-item label="执行引擎">SeaTunnel（平台默认集群）</el-descriptions-item>
+                <el-descriptions-item label="同步方式">{{ modeLabel(detailTask.syncMode) }}</el-descriptions-item>
+                <el-descriptions-item label="目标表策略">{{ schemaModeLabel(detailTask) }}</el-descriptions-item>
+                <el-descriptions-item label="WHERE 条件" :span="2"><code class="readonly-code">{{ detailWhere(detailTask) }}</code></el-descriptions-item>
+              </el-descriptions>
+            </section>
+            <section class="detail-section">
+              <div class="detail-section-title">最近运行</div>
+              <el-descriptions :column="2" border>
+                <el-descriptions-item label="最近状态"><StatusBadge :status="latestDetailBatch()?.status || latestStatus(detailTask)" /></el-descriptions-item>
+                <el-descriptions-item label="触发方式">{{ latestDetailBatch() ? triggerLabel(latestDetailBatch()?.triggerType || '') : '—' }}</el-descriptions-item>
+                <el-descriptions-item label="开始时间">{{ latestDetailBatch()?.startedAt || latestStartedAt(detailTask) }}</el-descriptions-item>
+                <el-descriptions-item label="结束时间">{{ latestDetailBatch()?.finishedAt || '—' }}</el-descriptions-item>
+              </el-descriptions>
+            </section>
+          </el-tab-pane>
+
+          <el-tab-pane :label="`表映射 (${detailTask.tables?.length || 0})`" name="tables">
+            <section class="detail-section no-top">
+              <el-table :data="detailTask.tables || []" border>
+                <el-table-column label="来源表" min-width="260"><template #default="scope"><span class="object-name">{{ scope.row.sourceDatabase }}.{{ scope.row.sourceTable }}</span></template></el-table-column>
+                <el-table-column label="目标表" min-width="260"><template #default="scope"><span class="object-name target">{{ scope.row.targetDatabase }}.{{ scope.row.targetTable }}</span></template></el-table-column>
+              </el-table>
+            </section>
+          </el-tab-pane>
+
+          <el-tab-pane :label="`运行记录 (${detailBatches.length || detailInstances.length})`" name="runs">
+            <section class="detail-section no-top">
+              <el-table v-if="detailBatches.length" :data="detailBatches" border>
+                <el-table-column prop="batchCode" label="批次" min-width="190" show-overflow-tooltip />
+                <el-table-column label="触发方式" width="100"><template #default="scope">{{ triggerLabel(scope.row.triggerType) }}</template></el-table-column>
+                <el-table-column label="状态" width="110"><template #default="scope"><StatusBadge :status="scope.row.status" /></template></el-table-column>
+                <el-table-column prop="startedAt" label="开始时间" width="175" />
+                <el-table-column prop="finishedAt" label="结束时间" width="175" />
+                <el-table-column label="操作" width="110"><template #default="scope"><el-button link type="primary" @click="showAttempts(scope.row)">尝试记录</el-button></template></el-table-column>
+              </el-table>
+              <el-table v-else :data="detailInstances" border>
+                <el-table-column prop="executionId" label="执行 ID" min-width="220" show-overflow-tooltip />
+                <el-table-column label="状态" width="110"><template #default="scope"><StatusBadge :status="scope.row.status" /></template></el-table-column>
+                <el-table-column prop="startedAt" label="开始时间" width="175" />
+                <el-table-column prop="finishedAt" label="结束时间" width="175" />
+                <el-table-column label="操作" width="80"><template #default="scope"><el-button link type="primary" @click="showLog(scope.row)">日志</el-button></template></el-table-column>
+              </el-table>
+            </section>
+          </el-tab-pane>
+        </el-tabs>
+      </div>
+    </el-drawer>
 
     <el-drawer v-model="editorVisible" :title="editorMode === 'edit' ? '编辑离线同步任务' : '新建离线同步任务'" size="920px" destroy-on-close>
       <div class="editor-shell">
@@ -719,5 +893,10 @@ onMounted(load)
 .table-selector{display:grid;grid-template-columns:1.1fr .9fr;border:1px solid var(--ds-border);border-radius:4px;min-height:470px;overflow:hidden}.table-source-pane{border-right:1px solid var(--ds-border);padding:16px}.table-selected-pane{padding:16px;background:#fafbfc}.pane-toolbar{display:flex;gap:8px;margin-bottom:12px}.pane-title{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}.table-check-list{display:flex;flex-direction:column;max-height:405px;overflow:auto}.table-check-item{margin-right:0!important;padding:9px 8px;border-bottom:1px solid #f1f3f5}.table-name{display:inline-block;min-width:180px;color:var(--ds-text-primary)}.table-comment{color:var(--ds-text-secondary);font-size:12px}.empty-selection{padding:48px 0;text-align:center;color:var(--ds-text-secondary)}.selected-row{display:grid;grid-template-columns:1fr 24px 1fr;align-items:center;padding:9px 0;border-bottom:1px solid var(--ds-border);font-size:13px}.arrow{text-align:center;color:var(--el-color-primary)}
 .mapping-table{width:100%;border:1px solid var(--ds-border);border-radius:4px;overflow:hidden}.mapping-head,.mapping-row{display:grid;grid-template-columns:1fr 1fr;gap:18px;align-items:center;padding:10px 14px}.mapping-head{background:#f7f8fa;color:var(--ds-text-secondary);font-size:12px}.mapping-row{border-top:1px solid var(--ds-border)}.mapping-source{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px}
 .confirm-mappings{margin-top:20px;border:1px solid var(--ds-border);border-radius:4px}.confirm-title{padding:10px 14px;background:#f7f8fa;font-weight:600}.confirm-row{display:grid;grid-template-columns:1fr 36px 1fr;padding:9px 14px;border-top:1px solid var(--ds-border);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px}.drawer-footer{display:flex;align-items:center;width:100%}.log-box{min-height:300px;max-height:520px;overflow:auto;background:#111827;border-radius:4px;padding:14px}.log-box pre{margin:0;color:#d1d5db;white-space:pre-wrap;word-break:break-word;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;line-height:1.65}
+
+.task-name-link{border:0;background:transparent;padding:0;color:var(--el-color-primary);font:inherit;cursor:pointer;text-align:left}.task-name-link:hover{text-decoration:underline}.time-cell{white-space:nowrap;font-size:13px;color:var(--ds-text-primary)}.task-more{display:inline-flex;margin-left:12px}.danger-menu-item{color:var(--el-color-danger)}
+:deep(.offline-task-row){cursor:pointer}:deep(.offline-task-row:hover>td.el-table__cell){background:#f5f8ff!important}
+.detail-head{width:100%;display:flex;align-items:flex-start;justify-content:space-between;gap:24px;padding-right:8px}.detail-head h3{margin:4px 0 6px;font-size:20px;color:var(--ds-text-primary)}.detail-eyebrow{font-size:12px;color:var(--el-color-primary);font-weight:600}.detail-subtitle{font-size:12px;color:var(--ds-text-secondary)}.detail-actions{display:flex;gap:8px;flex:0 0 auto}.task-detail{padding:0 2px 24px}.detail-summary{display:grid;grid-template-columns:repeat(4,1fr);border:1px solid var(--ds-border);background:#fff;margin:2px 0 18px}.summary-item{min-height:72px;padding:12px 16px;border-right:1px solid var(--ds-border);display:flex;flex-direction:column;justify-content:center;gap:8px}.summary-item:last-child{border-right:0}.summary-item>span{font-size:12px;color:var(--ds-text-secondary)}.summary-item>strong{font-size:14px;color:var(--ds-text-primary);font-weight:600}.detail-tabs{margin-top:4px}.detail-section{margin-top:14px}.detail-section.no-top{margin-top:0}.detail-section-title{font-size:14px;font-weight:600;color:var(--ds-text-primary);margin:0 0 10px}.readonly-code{display:block;white-space:pre-wrap;word-break:break-all;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;color:#475467;background:#f8fafc;padding:2px 6px;border-radius:3px}.object-name{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:#344054}.object-name.target{color:var(--el-color-primary)}
+
 @media (max-width:1000px){.form-grid,.table-selector{grid-template-columns:1fr}.span-2{grid-column:auto}.table-source-pane{border-right:0;border-bottom:1px solid var(--ds-border)}}
 </style>
