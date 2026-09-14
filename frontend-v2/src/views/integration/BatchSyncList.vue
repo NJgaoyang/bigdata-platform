@@ -363,6 +363,25 @@ async function loadSeaTunnelPreview() {
   }
 }
 
+async function copySeaTunnelConfig() {
+  const text = seatunnelPreview.value.trim()
+  if (!text) return ElMessage.warning('暂无可复制的 SeaTunnel 配置')
+  try {
+    await navigator.clipboard.writeText(text)
+    ElMessage.success('SeaTunnel 配置已复制到剪贴板')
+  } catch {
+    const textarea = document.createElement('textarea')
+    textarea.value = text
+    textarea.style.position = 'fixed'
+    textarea.style.opacity = '0'
+    document.body.appendChild(textarea)
+    textarea.select()
+    const copied = document.execCommand('copy')
+    textarea.remove()
+    copied ? ElMessage.success('SeaTunnel 配置已复制到剪贴板') : ElMessage.error('复制失败，请手动选择配置内容')
+  }
+}
+
 async function saveTask() {
   for (let step = 0; step <= 1; step += 1) {
     const error = validateStep(step)
@@ -838,7 +857,7 @@ onBeforeUnmount(() => {
       </el-table>
     </div>
 
-    <el-drawer v-model="detailVisible" size="70%" destroy-on-close class="task-detail-drawer">
+    <el-drawer v-model="detailVisible" size="60%" destroy-on-close class="task-detail-drawer">
       <template #header>
         <div class="detail-head">
           <div>
@@ -921,7 +940,7 @@ onBeforeUnmount(() => {
       </div>
     </el-drawer>
 
-    <el-drawer v-model="editorVisible" :title="editorMode === 'edit' ? '编辑离线同步任务' : '新建离线同步任务'" size="70%" destroy-on-close>
+    <el-drawer v-model="editorVisible" :title="editorMode === 'edit' ? '编辑离线同步任务' : '新建离线同步任务'" size="60%" destroy-on-close>
       <div class="editor-shell">
         <el-steps :active="editorStep" finish-status="success" simple class="editor-steps editor-steps-3">
           <el-step title="基本配置" />
@@ -1035,7 +1054,7 @@ onBeforeUnmount(() => {
                 </div>
               </section>
               <section class="confirm-panel seatunnel-panel">
-                <div class="confirm-panel-title"><span>SeaTunnel 配置</span><el-button size="small" :loading="previewLoading" @click="loadSeaTunnelPreview">刷新配置</el-button></div>
+                <div class="confirm-panel-title"><span>SeaTunnel 配置</span><div><el-button size="small" @click="copySeaTunnelConfig">复制</el-button><el-button size="small" :loading="previewLoading" @click="loadSeaTunnelPreview">刷新配置</el-button></div></div>
                 <div class="seatunnel-config-viewer" v-loading="previewLoading"><pre>{{ seatunnelPreview || '正在生成 SeaTunnel 配置…' }}</pre></div>
                 <div class="seatunnel-config-tip">密码已脱敏；其余配置结构与实际提交执行文件一致。</div>
               </section>
