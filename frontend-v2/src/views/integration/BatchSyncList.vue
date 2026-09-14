@@ -65,6 +65,10 @@ const form = reactive({
   targetStrategy: 'AUTO_EVOLVE',
   scheduleEnabled: true,
   cronExpression: '0 0 2 * * ?',
+  scheduleMinute: '0',
+  scheduleHour: '2',
+  scheduleDay: '*',
+  scheduleMonth: '*',
   timezone: 'Asia/Shanghai'
 })
 
@@ -74,6 +78,39 @@ const filteredSourceTables = computed(() => {
   const q = tableKeyword.value.trim().toLowerCase()
   return q ? sourceTables.value.filter(table => `${table.name} ${table.comment || ''}`.toLowerCase().includes(q)) : sourceTables.value
 })
+const minuteOptions = Array.from({ length: 60 }, (_, value) => String(value))
+const hourOptions = Array.from({ length: 24 }, (_, value) => String(value))
+const dayOptions = ['*', ...Array.from({ length: 31 }, (_, value) => String(value + 1))]
+const monthOptions = ['*', ...Array.from({ length: 12 }, (_, value) => String(value + 1))]
+
+function syncCronFromParts() {
+  form.cronExpression = `0 ${form.scheduleMinute} ${form.scheduleHour} ${form.scheduleDay} ${form.scheduleMonth} ?`
+}
+
+function parseCronToParts(cron?: string) {
+  const parts = (cron || '').trim().split(/\s+/)
+  if (parts.length >= 6) {
+    form.scheduleMinute = minuteOptions.includes(parts[1]) ? parts[1] : '0'
+    form.scheduleHour = [...hourOptions, '*'].includes(parts[2]) ? parts[2] : '2'
+    form.scheduleDay = dayOptions.includes(parts[3]) ? parts[3] : '*'
+    form.scheduleMonth = monthOptions.includes(parts[4]) ? parts[4] : '*'
+  } else {
+    form.scheduleMinute = '0'
+    form.scheduleHour = '2'
+    form.scheduleDay = '*'
+    form.scheduleMonth = '*'
+  }
+  syncCronFromParts()
+}
+
+function scheduleText() {
+  if (!form.scheduleEnabled) return '仅手动执行'
+  const month = form.scheduleMonth === '*' ? '每月' : `${form.scheduleMonth}月`
+  const day = form.scheduleDay === '*' ? '每日' : `${form.scheduleDay}日`
+  const hour = form.scheduleHour === '*' ? '每小时' : `${form.scheduleHour.padStart(2, '0')}时`
+  return `${month} ${day} ${hour} ${form.scheduleMinute.padStart(2, '0')}分`
+}
+
 const filteredTasks = computed(() => {
   const q = keyword.value.trim().toLowerCase()
   return tasks.value.filter(task => {
@@ -117,6 +154,10 @@ function resetEditor() {
     targetStrategy: 'AUTO_EVOLVE',
     scheduleEnabled: true,
     cronExpression: '0 0 2 * * ?',
+    scheduleMinute: '0',
+    scheduleHour: '2',
+    scheduleDay: '*',
+    scheduleMonth: '*',
     timezone: 'Asia/Shanghai'
   })
   sourceDbs.value = []
@@ -195,10 +236,12 @@ async function openEdit(task: IntegrationTask) {
     const schedule = await integrationApi.schedule(task.id)
     form.scheduleEnabled = schedule.enabled
     form.cronExpression = schedule.cronExpression || '0 0 2 * * ?'
+    parseCronToParts(form.cronExpression)
     form.timezone = schedule.timezone || 'Asia/Shanghai'
   } catch {
     form.scheduleEnabled = true
     form.cronExpression = '0 0 2 * * ?'
+    parseCronToParts(form.cronExpression)
     form.timezone = 'Asia/Shanghai'
   }
   form.selectedTables = (task.tables || []).map(table => table.sourceTable)
@@ -440,11 +483,21 @@ async function run(task: IntegrationTask) {
   try {
     const result = await integrationApi.validate(task.id)
     if (!result.valid) return ElMessage.error(result.message || 'SeaTunnel 配置校验失败')
-    await integrationApi.run(task.id)
+    const previous = latestBatch.value[task.id]
+    if ((previous?.status || '').toUpperCase() === 'UNKNOWN') {
+      await ElMessageBox.confirm(
+        '上一批次执行结果未知，可能已经写入部分或全部数据。建议先进入运行记录点击“核对状态”。如果仍确认要重新执行，将创建一个新的批次，存在重复写入风险。',
+        '确认重新运行？',
+        { type: 'warning', confirmButtonText: '确认重新运行', cancelButtonText: '取消' }
+      )
+      await integrationApi.runConfirmed(task.id)
+    } else {
+      await integrationApi.run(task.id)
+    }
     ElMessage.success('离线同步任务已提交')
     setTimeout(load, 800)
   } catch (error) {
-    ElMessage.error(messageOf(error))
+    if (error !== 'cancel' && error !== 'close') ElMessage.error(messageOf(error))
   }
 }
 
@@ -790,7 +843,7 @@ function canRetryBatch(batch: IntegrationBatch) {
 }
 
 function triggerLabel(value: string) {
-  const labels: Record<string, string> = { MANUAL: '手动', WORKFLOW: '工作流', BACKFILL: '补数' }
+  const labels: Record<string, string> = { MANUAL: '手动', SCHEDULED: '调度', WORKFLOW: '工作流', BACKFILL: '补数' }
   return labels[value] || value
 }
 
@@ -1066,9 +1119,14 @@ onBeforeUnmount(() => {
               <el-form-item label="启用调度">
                 <el-switch v-model="form.scheduleEnabled" active-text="启用" inactive-text="关闭" />
               </el-form-item>
-              <el-form-item label="Cron 表达式">
-                <el-input v-model="form.cronExpression" :disabled="!form.scheduleEnabled" placeholder="例如：0 0 2 * * ?" />
-                <div class="field-tip">Quartz Cron，例：每天 02:00 = 0 0 2 * * ?；每小时整点 = 0 0 * * * ?</div>
+              <el-form-item label="执行时间">
+                <div class="schedule-wheel-grid" :class="{ disabled: !form.scheduleEnabled }">
+                  <div class="schedule-wheel"><span>分</span><el-select v-model="form.scheduleMinute" :disabled="!form.scheduleEnabled" @change="syncCronFromParts"><el-option v-for="item in minuteOptions" :key="`m-${item}`" :label="item.padStart(2, '0')" :value="item" /></el-select></div>
+                  <div class="schedule-wheel"><span>时</span><el-select v-model="form.scheduleHour" :disabled="!form.scheduleEnabled" @change="syncCronFromParts"><el-option label="每小时" value="*" /><el-option v-for="item in hourOptions" :key="`h-${item}`" :label="item.padStart(2, '0')" :value="item" /></el-select></div>
+                  <div class="schedule-wheel"><span>日</span><el-select v-model="form.scheduleDay" :disabled="!form.scheduleEnabled" @change="syncCronFromParts"><el-option label="每日" value="*" /><el-option v-for="item in dayOptions.filter(v => v !== '*')" :key="`d-${item}`" :label="`${item} 日`" :value="item" /></el-select></div>
+                  <div class="schedule-wheel"><span>月</span><el-select v-model="form.scheduleMonth" :disabled="!form.scheduleEnabled" @change="syncCronFromParts"><el-option label="每月" value="*" /><el-option v-for="item in monthOptions.filter(v => v !== '*')" :key="`mo-${item}`" :label="`${item} 月`" :value="item" /></el-select></div>
+                </div>
+                <div class="field-tip">{{ scheduleText() }}<span v-if="form.scheduleEnabled"> · 系统表达式：{{ form.cronExpression }}</span></div>
               </el-form-item>
               <el-form-item label="时区">
                 <el-select v-model="form.timezone" :disabled="!form.scheduleEnabled" style="width:100%">
@@ -1095,7 +1153,7 @@ onBeforeUnmount(() => {
               <el-descriptions-item label="目标策略">{{ targetStrategyLabel(form.targetStrategy) }}</el-descriptions-item>
               <el-descriptions-item label="同步表数">{{ form.selectedTables.length }} 张</el-descriptions-item>
               <el-descriptions-item label="调度状态">{{ form.scheduleEnabled ? '已启用' : '未启用' }}</el-descriptions-item>
-              <el-descriptions-item label="调度规则">{{ form.scheduleEnabled ? `${form.cronExpression} / ${form.timezone}` : '仅手动执行' }}</el-descriptions-item>
+              <el-descriptions-item label="调度规则">{{ form.scheduleEnabled ? `${scheduleText()} / ${form.timezone}` : '仅手动执行' }}</el-descriptions-item>
               <el-descriptions-item label="增量条件" :span="2">{{ form.where.trim() || '空（全量同步）' }}</el-descriptions-item>
             </el-descriptions>
 
@@ -1230,4 +1288,6 @@ onBeforeUnmount(() => {
 .history-shell{height:calc(100vh - 104px);display:flex;flex-direction:column;gap:10px;min-height:520px}.history-records{flex:0 0 auto;max-height:255px;overflow:auto;display:flex;flex-direction:column;gap:10px;padding-right:2px}.history-batch-card{border:1px solid var(--ds-border);background:#fff}.history-batch-head{min-height:48px;padding:8px 12px;display:grid;grid-template-columns:minmax(220px,1fr) 100px 285px auto;align-items:center;gap:12px;background:#f8fafc;border-bottom:1px solid var(--ds-border);font-size:12px;color:var(--ds-text-secondary)}.history-batch-head>div:first-child{display:flex;align-items:center;gap:10px;min-width:0}.history-batch-head strong{color:var(--ds-text-primary)}.history-batch-head span{white-space:nowrap}.history-batch-actions{display:flex;justify-content:flex-end}.history-attempts{display:flex;flex-direction:column}.history-attempt-row,.legacy-run-row{width:100%;border:0;border-bottom:1px solid #eef0f2;background:#fff;padding:9px 12px;display:grid;grid-template-columns:100px 100px minmax(220px,1fr) 170px 72px;align-items:center;gap:10px;text-align:left;font:inherit;color:var(--ds-text-secondary);cursor:pointer}.history-attempt-row:last-child{border-bottom:0}.history-attempt-row:hover,.legacy-run-row:hover,.history-attempt-row.selected,.legacy-run-row.selected{background:#f5f8ff}.history-attempt-row.selected,.legacy-run-row.selected{box-shadow:inset 3px 0 0 var(--el-color-primary)}.history-attempt-row strong,.legacy-run-row strong{color:var(--ds-text-primary)}.legacy-run-row{grid-template-columns:minmax(260px,1fr) 110px 320px 72px;border:1px solid var(--ds-border);margin-bottom:8px}.view-log-text{color:var(--el-color-primary);white-space:nowrap}.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.compact-note{margin:0;padding:9px 12px}.history-log-panel{flex:1;min-height:0;display:flex;flex-direction:column;border:1px solid var(--ds-border);background:#fff}.history-log-toolbar{min-height:52px;padding:8px 12px;border-bottom:1px solid var(--ds-border);display:flex;align-items:center;justify-content:space-between;gap:16px}.history-log-toolbar>div:first-child{display:flex;align-items:center;gap:10px;min-width:0}.history-log-toolbar strong{color:var(--ds-text-primary)}.history-log-toolbar span{font-size:12px;color:var(--ds-text-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.history-log-toolbar em{font-style:normal;font-size:12px;color:var(--ds-success);white-space:nowrap}.history-log-actions{display:flex;gap:6px;flex:0 0 auto}.history-log-viewer{flex:1;min-height:260px;overflow:auto;background:#111827;padding:14px 16px}.history-log-viewer pre{margin:0;color:#d1d5db;white-space:pre-wrap;word-break:break-word;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;line-height:1.65}.history-log-panel.is-maximized{position:fixed;z-index:4000;inset:18px;background:#fff;border:1px solid #cfd4dc;box-shadow:0 16px 48px rgba(0,0,0,.24)}.history-log-panel.is-maximized .history-log-viewer{min-height:0}.muted-inline{font-size:12px;color:var(--ds-text-tertiary)}.detail-run-toolbar{display:flex;justify-content:flex-end;margin:0 0 10px}
 @media (max-width:1000px){.form-grid,.table-selector,.confirm-grid,.database-pair{grid-template-columns:1fr}.database-arrow{transform:rotate(90deg)}.span-2{grid-column:auto}.table-source-pane{border-right:0;border-bottom:1px solid var(--ds-border)}}
 .schedule-form{max-width:720px}.field-tip{margin-top:6px;font-size:12px;color:var(--ds-text-secondary)}.schedule-behavior-note{display:flex;flex-direction:column;gap:8px;margin-top:10px;padding:14px 16px;border:1px solid var(--ds-border);background:var(--ds-fill-lighter);border-radius:6px;font-size:13px;color:var(--ds-text-secondary)}.schedule-behavior-note strong{color:var(--ds-text-primary)}
+
+.schedule-wheel-grid{display:grid;grid-template-columns:repeat(4,minmax(96px,1fr));gap:12px;width:100%}.schedule-wheel{display:flex;flex-direction:column;gap:6px}.schedule-wheel>span{font-size:12px;color:var(--ds-text-secondary);text-align:center}.schedule-wheel :deep(.el-select){width:100%}.schedule-wheel-grid.disabled{opacity:.65}@media(max-width:1100px){.schedule-wheel-grid{grid-template-columns:repeat(2,minmax(110px,1fr))}}
 </style>

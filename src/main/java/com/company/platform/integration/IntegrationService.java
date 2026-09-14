@@ -196,14 +196,34 @@ public class IntegrationService {
     }
 
     public SeaTunnelGateway.SubmitResult execute(long id) {
-        return execute(id, "MANUAL");
+        return execute(id, "MANUAL", false);
     }
 
     public SeaTunnelGateway.SubmitResult execute(long id, String triggerType) {
+        return execute(id, triggerType, false);
+    }
+
+    public SeaTunnelGateway.SubmitResult executeConfirmed(long id) {
+        return execute(id, "MANUAL", true);
+    }
+
+    private SeaTunnelGateway.SubmitResult execute(long id, String triggerType, boolean confirmUnknown) {
         IntegrationTaskView view = raw(id);
         String normalizedTrigger = normalizeTrigger(triggerType);
         if (!isOnline(view)) {
             throw new BadRequestException("离线同步任务已下线，请先上线后再运行");
+        }
+        if (runtimeRepository != null) {
+            List<IntegrationBatchView> previous = runtimeRepository.listBatches(id);
+            if (!previous.isEmpty()) {
+                String previousStatus = previous.getFirst().status();
+                if (active(previousStatus)) {
+                    throw new BadRequestException("上一批次仍在运行，不能重复提交同一离线同步任务");
+                }
+                if (!confirmUnknown && "UNKNOWN".equalsIgnoreCase(previousStatus)) {
+                    throw new BadRequestException("上一批次执行结果未知，请先核对状态；仍无法确认时请使用确认重新运行，避免重复写入");
+                }
+            }
         }
         IntegrationTask runtimeTask = hasStructuredConfig(view) ? task(id) : null;
         Long clusterId = runtimeClusterId();
@@ -402,7 +422,7 @@ public class IntegrationService {
 
     private String normalizeTrigger(String value) {
         String trigger = value == null ? "MANUAL" : value.trim().toUpperCase();
-        return Set.of("MANUAL", "WORKFLOW", "BACKFILL").contains(trigger) ? trigger : "MANUAL";
+        return Set.of("MANUAL", "SCHEDULED", "WORKFLOW", "BACKFILL").contains(trigger) ? trigger : "MANUAL";
     }
 
     private boolean active(String status) {

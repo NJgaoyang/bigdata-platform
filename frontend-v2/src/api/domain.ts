@@ -66,6 +66,7 @@ export const integrationApi = {
   offline: (id:number) => api.post<IntegrationTask>(`/integration/tasks/${id}/offline`),
   remove: (id:number) => api.delete<void>(`/integration/tasks/${id}`),
   run: (id:number) => api.post<{executionId:string;status:string}>(`/integration/tasks/${id}/run`),
+  runConfirmed: (id:number) => api.post<{executionId:string;status:string}>(`/integration/tasks/${id}/run-confirmed`),
   stop: (id:number) => api.post<void>(`/integration/tasks/${id}/stop`),
   validate: (id:number) => api.post<{valid:boolean;message:string}>(`/integration/tasks/${id}/validate`),
   instances: (id:number) => api.get<IntegrationInstance[]>(`/integration/tasks/${id}/instances`),

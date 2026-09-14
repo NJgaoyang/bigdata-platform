@@ -62,6 +62,7 @@ public class IntegrationController {
     @PostMapping("/preview-config") public Result<String> previewConfig(@Valid @RequestBody IntegrationRequests.TaskRequest request) { return Result.ok(service.previewConfig(request)); }
     @PostMapping("/{id}/execute") public Result<SeaTunnelGateway.SubmitResult> execute(@PathVariable long id) { return Result.ok(service.execute(id)); }
     @PostMapping("/{id}/run") public Result<SeaTunnelGateway.SubmitResult> run(@PathVariable long id) { return Result.ok(service.execute(id)); }
+    @PostMapping("/{id}/run-confirmed") public Result<SeaTunnelGateway.SubmitResult> runConfirmed(@PathVariable long id) { return Result.ok(service.executeConfirmed(id), "已确认重新运行"); }
     @PostMapping("/{id}/stop") public Result<Void> stop(@PathVariable long id) { service.instances(id).stream().findFirst().ifPresent(instance -> service.stop(instance.executionId())); return Result.ok(null, "同步任务已停止"); }
     @GetMapping("/{id}/instances") public Result<List<IntegrationInstanceView>> instances(@PathVariable long id) { return Result.ok(service.instances(id)); }
     @GetMapping("/{id}/batches") public Result<List<IntegrationBatchView>> batches(@PathVariable long id) { return Result.ok(service.batches(id)); }
