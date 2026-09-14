@@ -66,7 +66,7 @@ public class IntegrationTaskScheduleService {
         try {
             JobKey jobKey = jobKey(taskId);
             JobDetail job = JobBuilder.newJob(IntegrationTaskQuartzJob.class).withIdentity(jobKey)
-                    .usingJobData("taskId", taskId).storeDurably(true).build();
+                    .usingJobData("taskId", String.valueOf(taskId)).storeDurably(true).build();
             if (quartz.checkExists(jobKey)) quartz.addJob(job, true); else quartz.addJob(job, false);
             TriggerKey triggerKey = triggerKey(taskId);
             CronTrigger trigger = TriggerBuilder.newTrigger().withIdentity(triggerKey).forJob(jobKey)

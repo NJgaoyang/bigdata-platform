@@ -12,7 +12,7 @@ public class IntegrationTaskQuartzJob implements Job {
 
     @Override
     public void execute(JobExecutionContext context) throws JobExecutionException {
-        long taskId = context.getMergedJobDataMap().getLong("taskId");
+        long taskId = Long.parseLong(context.getMergedJobDataMap().getString("taskId"));
         try { integrationService.execute(taskId, "SCHEDULED"); }
         catch (RuntimeException ex) { throw new JobExecutionException(ex); }
     }
