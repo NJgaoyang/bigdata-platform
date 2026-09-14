@@ -99,7 +99,7 @@ export const workflowApi = {
 }
 
 export interface OperationSummary { total:number; running:number; success:number; failed:number; stopped:number }
-export interface OperationInstance { type:string; id:string; externalId?:string; name:string; status:string; engine:string; startedAt?:string; finishedAt?:string; errorMessage?:string; createdAt?:string }
+export interface OperationInstance { type:string; id:string; externalId?:string; name:string; status:string; engine:string; createdBy?:string; startedAt?:string; finishedAt?:string; errorMessage?:string; createdAt?:string }
 export interface FailureItem { type:string; id:string; parentInstanceId?:string; name:string; engine:string; status:string; attemptNo:number; errorMessage?:string; startedAt?:string }
 export interface AlertItem { alertType:string; resourceType:string; resourceId:string; name:string; status:string; message?:string; occurredAt?:string; handlingState:string }
 export const operationsApi = {

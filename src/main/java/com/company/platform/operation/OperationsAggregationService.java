@@ -43,17 +43,20 @@ public class OperationsAggregationService {
         result.addAll(jdbc.query("SELECT wi.id,wi.instance_code,w.name,wi.status,wi.run_type,wi.started_at,wi.finished_at,wi.error_message,wi.created_at " +
                 "FROM workflow_instance wi LEFT JOIN workflow w ON w.workflow_code=wi.workflow_code ORDER BY wi.created_at DESC LIMIT 200",
                 (rs, n) -> item("WORKFLOW", String.valueOf(rs.getLong("id")), rs.getString("instance_code"),
-                        rs.getString("name"), rs.getString("status"), rs.getString("run_type"), rs.getTimestamp("started_at"),
+                        rs.getString("name"), rs.getString("status"), rs.getString("run_type"), "platform", rs.getTimestamp("started_at"),
                         rs.getTimestamp("finished_at"), rs.getString("error_message"), rs.getTimestamp("created_at"))));
-        result.addAll(jdbc.query("SELECT ii.id,ii.execution_id,it.name,ii.status,ii.started_at,ii.finished_at,ii.error_message,ii.created_at " +
-                "FROM integration_instance ii LEFT JOIN integration_task it ON it.id=ii.task_id ORDER BY ii.created_at DESC LIMIT 200",
+        result.addAll(jdbc.query("SELECT ii.id,ii.execution_id,it.name,ii.status,ii.started_at,ii.finished_at,ii.error_message,ii.created_at," +
+                "COALESCE(ib.created_by,it.created_by,'platform') AS created_by " +
+                "FROM integration_instance ii LEFT JOIN integration_task it ON it.id=ii.task_id " +
+                "LEFT JOIN integration_attempt ia ON ia.execution_id=ii.execution_id LEFT JOIN integration_batch ib ON ib.id=ia.batch_id " +
+                "ORDER BY ii.created_at DESC LIMIT 200",
                 (rs, n) -> item("OFFLINE", String.valueOf(rs.getLong("id")), rs.getString("execution_id"),
-                        rs.getString("name"), rs.getString("status"), "SEATUNNEL", rs.getTimestamp("started_at"),
+                        rs.getString("name"), rs.getString("status"), "SEATUNNEL", rs.getString("created_by"), rs.getTimestamp("started_at"),
                         rs.getTimestamp("finished_at"), rs.getString("error_message"), rs.getTimestamp("created_at"))));
-        result.addAll(jdbc.query("SELECT re.id,re.engine_job_id,rd.name,re.status,re.started_at,re.finished_at,re.error_message,re.created_at " +
+        result.addAll(jdbc.query("SELECT re.id,re.engine_job_id,rd.name,re.status,re.started_at,re.finished_at,re.error_message,re.created_at,rd.created_by " +
                 "FROM realtime_sync_execution re LEFT JOIN realtime_sync_definition rd ON rd.id=re.job_id ORDER BY re.created_at DESC LIMIT 200",
                 (rs, n) -> item("REALTIME", String.valueOf(rs.getLong("id")), rs.getString("engine_job_id"),
-                        rs.getString("name"), rs.getString("status"), "FLINK_CDC", rs.getTimestamp("started_at"),
+                        rs.getString("name"), rs.getString("status"), "FLINK_CDC", rs.getString("created_by"), rs.getTimestamp("started_at"),
                         rs.getTimestamp("finished_at"), rs.getString("error_message"), rs.getTimestamp("created_at"))));
         return result.stream().sorted(Comparator.comparing(InstanceItem::createdAt,
                 Comparator.nullsLast(Comparator.reverseOrder()))).limit(300).toList();
@@ -121,14 +124,15 @@ public class OperationsAggregationService {
     private String norm(String status) { return status == null ? "" : status.toUpperCase(Locale.ROOT); }
     private LocalDateTime time(java.sql.Timestamp value) { return value == null ? null : value.toLocalDateTime(); }
     private InstanceItem item(String type, String id, String externalId, String name, String status, String engine,
-                              java.sql.Timestamp started, java.sql.Timestamp finished, String error, java.sql.Timestamp created) {
+                              String createdBy, java.sql.Timestamp started, java.sql.Timestamp finished, String error, java.sql.Timestamp created) {
         return new InstanceItem(type, id, externalId, name == null || name.isBlank() ? "未命名任务" : name,
-                status, engine, time(started), time(finished), error, time(created));
+                status, engine, createdBy == null || createdBy.isBlank() ? "platform" : createdBy,
+                time(started), time(finished), error, time(created));
     }
 
     public record Summary(long total, long running, long success, long failed, long stopped) { }
     public record InstanceItem(String type, String id, String externalId, String name, String status, String engine,
-                               LocalDateTime startedAt, LocalDateTime finishedAt, String errorMessage, LocalDateTime createdAt) { }
+                               String createdBy, LocalDateTime startedAt, LocalDateTime finishedAt, String errorMessage, LocalDateTime createdAt) { }
     public record FailureItem(String type, String id, String parentInstanceId, String name, String engine, String status,
                               int attemptNo, String errorMessage, LocalDateTime startedAt) { }
     public record AlertItem(String alertType, String resourceType, String resourceId, String name, String status,

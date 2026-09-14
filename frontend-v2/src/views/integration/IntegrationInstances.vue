@@ -75,11 +75,12 @@ onBeforeUnmount(() => { stopLogPolling(); window.removeEventListener('keydown', 
         <el-button :loading="loading" @click="load">刷新</el-button>
       </div>
       <el-table :data="rows.filter(r => type === 'ALL' || r.type === type)" v-loading="loading">
-        <el-table-column prop="name" label="任务" width="150" show-overflow-tooltip />
-        <el-table-column label="状态" width="112"><template #default="s"><StatusBadge :status="s.row.status" :label="statusLabel(s.row.status)" /></template></el-table-column>
-        <el-table-column label="开始时间" width="166"><template #default="s">{{ fmt(s.row.startedAt || s.row.createdAt) }}</template></el-table-column>
-        <el-table-column label="结束时间" width="166"><template #default="s">{{ fmt(s.row.finishedAt) }}</template></el-table-column>
-        <el-table-column label="操作" width="150" fixed="right">
+        <el-table-column prop="name" label="任务" width="180" show-overflow-tooltip />
+        <el-table-column label="状态" width="120"><template #default="s"><StatusBadge :status="s.row.status" :label="statusLabel(s.row.status)" /></template></el-table-column>
+        <el-table-column prop="createdBy" label="创建人" min-width="120" show-overflow-tooltip><template #default="s">{{ s.row.createdBy || 'platform' }}</template></el-table-column>
+        <el-table-column label="开始时间" min-width="180"><template #default="s">{{ fmt(s.row.startedAt || s.row.createdAt) }}</template></el-table-column>
+        <el-table-column label="结束时间" min-width="180"><template #default="s">{{ fmt(s.row.finishedAt) }}</template></el-table-column>
+        <el-table-column label="操作" width="160" fixed="right">
           <template #default="s">
             <el-button link type="primary" @click="openLog(s.row)">查看日志</el-button>
             <el-button v-if="running(s.row)" link type="danger" @click="stop(s.row)">停止</el-button>
