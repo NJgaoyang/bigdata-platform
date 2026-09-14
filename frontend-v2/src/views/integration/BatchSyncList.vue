@@ -27,6 +27,7 @@ const keyword = ref('')
 const modeFilter = ref('')
 const tableKeyword = ref('')
 const sourceDbs = ref<string[]>([])
+const targetDbs = ref<string[]>([])
 const sourceTables = ref<Array<{ name: string; comment?: string }>>([])
 const targetTables = reactive<Record<string, string>>({})
 const historyVisible = ref(false)
@@ -39,6 +40,8 @@ const historyLogs = ref<Record<string, string>>({})
 const selectedHistoryLogKey = ref('')
 const selectedHistoryLogTitle = ref('')
 const historyLogMaximized = ref(false)
+const seatunnelPreview = ref('')
+const previewLoading = ref(false)
 let historyPollTimer: ReturnType<typeof setInterval> | null = null
 const backfillVisible = ref(false)
 const backfillTask = ref<IntegrationTask | null>(null)
@@ -51,15 +54,15 @@ const backfillForm = reactive({ where: '', startLabel: '', endLabel: '' })
 
 const form = reactive({
   name: '',
+  description: '',
   sourceDataSourceId: 0,
   targetDataSourceId: 0,
   sourceDatabase: '',
   targetDatabase: 'ods',
   selectedTables: [] as string[],
   targetPrefix: '',
-  syncMode: 'FULL',
   where: '',
-  schemaSaveMode: 'CREATE_SCHEMA_WHEN_NOT_EXIST'
+  targetStrategy: 'AUTO_EVOLVE'
 })
 
 const mysql = computed(() => sources.value.filter(source => source.type === 'MYSQL'))
@@ -100,20 +103,22 @@ async function load() {
 function resetEditor() {
   Object.assign(form, {
     name: '',
+    description: '',
     sourceDataSourceId: mysql.value[0]?.id || 0,
     targetDataSourceId: starrocks.value[0]?.id || 0,
     sourceDatabase: '',
     targetDatabase: 'ods',
     selectedTables: [],
     targetPrefix: '',
-    syncMode: 'FULL',
     where: '',
-    schemaSaveMode: 'CREATE_SCHEMA_WHEN_NOT_EXIST'
+    targetStrategy: 'AUTO_EVOLVE'
   })
   sourceDbs.value = []
+  targetDbs.value = []
   sourceTables.value = []
   tableKeyword.value = ''
   editorStep.value = 0
+  seatunnelPreview.value = ''
   editingId.value = null
   for (const key of Object.keys(targetTables)) delete targetTables[key]
 }
@@ -122,7 +127,10 @@ async function openCreate() {
   editorMode.value = 'create'
   resetEditor()
   editorVisible.value = true
-  if (form.sourceDataSourceId) await loadSourceDatabases(true)
+  await Promise.all([
+    form.sourceDataSourceId ? loadSourceDatabases(true) : Promise.resolve(),
+    form.targetDataSourceId ? loadTargetDatabases(true) : Promise.resolve()
+  ])
 }
 
 async function openDetail(task: IntegrationTask) {
@@ -161,20 +169,25 @@ async function openEdit(task: IntegrationTask) {
   resetEditor()
   editingId.value = task.id
   form.name = task.name
-  form.syncMode = task.syncMode || 'FULL'
   const source = safeJson(task.sourceConfigJson)
   const target = safeJson(task.targetConfigJson)
   const transform = safeJson(task.transformConfigJson)
+  const options = objectValue(transform.options)
+  form.description = stringValue(options.description)
   form.sourceDataSourceId = matchDataSource('MYSQL', source)
   form.targetDataSourceId = matchDataSource('STARROCKS', target)
   form.sourceDatabase = task.tables?.[0]?.sourceDatabase || stringValue(source.database)
   form.targetDatabase = task.tables?.[0]?.targetDatabase || stringValue(target.database) || 'ods'
-  form.where = stringValue(objectValue(transform.options).where)
-  form.schemaSaveMode = stringValue(objectValue(transform.options).schemaSaveMode) || 'CREATE_SCHEMA_WHEN_NOT_EXIST'
+  form.where = stringValue(options.where)
+  form.targetStrategy = strategyFromOptions(options)
   editorVisible.value = true
-  if (form.sourceDataSourceId) await loadSourceDatabases(false)
+  await Promise.all([
+    form.sourceDataSourceId ? loadSourceDatabases(false) : Promise.resolve(),
+    form.targetDataSourceId ? loadTargetDatabases(false) : Promise.resolve()
+  ])
   form.selectedTables = (task.tables || []).map(table => table.sourceTable)
   for (const table of task.tables || []) targetTables[table.sourceTable] = table.targetTable
+  form.targetPrefix = inferTargetPrefix(task)
   ensureTargetMappings()
   if (!form.sourceDataSourceId || !form.targetDataSourceId) {
     ElMessage.warning('原任务的数据源无法唯一匹配，请重新选择来源和目标数据源后保存')
@@ -191,6 +204,22 @@ async function loadSourceDatabases(resetSelection: boolean) {
     sourceDbs.value = (await integrationApi.sourceDatabases(form.sourceDataSourceId)).map(item => item.name)
     if (resetSelection || !sourceDbs.value.includes(form.sourceDatabase)) form.sourceDatabase = sourceDbs.value[0] || ''
     await loadSourceTables(resetSelection)
+  } catch (error) {
+    ElMessage.error(messageOf(error))
+  }
+}
+
+async function loadTargetDatabases(resetSelection: boolean) {
+  if (!form.targetDataSourceId) {
+    targetDbs.value = []
+    return
+  }
+  try {
+    targetDbs.value = (await integrationApi.targetDatabases(form.targetDataSourceId)).map(item => item.name)
+    if (resetSelection || !targetDbs.value.includes(form.targetDatabase)) {
+      const preferred = targetDbs.value.includes('ods') ? 'ods' : targetDbs.value[0]
+      form.targetDatabase = preferred || starrocks.value.find(item => item.id === form.targetDataSourceId)?.databaseName || 'ods'
+    }
   } catch (error) {
     ElMessage.error(messageOf(error))
   }
@@ -242,25 +271,37 @@ function validateStep(step: number) {
   if (step === 0) {
     if (!form.name.trim()) return '请输入任务名称'
     if (!form.sourceDataSourceId || !form.sourceDatabase) return '请选择 MySQL 来源和数据库'
-    if (!form.targetDataSourceId) return '请选择 StarRocks 目标数据源'
+    if (!form.targetDataSourceId || !form.targetDatabase) return '请选择 StarRocks 目标和数据库'
+    if (!form.targetStrategy) return '请选择目标策略'
   }
-  if (step === 1 && !form.selectedTables.length) return '请至少选择一张来源表'
-  if (step === 2) {
-    if (!form.targetDatabase.trim()) return '请输入目标数据库'
+  if (step === 1) {
+    if (!form.selectedTables.length) return '请至少选择一张来源表'
     if (form.selectedTables.some(table => !targetTables[table]?.trim())) return '请为所有来源表配置目标表名'
   }
-  if (step === 3 && form.syncMode === 'INCREMENTAL' && !form.where.trim()) return '条件增量同步需要配置 WHERE 条件'
   return ''
 }
 
-function nextStep() {
+async function nextStep() {
   const error = validateStep(editorStep.value)
   if (error) return ElMessage.warning(error)
-  editorStep.value = Math.min(4, editorStep.value + 1)
+  if (editorStep.value === 1) {
+    const ok = await loadSeaTunnelPreview()
+    if (!ok) return
+  }
+  editorStep.value = Math.min(2, editorStep.value + 1)
 }
 
 function previousStep() {
   editorStep.value = Math.max(0, editorStep.value - 1)
+}
+
+function targetPolicyOptions() {
+  switch (form.targetStrategy) {
+    case 'RECREATE': return { targetPolicy: 'RECREATE', schemaSaveMode: 'RECREATE_SCHEMA', dataSaveMode: 'DROP_DATA' }
+    case 'FULL_OVERWRITE': return { targetPolicy: 'FULL_OVERWRITE', schemaSaveMode: 'CREATE_SCHEMA_WHEN_NOT_EXIST', dataSaveMode: 'DROP_DATA' }
+    case 'APPEND_ONLY': return { targetPolicy: 'APPEND_ONLY', schemaSaveMode: 'IGNORE', dataSaveMode: 'APPEND_DATA' }
+    default: return { targetPolicy: 'AUTO_EVOLVE', schemaSaveMode: 'CREATE_SCHEMA_WHEN_NOT_EXIST', dataSaveMode: 'APPEND_DATA' }
+  }
 }
 
 function buildPayload(): IntegrationTaskPayload {
@@ -268,11 +309,13 @@ function buildPayload(): IntegrationTaskPayload {
   const target = sources.value.find(item => item.id === form.targetDataSourceId)
   if (!source || !target) throw new Error('数据源不存在或已被删除')
   const firstSourceTable = form.selectedTables[0]
+  const where = form.where.trim()
+  const policy = targetPolicyOptions()
   return {
     name: form.name.trim(),
     sourceType: 'MYSQL',
     targetType: 'STARROCKS',
-    syncMode: form.syncMode,
+    syncMode: where ? 'INCREMENTAL' : 'FULL',
     sourceDataSourceId: source.id,
     targetDataSourceId: target.id,
     source: {
@@ -293,8 +336,9 @@ function buildPayload(): IntegrationTaskPayload {
     },
     mappings: [],
     options: {
-      where: form.syncMode === 'INCREMENTAL' ? form.where.trim() : '',
-      schemaSaveMode: form.schemaSaveMode
+      description: form.description.trim(),
+      where,
+      ...policy
     },
     tables: form.selectedTables.map(table => ({
       sourceDatabase: form.sourceDatabase,
@@ -305,8 +349,22 @@ function buildPayload(): IntegrationTaskPayload {
   }
 }
 
+async function loadSeaTunnelPreview() {
+  previewLoading.value = true
+  try {
+    seatunnelPreview.value = await integrationApi.previewConfig(buildPayload())
+    return true
+  } catch (error) {
+    seatunnelPreview.value = ''
+    ElMessage.error(messageOf(error))
+    return false
+  } finally {
+    previewLoading.value = false
+  }
+}
+
 async function saveTask() {
-  for (let step = 0; step <= 3; step += 1) {
+  for (let step = 0; step <= 1; step += 1) {
     const error = validateStep(step)
     if (error) {
       editorStep.value = step
@@ -566,9 +624,38 @@ function targetLabel(task: IntegrationTask) {
 }
 
 function schemaModeLabel(task: IntegrationTask) {
-  const transform = safeJson(task.transformConfigJson)
-  const mode = stringValue(objectValue(transform.options).schemaSaveMode)
-  return mode === 'RECREATE_SCHEMA' ? '运行前重建目标表' : '目标表不存在时自动创建'
+  const options = objectValue(safeJson(task.transformConfigJson).options)
+  return targetStrategyLabel(strategyFromOptions(options))
+}
+
+function strategyFromOptions(options: Record<string, unknown>) {
+  const policy = stringValue(options.targetPolicy).toUpperCase()
+  if (['AUTO_EVOLVE', 'RECREATE', 'FULL_OVERWRITE', 'APPEND_ONLY'].includes(policy)) return policy
+  const schema = stringValue(options.schemaSaveMode).toUpperCase()
+  const data = stringValue(options.dataSaveMode).toUpperCase()
+  if (schema === 'RECREATE_SCHEMA') return 'RECREATE'
+  if (data === 'DROP_DATA') return 'FULL_OVERWRITE'
+  if (schema === 'IGNORE') return 'APPEND_ONLY'
+  return 'AUTO_EVOLVE'
+}
+
+function targetStrategyLabel(value: string) {
+  const labels: Record<string, string> = {
+    AUTO_EVOLVE: '自动建表/补字段，保留已有数据',
+    RECREATE: '表存在则删除重建',
+    FULL_OVERWRITE: '全量覆盖已有数据',
+    APPEND_ONLY: '仅追加，不处理表结构'
+  }
+  return labels[value] || labels.AUTO_EVOLVE
+}
+
+function inferTargetPrefix(task: IntegrationTask) {
+  const mappings = task.tables || []
+  if (!mappings.length) return ''
+  const prefixes = mappings.map(item => item.targetTable.endsWith(item.sourceTable)
+    ? item.targetTable.slice(0, item.targetTable.length - item.sourceTable.length)
+    : null)
+  return prefixes.every(item => item !== null && item === prefixes[0]) ? String(prefixes[0] || '') : ''
 }
 
 function detailWhere(task: IntegrationTask) {
@@ -720,23 +807,21 @@ onBeforeUnmount(() => {
       </div>
 
       <el-table :data="filteredTasks" v-loading="loading" row-class-name="offline-task-row" @row-click="openDetail">
-        <el-table-column label="任务名称" min-width="210">
+        <el-table-column label="任务名称" min-width="155">
           <template #default="scope">
             <button class="task-name-link" @click.stop="openDetail(scope.row)">{{ scope.row.name }}</button>
           </template>
         </el-table-column>
-        <el-table-column label="表数" width="72"><template #default="scope">{{ scope.row.tables?.length || 0 }}</template></el-table-column>
-        <el-table-column label="同步方式" width="105"><template #default="scope">{{ modeLabel(scope.row.syncMode) }}</template></el-table-column>
-        <el-table-column label="最近状态" width="120"><template #default="scope"><StatusBadge :status="latestStatus(scope.row)" :label="statusLabel(latestStatus(scope.row))" /></template></el-table-column>
-        <el-table-column label="执行概况" min-width="150">
+        <el-table-column label="执行概况" width="128">
           <template #default="scope"><div class="runtime-summary"><span>数据量：<strong>{{ formatCount(taskSummary(scope.row)?.dataCount) }}</strong></span><span>耗时：{{ formatDuration(taskSummary(scope.row)?.durationMs) }}</span></div></template>
         </el-table-column>
-        <el-table-column label="调度" min-width="210">
+        <el-table-column label="最近状态" width="102"><template #default="scope"><StatusBadge :status="latestStatus(scope.row)" :label="statusLabel(latestStatus(scope.row))" /></template></el-table-column>
+        <el-table-column label="调度" width="190">
           <template #default="scope"><div class="schedule-summary"><span>状态：<strong :class="isOnline(scope.row) ? 'schedule-online' : 'schedule-offline'">{{ isOnline(scope.row) ? '已开启' : '已下线' }}</strong></span><span>上次：{{ formatDateTime(taskSummary(scope.row)?.lastRunAt) }}</span><span>下次：{{ formatDateTime(taskSummary(scope.row)?.nextRunAt) }}</span></div></template>
         </el-table-column>
-        <el-table-column label="创建时间" width="175"><template #default="scope"><span class="time-cell">{{ taskCreatedAt(scope.row) }}</span></template></el-table-column>
-        <el-table-column label="创建人" width="110"><template #default="scope">{{ taskCreatedBy(scope.row) }}</template></el-table-column>
-        <el-table-column label="操作" width="260" fixed="right">
+        <el-table-column label="创建时间" width="154"><template #default="scope"><span class="time-cell">{{ taskCreatedAt(scope.row) }}</span></template></el-table-column>
+        <el-table-column label="创建人" width="88"><template #default="scope">{{ taskCreatedBy(scope.row) }}</template></el-table-column>
+        <el-table-column label="操作" width="190" fixed="right">
           <template #default="scope">
             <template v-if="isOnline(scope.row)">
               <el-button link type="primary" @click.stop="run(scope.row)">运行</el-button>
@@ -836,46 +921,78 @@ onBeforeUnmount(() => {
       </div>
     </el-drawer>
 
-    <el-drawer v-model="editorVisible" :title="editorMode === 'edit' ? '编辑离线同步任务' : '新建离线同步任务'" size="920px" destroy-on-close>
+    <el-drawer v-model="editorVisible" :title="editorMode === 'edit' ? '编辑离线同步任务' : '新建离线同步任务'" size="1080px" destroy-on-close>
       <div class="editor-shell">
-        <el-steps :active="editorStep" finish-status="success" simple class="editor-steps">
-          <el-step title="选择数据源" />
-          <el-step title="选择数据表" />
-          <el-step title="目标配置" />
-          <el-step title="同步配置" />
+        <el-steps :active="editorStep" finish-status="success" simple class="editor-steps editor-steps-3">
+          <el-step title="基本配置" />
+          <el-step title="选择表" />
           <el-step title="确认配置" />
         </el-steps>
 
         <div class="editor-body">
           <template v-if="editorStep === 0">
-            <div class="section-title">任务与数据源</div>
-            <div class="section-tip">离线同步固定使用 MySQL 作为来源、StarRocks 作为目标；SeaTunnel 执行环境由系统设置统一维护。</div>
-            <el-form label-position="top" class="form-grid">
-              <el-form-item label="任务名称" class="span-2"><el-input v-model="form.name" placeholder="例如 ods_order_full" /></el-form-item>
-              <el-form-item label="MySQL 来源">
-                <el-select v-model="form.sourceDataSourceId" filterable style="width:100%" @change="loadSourceDatabases(true)">
-                  <el-option v-for="source in mysql" :key="source.id" :label="source.name" :value="source.id" />
-                </el-select>
-              </el-form-item>
-              <el-form-item label="源数据库">
-                <el-select v-model="form.sourceDatabase" filterable style="width:100%" @change="loadSourceTables(true)">
-                  <el-option v-for="database in sourceDbs" :key="database" :label="database" :value="database" />
-                </el-select>
-              </el-form-item>
-              <el-form-item label="StarRocks 目标" class="span-2">
-                <el-select v-model="form.targetDataSourceId" filterable style="width:100%">
-                  <el-option v-for="source in starrocks" :key="source.id" :label="source.name" :value="source.id" />
-                </el-select>
-              </el-form-item>
+            <div class="section-title">基本配置</div>
+            <div class="section-tip">增量条件为空即按全量同步；目标策略决定 StarRocks 表结构和已有数据的处理方式。</div>
+            <el-form label-position="top">
+              <div class="form-grid">
+                <el-form-item label="任务名称"><el-input v-model="form.name" placeholder="输入同步任务名称" /></el-form-item>
+                <el-form-item label="描述"><el-input v-model="form.description" placeholder="任务描述" /></el-form-item>
+                <el-form-item label="增量条件" class="span-2">
+                  <el-input v-model="form.where" placeholder="为空则全量同步；增量建议使用 [start,end) 条件，例如 update_time >= :start AND update_time < :end" />
+                </el-form-item>
+                <el-form-item label="目标策略" class="span-2">
+                  <el-select v-model="form.targetStrategy" style="width:100%">
+                    <el-option label="自动建表/补字段，保留已有数据" value="AUTO_EVOLVE" />
+                    <el-option label="表存在则删除重建" value="RECREATE" />
+                    <el-option label="全量覆盖已有数据" value="FULL_OVERWRITE" />
+                    <el-option label="仅追加，不处理表结构" value="APPEND_ONLY" />
+                  </el-select>
+                </el-form-item>
+              </div>
+
+              <div class="database-pair">
+                <section class="database-card source-card">
+                  <div class="database-card-title">源数据库</div>
+                  <el-form-item label="数据源">
+                    <el-select v-model="form.sourceDataSourceId" filterable style="width:100%" placeholder="选择 MySQL 源" @change="loadSourceDatabases(true)">
+                      <el-option v-for="source in mysql" :key="source.id" :label="source.name" :value="source.id" />
+                    </el-select>
+                  </el-form-item>
+                  <el-form-item label="数据库">
+                    <el-select v-model="form.sourceDatabase" filterable style="width:100%" placeholder="选择源数据库" @change="loadSourceTables(true)">
+                      <el-option v-for="database in sourceDbs" :key="database" :label="database" :value="database" />
+                    </el-select>
+                  </el-form-item>
+                </section>
+                <div class="database-arrow">→</div>
+                <section class="database-card target-card">
+                  <div class="database-card-title">目标数据库</div>
+                  <el-form-item label="数据源">
+                    <el-select v-model="form.targetDataSourceId" filterable style="width:100%" placeholder="选择 StarRocks 目标" @change="loadTargetDatabases(true)">
+                      <el-option v-for="source in starrocks" :key="source.id" :label="source.name" :value="source.id" />
+                    </el-select>
+                  </el-form-item>
+                  <el-form-item label="数据库">
+                    <el-select v-model="form.targetDatabase" filterable style="width:100%" placeholder="选择目标数据库">
+                      <el-option v-for="database in targetDbs" :key="database" :label="database" :value="database" />
+                    </el-select>
+                  </el-form-item>
+                </section>
+              </div>
             </el-form>
           </template>
 
           <template v-else-if="editorStep === 1">
-            <div class="section-title">选择来源表</div>
+            <div class="section-title table-step-title">
+              <span>选择数据表</span>
+              <div class="target-prefix-toolbar"><span>目标表前缀</span><el-input v-model="form.targetPrefix" clearable placeholder="可选，例如 ods_" @change="applyTargetPrefix" /><el-button @click="applyTargetPrefix">应用</el-button></div>
+            </div>
+            <div class="section-tip">从左侧选择 MySQL 源表，右侧确认 StarRocks 目标表名；目标表前缀可以一键应用到所有已选表。</div>
             <div class="table-selector">
               <div class="table-source-pane">
+                <div class="pane-heading">源头表</div>
                 <div class="pane-toolbar">
-                  <el-input v-model="tableKeyword" clearable placeholder="搜索表名或备注" />
+                  <el-input v-model="tableKeyword" clearable placeholder="搜索源表" />
                   <el-button @click="selectAllVisible">全选当前</el-button>
                 </div>
                 <el-checkbox-group v-model="form.selectedTables" class="table-check-list" @change="ensureTargetMappings">
@@ -885,74 +1002,43 @@ onBeforeUnmount(() => {
                 </el-checkbox-group>
               </div>
               <div class="table-selected-pane">
-                <div class="pane-title"><strong>已选择 {{ form.selectedTables.length }} 张表</strong><el-button link @click="clearSelectedTables">清空</el-button></div>
+                <div class="pane-title"><strong>目标表（{{ form.selectedTables.length }}）</strong><el-button link @click="clearSelectedTables">清空</el-button></div>
                 <div v-if="!form.selectedTables.length" class="empty-selection">从左侧勾选需要同步的表</div>
-                <div v-for="table in form.selectedTables" :key="table" class="selected-row selected-row-editable">
-                  <span>{{ table }}</span><span class="arrow">→</span><span>{{ targetTables[table] }}</span>
+                <div v-for="table in form.selectedTables" :key="table" class="selected-row target-mapping-row">
+                  <span class="source-table-name">{{ table }}</span><span class="arrow">→</span>
+                  <el-input v-model="targetTables[table]" size="small" />
                   <el-button link type="danger" @click="removeSelectedTable(table)">移除</el-button>
                 </div>
               </div>
             </div>
           </template>
 
-          <template v-else-if="editorStep === 2">
-            <div class="section-title">StarRocks 目标配置</div>
-            <el-form label-position="top">
-              <div class="form-grid">
-                <el-form-item label="目标数据库"><el-input v-model="form.targetDatabase" placeholder="ods" /></el-form-item>
-                <el-form-item label="目标表前缀">
-                  <div class="prefix-input"><el-input v-model="form.targetPrefix" placeholder="可选，例如 ods_" /><el-button @click="applyTargetPrefix">应用到全部</el-button></div>
-                </el-form-item>
-              </div>
-              <el-form-item label="表映射">
-                <div class="mapping-table">
-                  <div class="mapping-head"><span>MySQL 来源表</span><span>StarRocks 目标表</span></div>
-                  <div v-for="table in form.selectedTables" :key="table" class="mapping-row">
-                    <span class="mapping-source">{{ form.sourceDatabase }}.{{ table }}</span>
-                    <el-input v-model="targetTables[table]" />
-                  </div>
-                </div>
-              </el-form-item>
-            </el-form>
-          </template>
-
-          <template v-else-if="editorStep === 3">
-            <div class="section-title">同步策略</div>
-            <div class="section-tip">调度策略不在离线任务中重复配置。需要定时运行时，在工作流中引用该离线同步任务。</div>
-            <el-form label-position="top" class="form-grid">
-              <el-form-item label="同步方式">
-                <el-radio-group v-model="form.syncMode">
-                  <el-radio-button value="FULL">全量同步</el-radio-button>
-                  <el-radio-button value="INCREMENTAL">条件增量</el-radio-button>
-                </el-radio-group>
-              </el-form-item>
-              <el-form-item label="目标表处理">
-                <el-select v-model="form.schemaSaveMode" style="width:100%">
-                  <el-option label="不存在时自动建表" value="CREATE_SCHEMA_WHEN_NOT_EXIST" />
-                  <el-option label="每次运行前重建目标表" value="RECREATE_SCHEMA" />
-                </el-select>
-              </el-form-item>
-              <el-form-item v-if="form.syncMode === 'INCREMENTAL'" label="WHERE 条件" class="span-2">
-                <el-input v-model="form.where" type="textarea" :rows="4" placeholder="例如 updated_at >= DATE_SUB(NOW(), INTERVAL 1 DAY)" />
-              </el-form-item>
-            </el-form>
-          </template>
-
           <template v-else>
             <div class="section-title">确认配置</div>
-            <el-descriptions :column="2" border>
+            <el-descriptions :column="2" border class="confirm-overview">
               <el-descriptions-item label="任务名称">{{ form.name }}</el-descriptions-item>
-              <el-descriptions-item label="同步方式">{{ modeLabel(form.syncMode) }}</el-descriptions-item>
+              <el-descriptions-item label="同步方式">{{ form.where.trim() ? '条件增量' : '全量同步' }}</el-descriptions-item>
               <el-descriptions-item label="来源">{{ mysql.find(item => item.id === form.sourceDataSourceId)?.name || '—' }} / {{ form.sourceDatabase }}</el-descriptions-item>
               <el-descriptions-item label="目标">{{ starrocks.find(item => item.id === form.targetDataSourceId)?.name || '—' }} / {{ form.targetDatabase }}</el-descriptions-item>
+              <el-descriptions-item label="目标策略">{{ targetStrategyLabel(form.targetStrategy) }}</el-descriptions-item>
               <el-descriptions-item label="同步表数">{{ form.selectedTables.length }} 张</el-descriptions-item>
-              <el-descriptions-item label="执行引擎">SeaTunnel（平台统一执行环境）</el-descriptions-item>
+              <el-descriptions-item label="增量条件" :span="2">{{ form.where.trim() || '空（全量同步）' }}</el-descriptions-item>
             </el-descriptions>
-            <div class="confirm-mappings">
-              <div class="confirm-title">表映射</div>
-              <div v-for="table in form.selectedTables" :key="table" class="confirm-row">
-                <span>{{ form.sourceDatabase }}.{{ table }}</span><span>→</span><span>{{ form.targetDatabase }}.{{ targetTables[table] }}</span>
-              </div>
+
+            <div class="confirm-grid">
+              <section class="confirm-panel">
+                <div class="confirm-panel-title">表映射</div>
+                <div class="confirm-mapping-list">
+                  <div v-for="table in form.selectedTables" :key="table" class="confirm-row">
+                    <span>{{ form.sourceDatabase }}.{{ table }}</span><span>→</span><span>{{ form.targetDatabase }}.{{ targetTables[table] }}</span>
+                  </div>
+                </div>
+              </section>
+              <section class="confirm-panel seatunnel-panel">
+                <div class="confirm-panel-title"><span>SeaTunnel 配置</span><el-button size="small" :loading="previewLoading" @click="loadSeaTunnelPreview">刷新配置</el-button></div>
+                <div class="seatunnel-config-viewer" v-loading="previewLoading"><pre>{{ seatunnelPreview || '正在生成 SeaTunnel 配置…' }}</pre></div>
+                <div class="seatunnel-config-tip">密码已脱敏；其余配置结构与实际提交执行文件一致。</div>
+              </section>
             </div>
           </template>
         </div>
@@ -963,7 +1049,7 @@ onBeforeUnmount(() => {
           <el-button @click="editorVisible = false">取消</el-button>
           <div class="ds-spacer" />
           <el-button v-if="editorStep > 0" @click="previousStep">上一步</el-button>
-          <el-button v-if="editorStep < 4" type="primary" @click="nextStep">下一步</el-button>
+          <el-button v-if="editorStep < 2" type="primary" @click="nextStep">下一步</el-button>
           <el-button v-else type="primary" :loading="saving" @click="saveTask">{{ editorMode === 'edit' ? '保存修改' : '创建任务' }}</el-button>
         </div>
       </template>
@@ -1055,18 +1141,18 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .toolbar-wrap{gap:10px}.toolbar-count{font-size:12px;color:var(--ds-text-secondary)}
-.editor-shell{display:flex;flex-direction:column;min-height:620px}.editor-steps{margin-bottom:24px}.editor-body{flex:1;padding:0 4px}
+.editor-shell{display:flex;flex-direction:column;min-height:620px}.editor-steps{margin-bottom:20px}.editor-body{flex:1;padding:0 4px}.editor-steps-3 :deep(.el-step){padding:0 28px}
 .section-title{font-size:16px;font-weight:600;color:var(--ds-text-primary);margin-bottom:8px}.section-tip{font-size:13px;color:var(--ds-text-secondary);margin-bottom:22px;line-height:1.7}
-.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:0 20px}.span-2{grid-column:1 / -1}.prefix-input{display:flex;gap:8px;width:100%}
-.table-selector{display:grid;grid-template-columns:1.1fr .9fr;border:1px solid var(--ds-border);border-radius:4px;min-height:470px;overflow:hidden}.table-source-pane{border-right:1px solid var(--ds-border);padding:16px}.table-selected-pane{padding:16px;background:#fafbfc}.pane-toolbar{display:flex;gap:8px;margin-bottom:12px}.pane-title{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}.table-check-list{display:flex;flex-direction:column;max-height:405px;overflow:auto}.table-check-item{margin-right:0!important;padding:9px 8px;border-bottom:1px solid #f1f3f5}.table-name{display:inline-block;min-width:180px;color:var(--ds-text-primary)}.table-comment{color:var(--ds-text-secondary);font-size:12px}.empty-selection{padding:48px 0;text-align:center;color:var(--ds-text-secondary)}.selected-row{display:grid;grid-template-columns:1fr 24px 1fr;align-items:center;padding:9px 0;border-bottom:1px solid var(--ds-border);font-size:13px}.selected-row-editable{grid-template-columns:minmax(0,1fr) 24px minmax(0,1fr) 52px;gap:6px}.selected-row-editable>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.arrow{text-align:center;color:var(--el-color-primary)}
+.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:0 18px}.span-2{grid-column:1 / -1}.prefix-input{display:flex;gap:8px;width:100%}.database-pair{display:grid;grid-template-columns:1fr 48px 1fr;align-items:center;gap:12px;margin-top:8px}.database-card{border:1px solid var(--ds-border);border-radius:6px;padding:16px 16px 2px;background:#fafbfc}.database-card-title{font-size:14px;font-weight:600;margin-bottom:12px}.source-card .database-card-title{color:var(--el-color-primary)}.target-card .database-card-title{color:#079455}.database-arrow{text-align:center;color:var(--el-color-primary);font-size:28px;font-weight:700}.pane-heading{font-size:13px;font-weight:600;margin-bottom:10px}.table-step-title{display:flex;justify-content:space-between;align-items:center;gap:20px}.target-prefix-toolbar{display:flex;align-items:center;gap:8px;font-size:12px;font-weight:400;color:var(--ds-text-secondary)}.target-prefix-toolbar .el-input{width:220px}
+.table-selector{display:grid;grid-template-columns:1.1fr .9fr;border:1px solid var(--ds-border);border-radius:4px;min-height:470px;overflow:hidden}.table-source-pane{border-right:1px solid var(--ds-border);padding:16px}.table-selected-pane{padding:16px;background:#fafbfc}.pane-toolbar{display:flex;gap:8px;margin-bottom:12px}.pane-title{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}.table-check-list{display:flex;flex-direction:column;max-height:405px;overflow:auto}.table-check-item{margin-right:0!important;padding:9px 8px;border-bottom:1px solid #f1f3f5}.table-name{display:inline-block;min-width:180px;color:var(--ds-text-primary)}.table-comment{color:var(--ds-text-secondary);font-size:12px}.empty-selection{padding:48px 0;text-align:center;color:var(--ds-text-secondary)}.selected-row{display:grid;grid-template-columns:1fr 24px 1fr;align-items:center;padding:9px 0;border-bottom:1px solid var(--ds-border);font-size:13px}.selected-row-editable{grid-template-columns:minmax(0,1fr) 24px minmax(0,1fr) 52px;gap:6px}.target-mapping-row{grid-template-columns:minmax(120px,1fr) 24px minmax(180px,1.2fr) 52px;gap:6px}.source-table-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.selected-row-editable>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.arrow{text-align:center;color:var(--el-color-primary)}
 .mapping-table{width:100%;border:1px solid var(--ds-border);border-radius:4px;overflow:hidden}.mapping-head,.mapping-row{display:grid;grid-template-columns:1fr 1fr;gap:18px;align-items:center;padding:10px 14px}.mapping-head{background:#f7f8fa;color:var(--ds-text-secondary);font-size:12px}.mapping-row{border-top:1px solid var(--ds-border)}.mapping-source{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px}
-.confirm-mappings{margin-top:20px;border:1px solid var(--ds-border);border-radius:4px}.confirm-title{padding:10px 14px;background:#f7f8fa;font-weight:600}.confirm-row{display:grid;grid-template-columns:1fr 36px 1fr;padding:9px 14px;border-top:1px solid var(--ds-border);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px}.drawer-footer{display:flex;align-items:center;width:100%}.log-box{min-height:300px;max-height:520px;overflow:auto;background:#111827;border-radius:4px;padding:14px}.log-box pre{margin:0;color:#d1d5db;white-space:pre-wrap;word-break:break-word;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;line-height:1.65}
+.confirm-mappings{margin-top:20px;border:1px solid var(--ds-border);border-radius:4px}.confirm-overview{margin-bottom:16px}.confirm-grid{display:grid;grid-template-columns:.9fr 1.1fr;gap:14px}.confirm-panel{border:1px solid var(--ds-border);border-radius:4px;overflow:hidden;background:#fff}.confirm-panel-title{min-height:42px;padding:8px 12px;background:#f7f8fa;display:flex;align-items:center;justify-content:space-between;font-weight:600}.confirm-mapping-list{max-height:360px;overflow:auto}.seatunnel-panel{min-width:0}.seatunnel-config-viewer{height:360px;overflow:auto;background:#111827;padding:12px 14px}.seatunnel-config-viewer pre{margin:0;color:#d1d5db;white-space:pre-wrap;word-break:break-word;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;line-height:1.55}.seatunnel-config-tip{padding:8px 12px;font-size:11px;color:var(--ds-text-secondary);background:#fafbfc;border-top:1px solid var(--ds-border)}.confirm-title{padding:10px 14px;background:#f7f8fa;font-weight:600}.confirm-row{display:grid;grid-template-columns:1fr 36px 1fr;padding:9px 14px;border-top:1px solid var(--ds-border);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px}.drawer-footer{display:flex;align-items:center;width:100%}.log-box{min-height:300px;max-height:520px;overflow:auto;background:#111827;border-radius:4px;padding:14px}.log-box pre{margin:0;color:#d1d5db;white-space:pre-wrap;word-break:break-word;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;line-height:1.65}
 
 .runtime-summary,.schedule-summary{display:flex;flex-direction:column;gap:4px;font-size:12px;line-height:1.45;color:var(--ds-text-secondary)}.runtime-summary strong{color:var(--ds-text-primary);font-weight:600}.schedule-online{color:var(--ds-success)}.schedule-offline{color:#98a2b3}.task-name-link{border:0;background:transparent;padding:0;color:var(--el-color-primary);font:inherit;cursor:pointer;text-align:left}.task-name-link:hover{text-decoration:underline}.time-cell{white-space:nowrap;font-size:13px;color:var(--ds-text-primary)}.task-more{display:inline-flex;margin-left:12px}.danger-menu-item{color:var(--el-color-danger)}
-:deep(.offline-task-row){cursor:pointer}:deep(.offline-task-row:hover>td.el-table__cell){background:#f5f8ff!important}
+:deep(.offline-task-row){cursor:pointer}:deep(.offline-task-row td.el-table__cell){padding:7px 0}:deep(.offline-task-row .cell){padding-left:7px;padding-right:7px}:deep(.el-table th.el-table__cell){padding:8px 0}:deep(.el-table th .cell){padding-left:7px;padding-right:7px}:deep(.offline-task-row:hover>td.el-table__cell){background:#f5f8ff!important}
 .detail-head{width:100%;display:flex;align-items:flex-start;justify-content:space-between;gap:24px;padding-right:8px}.detail-head h3{margin:4px 0 6px;font-size:20px;color:var(--ds-text-primary)}.detail-eyebrow{font-size:12px;color:var(--el-color-primary);font-weight:600}.detail-subtitle{font-size:12px;color:var(--ds-text-secondary)}.detail-actions{display:flex;gap:8px;flex:0 0 auto}.task-detail{padding:0 2px 24px}.detail-summary{display:grid;grid-template-columns:repeat(4,1fr);border:1px solid var(--ds-border);background:#fff;margin:2px 0 18px}.summary-item{min-height:72px;padding:12px 16px;border-right:1px solid var(--ds-border);display:flex;flex-direction:column;justify-content:center;gap:8px}.summary-item:last-child{border-right:0}.summary-item>span{font-size:12px;color:var(--ds-text-secondary)}.summary-item>strong{font-size:14px;color:var(--ds-text-primary);font-weight:600}.detail-tabs{margin-top:4px}.detail-section{margin-top:14px}.detail-section.no-top{margin-top:0}.detail-section-title{font-size:14px;font-weight:600;color:var(--ds-text-primary);margin:0 0 10px}.readonly-code{display:block;white-space:pre-wrap;word-break:break-all;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;color:#475467;background:#f8fafc;padding:2px 6px;border-radius:3px}.object-name{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:#344054}.object-name.target{color:var(--el-color-primary)}
 
 .editor-steps :deep(.el-step__title){white-space:nowrap!important;font-size:14px!important}.editor-steps :deep(.el-step.is-simple .el-step__main){min-width:max-content}.editor-steps :deep(.el-step.is-simple){min-width:0;padding:0 14px}
 .history-shell{height:calc(100vh - 104px);display:flex;flex-direction:column;gap:10px;min-height:520px}.history-records{flex:0 0 auto;max-height:255px;overflow:auto;display:flex;flex-direction:column;gap:10px;padding-right:2px}.history-batch-card{border:1px solid var(--ds-border);background:#fff}.history-batch-head{min-height:48px;padding:8px 12px;display:grid;grid-template-columns:minmax(220px,1fr) 100px 285px auto;align-items:center;gap:12px;background:#f8fafc;border-bottom:1px solid var(--ds-border);font-size:12px;color:var(--ds-text-secondary)}.history-batch-head>div:first-child{display:flex;align-items:center;gap:10px;min-width:0}.history-batch-head strong{color:var(--ds-text-primary)}.history-batch-head span{white-space:nowrap}.history-batch-actions{display:flex;justify-content:flex-end}.history-attempts{display:flex;flex-direction:column}.history-attempt-row,.legacy-run-row{width:100%;border:0;border-bottom:1px solid #eef0f2;background:#fff;padding:9px 12px;display:grid;grid-template-columns:100px 100px minmax(220px,1fr) 170px 72px;align-items:center;gap:10px;text-align:left;font:inherit;color:var(--ds-text-secondary);cursor:pointer}.history-attempt-row:last-child{border-bottom:0}.history-attempt-row:hover,.legacy-run-row:hover,.history-attempt-row.selected,.legacy-run-row.selected{background:#f5f8ff}.history-attempt-row.selected,.legacy-run-row.selected{box-shadow:inset 3px 0 0 var(--el-color-primary)}.history-attempt-row strong,.legacy-run-row strong{color:var(--ds-text-primary)}.legacy-run-row{grid-template-columns:minmax(260px,1fr) 110px 320px 72px;border:1px solid var(--ds-border);margin-bottom:8px}.view-log-text{color:var(--el-color-primary);white-space:nowrap}.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.compact-note{margin:0;padding:9px 12px}.history-log-panel{flex:1;min-height:0;display:flex;flex-direction:column;border:1px solid var(--ds-border);background:#fff}.history-log-toolbar{min-height:52px;padding:8px 12px;border-bottom:1px solid var(--ds-border);display:flex;align-items:center;justify-content:space-between;gap:16px}.history-log-toolbar>div:first-child{display:flex;align-items:center;gap:10px;min-width:0}.history-log-toolbar strong{color:var(--ds-text-primary)}.history-log-toolbar span{font-size:12px;color:var(--ds-text-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.history-log-toolbar em{font-style:normal;font-size:12px;color:var(--ds-success);white-space:nowrap}.history-log-actions{display:flex;gap:6px;flex:0 0 auto}.history-log-viewer{flex:1;min-height:260px;overflow:auto;background:#111827;padding:14px 16px}.history-log-viewer pre{margin:0;color:#d1d5db;white-space:pre-wrap;word-break:break-word;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;line-height:1.65}.history-log-panel.is-maximized{position:fixed;z-index:4000;inset:18px;background:#fff;border:1px solid #cfd4dc;box-shadow:0 16px 48px rgba(0,0,0,.24)}.history-log-panel.is-maximized .history-log-viewer{min-height:0}.muted-inline{font-size:12px;color:var(--ds-text-tertiary)}.detail-run-toolbar{display:flex;justify-content:flex-end;margin:0 0 10px}
-@media (max-width:1000px){.form-grid,.table-selector{grid-template-columns:1fr}.span-2{grid-column:auto}.table-source-pane{border-right:0;border-bottom:1px solid var(--ds-border)}}
+@media (max-width:1000px){.form-grid,.table-selector,.confirm-grid,.database-pair{grid-template-columns:1fr}.database-arrow{transform:rotate(90deg)}.span-2{grid-column:auto}.table-source-pane{border-right:0;border-bottom:1px solid var(--ds-border)}}
 </style>

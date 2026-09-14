@@ -46,6 +46,26 @@ public class IntegrationMetadataService {
                 .contains(database.toLowerCase(Locale.ROOT));
     }
 
+    public List<DatabaseOption> starRocksDatabases(long dataSourceId) {
+        DataSourceService.ConnectionInfo info = dataSources.connectionInfo(dataSourceId);
+        if (info.type() != DataSourceType.STARROCKS) throw new BadRequestException("同步目标数据库仅允许从 StarRocks 数据源读取");
+        try (Connection connection = connectionManager.getConnection(info.id(), info.jdbcUrl(), info.username(), info.password());
+             ResultSet catalogs = connection.getMetaData().getCatalogs()) {
+            List<DatabaseOption> result = new ArrayList<>();
+            while (catalogs.next()) {
+                String name = catalogs.getString("TABLE_CAT");
+                if (name != null && !name.isBlank() && !isStarRocksSystemDatabase(name)) result.add(new DatabaseOption(name, ""));
+            }
+            return result.stream().sorted(java.util.Comparator.comparing(DatabaseOption::name, String.CASE_INSENSITIVE_ORDER)).toList();
+        } catch (Exception ex) {
+            throw new BadRequestException("读取 StarRocks 数据库列表失败：" + ex.getMessage());
+        }
+    }
+
+    private boolean isStarRocksSystemDatabase(String database) {
+        return Set.of("information_schema", "_statistics_", "sys").contains(database.toLowerCase(Locale.ROOT));
+    }
+
     public List<TableOption> mysqlTables(long dataSourceId) {
         return mysqlTables(dataSourceId, null);
     }

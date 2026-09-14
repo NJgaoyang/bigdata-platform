@@ -174,6 +174,17 @@ public class IntegrationService {
         return preCheckService.check(runtimeTask);
     }
 
+    public String previewConfig(IntegrationRequests.TaskRequest request) {
+        Map<String, Object> options = effectiveOptions(request.options(), request.sourceDataSourceId(), request.targetDataSourceId());
+        validateMode(request.syncMode(), options);
+        List<IntegrationRequests.TableRequest> tables = resolveTables(request, null);
+        IntegrationRequests.Endpoint source = resolveDataSource(request.sourceDataSourceId(), request.source());
+        IntegrationRequests.Endpoint target = resolveDataSource(request.targetDataSourceId(), request.target());
+        IntegrationTask task = new IntegrationTask(request.name(), request.sourceType(), request.targetType(), request.syncMode(),
+                source, target, request.mappings(), options, tables);
+        return safeConfig(task);
+    }
+
     public List<StarRocksSchemaService.SchemaResult> syncSchema(long id, boolean recreate) {
         if (schemaService == null) throw new BadRequestException("StarRocks 表结构同步组件不可用");
         IntegrationTask runtimeTask = task(id);

@@ -29,6 +29,7 @@ public class IntegrationController {
     @GetMapping("/runtime-clusters") public Result<List<SeaTunnelClusterView>> runtimeClusters() { return Result.ok(clusterService.list()); }
     @GetMapping("/source-databases") public Result<List<IntegrationMetadataService.DatabaseOption>> sourceDatabases(@RequestParam long dataSourceId) { return Result.ok(metadataService.mysqlDatabases(dataSourceId)); }
     @GetMapping("/source-tables") public Result<List<IntegrationMetadataService.TableOption>> sourceTables(@RequestParam long dataSourceId, @RequestParam(required = false) String database) { return Result.ok(metadataService.mysqlTables(dataSourceId, database)); }
+    @GetMapping("/target-databases") public Result<List<IntegrationMetadataService.DatabaseOption>> targetDatabases(@RequestParam long dataSourceId) { return Result.ok(metadataService.starRocksDatabases(dataSourceId)); }
 
     @PostMapping public Result<IntegrationTaskView> create(@Valid @RequestBody IntegrationRequests.TaskRequest request, HttpServletRequest httpRequest) {
         IntegrationTaskView created = service.create(request);
@@ -53,6 +54,7 @@ public class IntegrationController {
 
     @PostMapping("/{id}/validate") public Result<SeaTunnelGateway.ValidationResult> validate(@PathVariable long id) { return Result.ok(service.validate(id)); }
     @PostMapping("/{id}/precheck") public Result<IntegrationPreCheckService.Report> precheck(@PathVariable long id) { return Result.ok(service.precheck(id)); }
+    @PostMapping("/preview-config") public Result<String> previewConfig(@Valid @RequestBody IntegrationRequests.TaskRequest request) { return Result.ok(service.previewConfig(request)); }
     @PostMapping("/{id}/execute") public Result<SeaTunnelGateway.SubmitResult> execute(@PathVariable long id) { return Result.ok(service.execute(id)); }
     @PostMapping("/{id}/run") public Result<SeaTunnelGateway.SubmitResult> run(@PathVariable long id) { return Result.ok(service.execute(id)); }
     @PostMapping("/{id}/stop") public Result<Void> stop(@PathVariable long id) { service.instances(id).stream().findFirst().ifPresent(instance -> service.stop(instance.executionId())); return Result.ok(null, "同步任务已停止"); }

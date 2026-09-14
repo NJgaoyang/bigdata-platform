@@ -75,7 +75,9 @@ export const integrationApi = {
   saveCursor: (id:number,payload:{cursorColumn?:string;cursorValue?:string}) => api.put<IntegrationCursor>(`/integration/tasks/${id}/cursor`,payload),
   log: (executionId:string) => api.get<string>(`/integration/tasks/executions/${executionId}/log`),
   sourceDatabases: (dataSourceId:number) => api.get<Array<{name:string}>>('/integration/tasks/source-databases',{params:{dataSourceId}}),
-  sourceTables: (dataSourceId:number,database:string) => api.get<Array<{name:string;comment?:string}>>('/integration/tasks/source-tables',{params:{dataSourceId,database}})
+  sourceTables: (dataSourceId:number,database:string) => api.get<Array<{name:string;comment?:string}>>('/integration/tasks/source-tables',{params:{dataSourceId,database}}),
+  targetDatabases: (dataSourceId:number) => api.get<Array<{name:string;comment?:string}>>('/integration/tasks/target-databases',{params:{dataSourceId}}),
+  previewConfig: (payload:IntegrationTaskPayload) => api.post<string>('/integration/tasks/preview-config',payload)
 }
 
 export interface WorkflowNode { id:number; name:string; nodeType:'SQL'|'SEATUNNEL'|'CONDITION'; fileVersionId?:number; configJson?:string; x:number; y:number; nodeCode:string }
