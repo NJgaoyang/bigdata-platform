@@ -28,15 +28,21 @@ public class IntegrationExecutionMonitor {
     private final PlatformStore store;
     private final SeaTunnelGateway gateway;
     private final IntegrationRuntimeRepository runtimeRepository;
+    private final IntegrationStagingService stagingService;
+    private final IntegrationDataValidationService dataValidation;
     private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor(
             Thread.ofPlatform().daemon(true).name("integration-execution-monitor").factory());
     private final AtomicBoolean started = new AtomicBoolean();
 
     public IntegrationExecutionMonitor(PlatformStore store, SeaTunnelGateway gateway,
-                                       IntegrationRuntimeRepository runtimeRepository) {
+                                       IntegrationRuntimeRepository runtimeRepository,
+                                       IntegrationDataValidationService dataValidation,
+                                       IntegrationStagingService stagingService) {
         this.store = store;
         this.gateway = gateway;
         this.runtimeRepository = runtimeRepository;
+        this.dataValidation = dataValidation;
+        this.stagingService = stagingService;
     }
 
     @EventListener(ApplicationReadyEvent.class)
@@ -85,6 +91,27 @@ public class IntegrationExecutionMonitor {
             return;
         }
         if (terminal(next)) {
+            if ("FINISHED".equals(next)) {
+                IntegrationDataValidationService.Result validation = dataValidation.validate(instance.taskId(), instance.executionId());
+                if (!validation.passed()) {
+                    next = "FAILED";
+                    message = validation.message();
+                } else {
+                    Long batchId = runtimeRepository.batchIdForExecution(instance.executionId());
+                    if (batchId != null) {
+                        try {
+                            IntegrationBatchView batch = runtimeRepository.getBatch(batchId);
+                            IntegrationStagingService.PublishResult publish = stagingService.publish(instance.taskId(), batch.parametersJson());
+                            if (publish.published()) message = validation.message() + "；" + publish.message();
+                            else message = validation.message();
+                        } catch (RuntimeException ex) {
+                            next = "FAILED";
+                            message = "数据校验通过，但 staging 原子发布失败：" + (ex.getMessage() == null ? ex.getClass().getSimpleName() : ex.getMessage());
+                        }
+                    } else message = validation.message();
+                    if (!"FAILED".equals(next) && runtime.message() != null && !runtime.message().isBlank()) message += "\n" + runtime.message();
+                }
+            }
             persistInstance(instance, next, LocalDateTime.now(), persistedLog(message));
         }
     }

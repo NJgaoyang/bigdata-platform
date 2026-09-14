@@ -34,13 +34,17 @@ public class FlinkCdcConfigBuilder {
         StringBuilder y=new StringBuilder();
         y.append("source:\n  type: mysql\n  hostname: ").append(q(sourceView.host())).append("\n  port: ").append(sourceView.port())
          .append("\n  username: ").append(q(source.username())).append("\n  password: ").append(q(password))
-         .append("\n  tables: ").append(q(sourceDb+"."+tableRegex(tables,"sourceTable")))
-         .append("\n  server-id: ").append(q(str(spec.getOrDefault("serverId","5400-5499"))))
-         .append("\n  scan.startup.mode: ").append(q(startup(str(spec.getOrDefault("startupMode","initial")))))
+         .append("\n  tables: ").append(q(sourceDb+"."+tableRegex(tables,"sourceTable")));
+        String serverId=str(spec.get("serverId"));
+        if(!serverId.isBlank()) y.append("\n  server-id: ").append(q(serverId));
+        y.append("\n  scan.startup.mode: ").append(q(startup(str(spec.getOrDefault("startupMode","initial")))))
          .append("\n  scan.incremental.snapshot.chunk.size: ").append(intValue(spec.get("chunkSize"),8096))
          .append("\n  scan.snapshot.fetch.size: ").append(intValue(spec.get("fetchSize"),1024))
-         .append("\n  heartbeat.interval: ").append(intValue(spec.get("heartbeatMs"),30000)).append("ms\n");
-        if(spec.get("timezone")!=null) y.append("  server-time-zone: ").append(q(str(spec.get("timezone")))).append("\n");
+         .append("\n  scan.incremental.snapshot.backfill.skip: false")
+         .append("\n  treat-tinyint1-as-boolean.enabled: false")
+         .append("\n  debezium.bigint.unsigned.handling.mode: ").append(q("precise"))
+         .append("\n  heartbeat.interval: ").append(intValue(spec.get("heartbeatMs"),30000)).append("ms")
+         .append("\n  server-time-zone: ").append(q(sourceView.timezone()==null||sourceView.timezone().isBlank()?"Asia/Shanghai":sourceView.timezone())).append("\n");
         if("timestamp".equalsIgnoreCase(str(spec.get("startupMode")))) y.append("  scan.startup.timestamp-millis: ").append(longValue(spec.get("timestampMillis"))).append("\n");
         Map<String,Object> offset=spec.get("specificOffset") instanceof Map<?,?> m?(Map<String,Object>)m:Map.of();
         if("specific-offset".equalsIgnoreCase(str(spec.get("startupMode")))){
@@ -54,14 +58,20 @@ public class FlinkCdcConfigBuilder {
         Map<String,Object> sinkCfg=spec.get("sink") instanceof Map<?,?>m?(Map<String,Object>)m:Map.of();
         long maxBytes = sinkCfg.get("maxBytes") == null ? 67108864L : longValue(sinkCfg.get("maxBytes"));
         if(maxBytes < 67108864L) maxBytes = 67108864L; // StarRocks connector minimum is 64 MiB.
+        String labelPrefix=str(spec.getOrDefault("labelPrefix","datasphere_rt_draft"));
         y.append("  sink.buffer-flush.max-bytes: ").append(maxBytes).append("\n")
          .append("  sink.buffer-flush.interval-ms: ").append(intValue(sinkCfg.get("flushIntervalMs"),2000)).append("\n")
-         .append("  sink.at-least-once.use-transaction-stream-load: ")
-         .append(sinkCfg.get("transactionStreamLoad") == null || Boolean.parseBoolean(String.valueOf(sinkCfg.get("transactionStreamLoad")))).append("\n");
+         .append("  sink.semantic: ").append(q("exactly-once")).append("\n")
+         .append("  sink.version: ").append(q("V2")).append("\n")
+         .append("  sink.label-prefix: ").append(q(labelPrefix)).append("\n")
+         .append("  sink.at-least-once.use-transaction-stream-load: false\n")
+         .append("  sink.properties.max_filter_ratio: '0'\n")
+         .append("  sink.properties.strict_mode: 'true'\n")
+         .append("  sink.properties.enable_merge_commit: 'false'\n");
         y.append("pipeline:\n  name: ").append(q(str(spec.getOrDefault("name","datasphere-realtime")))).append("\n")
          .append("  parallelism: ").append(intValue(spec.get("parallelism"),1)).append("\n")
-         .append("  schema.change.behavior: ").append(q(str(spec.getOrDefault("schemaEvolution","EVOLVE")).toLowerCase(Locale.ROOT))).append("\n")
-         .append("  local-time-zone: ").append(q(str(spec.getOrDefault("timezone","Asia/Shanghai")))).append("\n");
+         .append("  schema.change.behavior: ").append(q(str(spec.getOrDefault("schemaEvolution","EXCEPTION")).toLowerCase(Locale.ROOT))).append("\n")
+         .append("  local-time-zone: ").append(q(sourceView.timezone()==null||sourceView.timezone().isBlank()?"Asia/Shanghai":sourceView.timezone())).append("\n");
         y.append("route:\n");
         for(Map<String,Object> t:tables) y.append("  - source-table: ").append(q(sourceDb+"."+str(t.get("sourceTable")))).append("\n    sink-table: ").append(q(sinkDb+"."+str(t.getOrDefault("targetTable",t.get("sourceTable"))))).append("\n");
         return y.toString();

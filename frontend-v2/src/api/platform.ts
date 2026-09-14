@@ -39,6 +39,7 @@ export interface DataSourceView {
   host: string
   port: number
   databaseName: string
+  timezone: string
   username: string
   status: string
   metadataVisible: boolean
@@ -51,6 +52,7 @@ export interface DataSourcePayload {
   host: string
   port: number
   databaseName: string
+  timezone: string
   username: string
   password?: string
   metadataVisible: boolean

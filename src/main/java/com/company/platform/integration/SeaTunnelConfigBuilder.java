@@ -42,6 +42,7 @@ public class SeaTunnelConfigBuilder {
         String where = stringOption(options, "where", stringOption(options, "incrementalWhere", ""));
         String schemaSaveMode = schemaSaveMode(options);
         String dataSaveMode = dataSaveMode(options);
+        String sourceTimezone = stringOption(options, "sourceTimezone", "Asia/Shanghai");
         boolean multiTable = tables.size() > 1;
 
         StringBuilder config = new StringBuilder();
@@ -54,7 +55,7 @@ public class SeaTunnelConfigBuilder {
             IntegrationRequests.TableRequest table = tables.get(index);
             config.append("  Jdbc {\n");
             if (multiTable) config.append("    plugin_output = \"table_").append(index).append("\"\n");
-            config.append("    url = ").append(hocon(jdbcUrl(source, table.sourceDatabase()))).append("\n")
+            config.append("    url = ").append(hocon(jdbcUrl(source, table.sourceDatabase(), sourceTimezone))).append("\n")
                     .append("    driver = \"com.mysql.cj.jdbc.Driver\"\n")
                     .append("    username = ").append(hocon(source.username())).append("\n")
                     .append("    password = ").append(hocon(source.password())).append("\n")
@@ -99,7 +100,7 @@ public class SeaTunnelConfigBuilder {
         String startupMode = normalizeStartupMode(stringOption(options, "startupMode", "initial"));
         String startupTimestamp = stringOption(options, "startupTimestamp", "");
         String serverId = stringOption(options, "serverId", "");
-        String serverTimeZone = stringOption(options, "serverTimeZone", "Asia/Shanghai");
+        String serverTimeZone = stringOption(options, "sourceTimezone", stringOption(options, "serverTimeZone", "Asia/Shanghai"));
         String schemaSaveMode = schemaSaveMode(options);
         String dataSaveMode = dataSaveMode(options);
         boolean renameTables = tables.size() > 1 && tables.stream().anyMatch(table -> !Objects.equals(table.sourceTable(), table.targetTable()));
@@ -112,7 +113,7 @@ public class SeaTunnelConfigBuilder {
                 .append("}\n\nsource {\n")
                 .append("  MySQL-CDC {\n");
         if (renameTables) config.append("    plugin_output = \"mysql_cdc_source\"\n");
-        config.append("    url = ").append(hocon(jdbcUrl(source, sourceDatabases.iterator().next()))).append("\n")
+        config.append("    url = ").append(hocon(jdbcUrl(source, sourceDatabases.iterator().next(), serverTimeZone))).append("\n")
                 .append("    username = ").append(hocon(source.username())).append("\n")
                 .append("    password = ").append(hocon(source.password())).append("\n")
                 .append("    table-names = [");
@@ -193,6 +194,8 @@ public class SeaTunnelConfigBuilder {
                 .append("    starrocks.config = {\n")
                 .append("      format = \"JSON\"\n")
                 .append("      strip_outer_array = true\n")
+                .append("      max_filter_ratio = 0\n")
+                .append("      strict_mode = true\n")
                 .append("    }\n");
     }
 
@@ -206,9 +209,9 @@ public class SeaTunnelConfigBuilder {
         return query;
     }
 
-    private String jdbcUrl(IntegrationRequests.Endpoint endpoint, String database) {
+    private String jdbcUrl(IntegrationRequests.Endpoint endpoint, String database, String timezone) {
         return "jdbc:mysql://" + endpoint.host().split(",")[0].trim() + ":" + endpoint.port() + "/" + database
-                + "?useUnicode=true&characterEncoding=UTF-8&useSSL=false&serverTimezone=Asia/Shanghai&tinyInt1isBit=false";
+                + "?useUnicode=true&characterEncoding=UTF-8&useSSL=false&serverTimezone=" + timezone + "&tinyInt1isBit=false";
     }
 
     private Map<String, Object> options(IntegrationTask task) { return task.options() == null ? Map.of() : task.options(); }

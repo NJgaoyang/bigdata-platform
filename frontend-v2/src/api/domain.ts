@@ -111,12 +111,13 @@ export interface FlinkEnvironment { id:number; name:string; engineType:string; d
 export interface RealtimeJob { id:number; name:string; description?:string; runtimeEnvironmentId?:number; releaseState:string; desiredState:string; observedState:string; definitionVersion:number; publishedVersion?:number; spec:Record<string,unknown>; configDigest?:string; lastError?:string; createdBy:string; updatedAt?:string; publishedUpdateAvailable:boolean }
 export interface RealtimeExecution { id:number; jobId:number; definitionVersion:number; engineJobId?:string; runtimeRevision?:string; status:string; errorMessage?:string; startedAt?:string; finishedAt?:string }
 export interface RealtimeRuntime { job:RealtimeJob; execution?:RealtimeExecution; environment?:FlinkEnvironment }
+export interface RealtimePreCheckItem { level:'ERROR'|'WARNING'|'INFO'; code:string; message:string; detail:string; blocking:boolean }
 export const realtimeApi = {
   list: () => api.get<RealtimeJob[]>('/realtime/jobs'),
   get: (id:number) => api.get<RealtimeJob>(`/realtime/jobs/${id}`),
   create: (payload:{name:string;description?:string;runtimeEnvironmentId?:number;spec:Record<string,unknown>}) => api.post<RealtimeJob>('/realtime/jobs',payload),
   draft: (id:number,payload:{name:string;description?:string;runtimeEnvironmentId?:number;spec:Record<string,unknown>}) => api.put<RealtimeJob>(`/realtime/jobs/${id}/draft`,payload),
-  validate: (id:number) => api.post<{valid:boolean;message:string;warnings:string[];yamlPreview:string}>(`/realtime/jobs/${id}/validate`),
+  validate: (id:number) => api.post<{valid:boolean;message:string;warnings:string[];yamlPreview:string;items:RealtimePreCheckItem[]}>(`/realtime/jobs/${id}/validate`),
   publish: (id:number) => api.post<RealtimeJob>(`/realtime/jobs/${id}/publish`),
   start: (id:number) => api.post<RealtimeRuntime>(`/realtime/jobs/${id}/start`),
   stop: (id:number) => api.post<RealtimeRuntime>(`/realtime/jobs/${id}/stop`),

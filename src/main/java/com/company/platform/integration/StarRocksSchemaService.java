@@ -1,6 +1,7 @@
 package com.company.platform.integration;
 
 import com.company.platform.common.BadRequestException;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.sql.Connection;
@@ -13,8 +14,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 /**
  * Prepares StarRocks target tables from the real MySQL source schema.
@@ -23,7 +22,13 @@ import java.util.regex.Pattern;
  */
 @Service
 public class StarRocksSchemaService {
-    private static final Pattern TYPE = Pattern.compile("^([a-zA-Z]+)(?:\\(([^)]*)\\))?.*$");
+    private final MySqlToStarRocksTypeMapper typeMapper;
+
+    public StarRocksSchemaService() { this(new MySqlToStarRocksTypeMapper()); }
+
+    @Autowired
+    public StarRocksSchemaService(MySqlToStarRocksTypeMapper typeMapper) { this.typeMapper = typeMapper; }
+
 
     public List<SchemaResult> prepare(IntegrationTask task) {
         if (task == null || task.tables() == null || task.tables().isEmpty()) return List.of();
@@ -42,7 +47,7 @@ public class StarRocksSchemaService {
                     continue;
                 }
 
-                List<SourceColumn> sourceColumns = sourceColumns(task.source(), table.sourceDatabase(), table.sourceTable());
+                List<SourceColumn> sourceColumns = sourceColumns(task.source(), table.sourceDatabase(), table.sourceTable(), sourceTimezone(task.options()));
                 if (sourceColumns.isEmpty()) throw new BadRequestException("源表没有可同步字段：" + table.sourceDatabase() + "." + table.sourceTable());
                 if ("RECREATE_SCHEMA".equals(mode)) {
                     try (Statement statement = targetConnection.createStatement()) {
@@ -69,19 +74,19 @@ public class StarRocksSchemaService {
     }
 
     public String previewDdl(IntegrationTask task, IntegrationRequests.TableRequest table) {
-        List<SourceColumn> columns = sourceColumns(task.source(), table.sourceDatabase(), table.sourceTable());
+        List<SourceColumn> columns = sourceColumns(task.source(), table.sourceDatabase(), table.sourceTable(), sourceTimezone(task.options()));
         return createTableDdl(table.targetDatabase(), table.targetTable(), columns, task.options());
     }
 
-    private List<SourceColumn> sourceColumns(IntegrationRequests.Endpoint source, String database, String table) {
-        String url = jdbcDatabaseUrl(source, database);
+    private List<SourceColumn> sourceColumns(IntegrationRequests.Endpoint source, String database, String table, String timezone) {
+        String url = jdbcDatabaseUrl(source, database, timezone);
         try (Connection connection = DriverManager.getConnection(url, source.username(), source.password());
              Statement statement = connection.createStatement();
              ResultSet rs = statement.executeQuery("SHOW FULL COLUMNS FROM " + identifier(database) + "." + identifier(table))) {
             List<SourceColumn> result = new ArrayList<>();
             while (rs.next()) {
                 String mysqlType = rs.getString("Type");
-                result.add(new SourceColumn(rs.getString("Field"), mysqlType, mysqlToStarRocks(mysqlType),
+                result.add(new SourceColumn(rs.getString("Field"), mysqlType, typeMapper.map(mysqlType),
                         "PRI".equalsIgnoreCase(rs.getString("Key")), "YES".equalsIgnoreCase(rs.getString("Null")),
                         rs.getString("Comment")));
             }
@@ -92,15 +97,23 @@ public class StarRocksSchemaService {
     }
 
     private List<String> addMissingColumns(Connection connection, String database, String table, List<SourceColumn> sourceColumns) throws Exception {
-        Set<String> existing = new HashSet<>();
+        Map<String, String> existing = new java.util.HashMap<>();
         try (Statement statement = connection.createStatement();
              ResultSet rs = statement.executeQuery("SHOW FULL COLUMNS FROM " + identifier(database) + "." + identifier(table))) {
-            while (rs.next()) existing.add(rs.getString("Field").toLowerCase(Locale.ROOT));
+            while (rs.next()) existing.put(rs.getString("Field").toLowerCase(Locale.ROOT), rs.getString("Type"));
+        }
+        for (SourceColumn column : sourceColumns) {
+            String targetType = existing.get(column.name().toLowerCase(Locale.ROOT));
+            if (targetType == null) continue;
+            if (!compatibleTargetType(column.starRocksType(), targetType)) {
+                throw new BadRequestException("目标字段类型不能安全承载源字段：" + column.name()
+                        + "，源映射=" + column.starRocksType() + "，目标=" + targetType + "；禁止自动缩窄或静默转换");
+            }
         }
         List<String> added = new ArrayList<>();
         try (Statement statement = connection.createStatement()) {
             for (SourceColumn column : sourceColumns) {
-                if (existing.contains(column.name().toLowerCase(Locale.ROOT))) continue;
+                if (existing.containsKey(column.name().toLowerCase(Locale.ROOT))) continue;
                 if (column.primaryKey()) {
                     throw new BadRequestException("目标表已存在但缺少源主键字段，不能安全自动补列：" + column.name());
                 }
@@ -110,6 +123,35 @@ public class StarRocksSchemaService {
             }
         }
         return added;
+    }
+
+    boolean compatibleTargetType(String sourceType, String targetType) {
+        String source = normalizeType(sourceType), target = normalizeType(targetType);
+        if (source.equals(target)) return true;
+        List<String> ints = List.of("TINYINT", "SMALLINT", "INT", "BIGINT", "LARGEINT");
+        int sourceInt = ints.indexOf(source), targetInt = ints.indexOf(target);
+        if (sourceInt >= 0 && targetInt >= 0) return targetInt >= sourceInt;
+        if (source.startsWith("VARCHAR(") && target.startsWith("VARCHAR(")) return typeArg(target, 0) >= typeArg(source, 0);
+        if (source.startsWith("CHAR(") && target.startsWith("VARCHAR(")) return typeArg(target, 0) >= typeArg(source, 0);
+        if (source.startsWith("DECIMAL(") && target.startsWith("DECIMAL(")) {
+            int sp = typeArg(source, 0), ss = typeArg(source, 1), tp = typeArg(target, 0), ts = typeArg(target, 1);
+            return ts >= ss && (tp - ts) >= (sp - ss);
+        }
+        if (source.equals("FLOAT") && target.equals("DOUBLE")) return true;
+        return false;
+    }
+
+    private String normalizeType(String value) {
+        if (value == null) return "";
+        return value.trim().toUpperCase(Locale.ROOT).replaceAll("\\s+", "");
+    }
+
+    private int typeArg(String value, int index) {
+        int left = value.indexOf('('), right = value.indexOf(')');
+        if (left < 0 || right <= left) return -1;
+        String[] args = value.substring(left + 1, right).split(",");
+        if (index >= args.length) return 0;
+        try { return Integer.parseInt(args[index].trim()); } catch (NumberFormatException ex) { return -1; }
     }
 
     String createTableDdl(String database, String table, List<SourceColumn> sourceColumns, Map<String, Object> options) {
@@ -158,48 +200,6 @@ public class StarRocksSchemaService {
         return value.toString();
     }
 
-    private String mysqlToStarRocks(String rawType) {
-        if (rawType == null || rawType.isBlank()) return "STRING";
-        String lower = rawType.toLowerCase(Locale.ROOT).trim();
-        Matcher matcher = TYPE.matcher(lower);
-        if (!matcher.matches()) return "STRING";
-        String base = matcher.group(1);
-        String args = matcher.group(2);
-        boolean unsigned = lower.contains("unsigned");
-        return switch (base) {
-            case "tinyint" -> unsigned ? "SMALLINT" : "TINYINT";
-            case "smallint" -> unsigned ? "INT" : "SMALLINT";
-            case "mediumint" -> unsigned ? "BIGINT" : "INT";
-            case "int", "integer" -> unsigned ? "BIGINT" : "INT";
-            case "bigint" -> unsigned ? "LARGEINT" : "BIGINT";
-            case "float" -> "FLOAT";
-            case "double", "real" -> "DOUBLE";
-            case "decimal", "numeric" -> decimal(args);
-            case "char" -> args == null ? "CHAR(1)" : "CHAR(" + args.split(",")[0].trim() + ")";
-            case "varchar" -> args == null ? "VARCHAR(65533)" : "VARCHAR(" + args.split(",")[0].trim() + ")";
-            case "date" -> "DATE";
-            case "datetime", "timestamp" -> "DATETIME";
-            case "year" -> "SMALLINT";
-            case "json" -> "JSON";
-            case "bit" -> "1".equals(args) ? "BOOLEAN" : "BIGINT";
-            case "boolean", "bool" -> "BOOLEAN";
-            default -> "STRING";
-        };
-    }
-
-    private String decimal(String args) {
-        if (args == null || args.isBlank()) return "DECIMAL(38,9)";
-        try {
-            String[] values = args.split(",");
-            int precision = Math.min(38, Math.max(1, Integer.parseInt(values[0].trim())));
-            int scale = values.length > 1 ? Math.max(0, Integer.parseInt(values[1].trim())) : 0;
-            scale = Math.min(scale, precision);
-            return "DECIMAL(" + precision + "," + scale + ")";
-        } catch (NumberFormatException ignored) {
-            return "DECIMAL(38,9)";
-        }
-    }
-
     private void requireDatabase(Connection connection, String database) throws Exception {
         try (Statement statement = connection.createStatement();
              ResultSet rs = statement.executeQuery("SHOW DATABASES LIKE " + literal(database))) {
@@ -222,11 +222,15 @@ public class StarRocksSchemaService {
         String value = type == null ? "" : type.toUpperCase(Locale.ROOT);
         return !value.startsWith("JSON") && !value.startsWith("FLOAT") && !value.startsWith("DOUBLE") && !value.startsWith("STRING");
     }
-    private String jdbcDatabaseUrl(IntegrationRequests.Endpoint endpoint, String database) {
-        return jdbcAuthority(endpoint) + "/" + database + "?useUnicode=true&characterEncoding=UTF-8&useSSL=false&serverTimezone=Asia/Shanghai&tinyInt1isBit=false&allowPublicKeyRetrieval=true";
+    private String jdbcDatabaseUrl(IntegrationRequests.Endpoint endpoint, String database, String timezone) {
+        return jdbcAuthority(endpoint) + "/" + database + "?useUnicode=true&characterEncoding=UTF-8&useSSL=false&serverTimezone=" + timezone + "&tinyInt1isBit=false&allowPublicKeyRetrieval=true";
     }
     private String jdbcRootUrl(IntegrationRequests.Endpoint endpoint) {
         return jdbcAuthority(endpoint) + "?useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true";
+    }
+    private String sourceTimezone(Map<String, Object> options) {
+        Object value = options == null ? null : options.get("sourceTimezone");
+        return value == null || value.toString().isBlank() ? "Asia/Shanghai" : value.toString().trim();
     }
     private String jdbcAuthority(IntegrationRequests.Endpoint endpoint) {
         String host = endpoint.host().split(",")[0].trim();

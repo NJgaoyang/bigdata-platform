@@ -21,10 +21,14 @@ public class RealtimeSyncService {
     private final FlinkEnvironmentService environments;
     private final FlinkCdcConfigBuilder configBuilder;
     private final FlinkCdcGateway gateway;
+    private final RealtimePreCheckService preCheck;
+    private final CdcServerIdAllocator serverIds;
 
     public RealtimeSyncService(JdbcTemplate jdbc, ObjectMapper mapper, FlinkEnvironmentService environments,
-                               FlinkCdcConfigBuilder configBuilder, FlinkCdcGateway gateway) {
+                               FlinkCdcConfigBuilder configBuilder, FlinkCdcGateway gateway,
+                               RealtimePreCheckService preCheck, CdcServerIdAllocator serverIds) {
         this.jdbc=jdbc;this.mapper=mapper;this.environments=environments;this.configBuilder=configBuilder;this.gateway=gateway;
+        this.preCheck=preCheck;this.serverIds=serverIds;
     }
 
     public List<RealtimeViews.Job> list(){return jdbc.query("SELECT * FROM realtime_sync_definition ORDER BY updated_at DESC",(rs,n)->job(rs));}
@@ -51,13 +55,41 @@ public class RealtimeSyncService {
         event(id,null,"DRAFT_SAVED","保存草稿 V"+version);return get(id);
     }
 
-    public Validation validate(long id){RealtimeViews.Job job=get(id);List<String> warnings=new ArrayList<>();configBuilder.validate(job.spec());if(job.runtimeEnvironmentId()==null)warnings.add("尚未选择 Flink 运行环境，发布前必须配置");else if(!environments.get(job.runtimeEnvironmentId()).enabled())warnings.add("Flink 运行环境已禁用");return new Validation(true,"配置校验通过",warnings,configBuilder.build(job.spec(),true));}
+    public Validation validate(long id){
+        RealtimeViews.Job job=get(id);
+        List<String> warnings=new ArrayList<>();
+        configBuilder.validate(job.spec());
+        RealtimePreCheckService.Report report=preCheck.check(job.spec());
+        report.items().stream().filter(item->"WARNING".equals(item.level())).forEach(item->warnings.add(item.message()+": "+item.detail()));
+        boolean envReady=job.runtimeEnvironmentId()!=null;
+        if(!envReady) warnings.add("尚未选择 Flink 运行环境，发布前必须配置");
+        else if(!environments.get(job.runtimeEnvironmentId()).enabled()){warnings.add("Flink 运行环境已禁用");envReady=false;}
+        boolean valid=report.allowed()&&envReady;
+        return new Validation(valid,valid?"发布前检查通过":"发布前检查存在阻断项",warnings,configBuilder.build(job.spec(),true),report.items());
+    }
 
     @Transactional
-    public RealtimeViews.Job publish(long id,String operator){RealtimeViews.Job job=get(id);configBuilder.validate(job.spec());if(job.runtimeEnvironmentId()==null)throw new BadRequestException("发布前必须选择 Flink 运行环境");environments.get(job.runtimeEnvironmentId());
-        jdbc.update("UPDATE realtime_sync_version SET published=(version_no=?) WHERE job_id=?",job.definitionVersion(),id);
-        jdbc.update("UPDATE realtime_sync_definition SET release_state='PUBLISHED',published_version=?,last_error=NULL WHERE id=?",job.definitionVersion(),id);
-        event(id,null,"PUBLISHED","发布 V"+job.definitionVersion()+" by "+operator(operator));return get(id);
+    public RealtimeViews.Job publish(long id,String operator){
+        RealtimeViews.Job job=get(id);
+        if(job.runtimeEnvironmentId()==null)throw new BadRequestException("发布前必须选择 Flink 运行环境");
+        if(!environments.get(job.runtimeEnvironmentId()).enabled())throw new BadRequestException("Flink 运行环境已禁用");
+        int parallelism=intValue(job.spec().get("parallelism"),1);
+        String serverId=serverIds.allocate(id,parallelism);
+        Map<String,Object> effective=new LinkedHashMap<>(job.spec());
+        effective.put("serverId",serverId);
+        effective.put("jobId",id);
+        effective.put("labelPrefix","datasphere_rt_"+id);
+        configBuilder.validate(effective);
+        RealtimePreCheckService.Report report=preCheck.check(effective);
+        if(!report.allowed()){
+            String errors=report.items().stream().filter(RealtimePreCheckService.Item::blocking).map(i->i.message()+"（"+i.detail()+"）").reduce((a,b)->a+"；"+b).orElse("发布前检查失败");
+            throw new BadRequestException(errors);
+        }
+        preCheck.prepareTargets(effective);
+        String effectiveJson=json(effective), effectiveDigest=digest(effectiveJson);
+        jdbc.update("UPDATE realtime_sync_version SET spec_json=?,config_digest=?,published=(version_no=?) WHERE job_id=? AND version_no=?",effectiveJson,effectiveDigest,job.definitionVersion(),id,job.definitionVersion());
+        jdbc.update("UPDATE realtime_sync_definition SET spec_json=?,config_digest=?,release_state='PUBLISHED',published_version=?,last_error=NULL WHERE id=?",effectiveJson,effectiveDigest,job.definitionVersion(),id);
+        event(id,null,"PUBLISHED","发布 V"+job.definitionVersion()+"，Server ID="+serverId+" by "+operator(operator));return get(id);
     }
 
     @Transactional
@@ -159,5 +191,6 @@ public class RealtimeSyncService {
     }
     private String mapState(String s){return switch(s){case "RUNNING"->"RUNNING";case "CREATED","INITIALIZING","RECONCILING"->"STARTING";case "FINISHED","CANCELED"->"STOPPED";case "FAILED"->"FAILED";default->"UNKNOWN";};}
     private String mapExecution(String s){return switch(s){case "FINISHED"->"FINISHED";case "CANCELED"->"STOPPED";case "FAILED"->"FAILED";default->s;};}
-    public record Validation(boolean valid,String message,List<String>warnings,String yamlPreview){}
+    private int intValue(Object value,int fallback){if(value==null)return fallback;try{return value instanceof Number n?n.intValue():Integer.parseInt(String.valueOf(value));}catch(Exception ex){return fallback;}}
+    public record Validation(boolean valid,String message,List<String>warnings,String yamlPreview,List<RealtimePreCheckService.Item> items){}
 }

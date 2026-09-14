@@ -13,7 +13,7 @@ const saving = ref(false)
 const testingId = ref<number | null>(null)
 const editingId = ref<number | null>(null)
 const formRef = ref<FormInstance>()
-const form = reactive<DataSourcePayload>({ name:'', type:'MYSQL', host:'', port:3306, databaseName:'', username:'', password:'', metadataVisible:true })
+const form = reactive<DataSourcePayload>({ name:'', type:'MYSQL', host:'', port:3306, databaseName:'', timezone:'Asia/Shanghai', username:'', password:'', metadataVisible:true })
 const rules: FormRules<DataSourcePayload> = {
   name:[{ required:true, message:'请输入数据源名称', trigger:'blur' }],
   type:[{ required:true, message:'请选择类型', trigger:'change' }],
@@ -23,9 +23,9 @@ const rules: FormRules<DataSourcePayload> = {
 }
 
 async function load(){ loading.value=true; error.value=''; try{ rows.value=await dataSourceApi.list() }catch(e){ error.value=e instanceof Error?e.message:'数据源加载失败' }finally{ loading.value=false } }
-function resetForm(){ editingId.value=null; Object.assign(form,{ name:'',type:'MYSQL',host:'',port:3306,databaseName:'',username:'',password:'',metadataVisible:true }) }
+function resetForm(){ editingId.value=null; Object.assign(form,{ name:'',type:'MYSQL',host:'',port:3306,databaseName:'',timezone:'Asia/Shanghai',username:'',password:'',metadataVisible:true }) }
 function openCreate(){ resetForm(); dialogVisible.value=true }
-function openEdit(row:DataSourceView){ editingId.value=row.id; Object.assign(form,{name:row.name,type:row.type,host:row.host,port:row.port,databaseName:row.databaseName||'',username:row.username,password:'',metadataVisible:row.metadataVisible}); dialogVisible.value=true }
+function openEdit(row:DataSourceView){ editingId.value=row.id; Object.assign(form,{name:row.name,type:row.type,host:row.host,port:row.port,databaseName:row.databaseName||'',timezone:row.timezone||'Asia/Shanghai',username:row.username,password:'',metadataVisible:row.metadataVisible}); dialogVisible.value=true }
 function onTypeChange(){ if(!editingId.value) form.port=form.type==='MYSQL'?3306:9030 }
 async function save(){ if(!formRef.value || !(await formRef.value.validate().catch(()=>false))) return; saving.value=true; try{ if(editingId.value) await dataSourceApi.update(editingId.value,{...form}); else await dataSourceApi.create({...form}); ElMessage.success(editingId.value?'数据源已更新':'数据源已创建'); dialogVisible.value=false; await load() }catch(e){ ElMessage.error(e instanceof Error?e.message:'保存失败') }finally{ saving.value=false } }
 async function test(row:DataSourceView){ testingId.value=row.id; try{ await dataSourceApi.test(row.id); ElMessage.success(`${row.name} 连接成功`); await load() }catch(e){ ElMessage.error(e instanceof Error?e.message:'连接测试失败') }finally{ testingId.value=null } }
@@ -58,6 +58,7 @@ onMounted(load)
           <el-form-item label="主机地址" prop="host"><el-input v-model="form.host" placeholder="IP 或域名" /></el-form-item>
           <el-form-item label="端口" prop="port"><el-input-number v-model="form.port" :min="1" :max="65535" controls-position="right" style="width:100%" /></el-form-item>
           <el-form-item label="数据库"><el-input v-model="form.databaseName" placeholder="可选" /></el-form-item>
+          <el-form-item label="时区"><el-input v-model="form.timezone" placeholder="Asia/Shanghai" /></el-form-item>
           <el-form-item label="用户名" prop="username"><el-input v-model="form.username" /></el-form-item>
         </div>
         <el-form-item :label="editingId?'密码（留空表示不修改）':'密码'"><el-input v-model="form.password" type="password" show-password autocomplete="new-password" /></el-form-item>

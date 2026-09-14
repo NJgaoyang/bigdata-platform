@@ -89,11 +89,11 @@ public class PlatformStore {
     public void loadPersistedCoreData() {
         if (jdbc == null) return;
         try {
-            jdbc.query("SELECT id,name,type,host,port,database_name,username,password_ciphertext,status,metadata_visible,last_checked_at,last_check_message FROM data_source", rs -> {
+            jdbc.query("SELECT id,name,type,host,port,database_name,timezone,username,password_ciphertext,status,metadata_visible,last_checked_at,last_check_message FROM data_source", rs -> {
                 long id = rs.getLong("id");
                 dataSources.put(id, new DataSourceView(id, rs.getString("name"),
                         com.company.platform.datasource.DataSourceType.valueOf(rs.getString("type")),
-                        rs.getString("host"), rs.getInt("port"), rs.getString("database_name"),
+                        rs.getString("host"), rs.getInt("port"), rs.getString("database_name"), rs.getString("timezone"),
                         rs.getString("username"), rs.getString("status"), rs.getBoolean("metadata_visible"),
                         rs.getTimestamp("last_checked_at") == null ? null : rs.getTimestamp("last_checked_at").toLocalDateTime(),
                         rs.getString("last_check_message")));
@@ -262,10 +262,10 @@ public class PlatformStore {
 
     public void persistDataSource(DataSourceView view, String encryptedPassword) {
         if (jdbc == null) return;
-        int updated = jdbc.update("UPDATE data_source SET name=?,type=?,host=?,port=?,database_name=?,username=?,password_ciphertext=?,status=?,metadata_visible=?,last_checked_at=?,last_check_message=?,updated_at=CURRENT_TIMESTAMP WHERE id=?",
-                view.name(), view.type().name(), view.host(), view.port(), view.databaseName(), view.username(), encryptedPassword, view.status(), view.metadataVisible(), view.lastCheckedAt(), view.lastCheckMessage(), view.id());
-        if (updated == 0) jdbc.update("INSERT INTO data_source (id,name,type,host,port,database_name,username,password_ciphertext,status,metadata_visible,last_checked_at,last_check_message) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
-                view.id(), view.name(), view.type().name(), view.host(), view.port(), view.databaseName(), view.username(), encryptedPassword, view.status(), view.metadataVisible(), view.lastCheckedAt(), view.lastCheckMessage());
+        int updated = jdbc.update("UPDATE data_source SET name=?,type=?,host=?,port=?,database_name=?,timezone=?,username=?,password_ciphertext=?,status=?,metadata_visible=?,last_checked_at=?,last_check_message=?,updated_at=CURRENT_TIMESTAMP WHERE id=?",
+                view.name(), view.type().name(), view.host(), view.port(), view.databaseName(), view.timezone(), view.username(), encryptedPassword, view.status(), view.metadataVisible(), view.lastCheckedAt(), view.lastCheckMessage(), view.id());
+        if (updated == 0) jdbc.update("INSERT INTO data_source (id,name,type,host,port,database_name,timezone,username,password_ciphertext,status,metadata_visible,last_checked_at,last_check_message) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                view.id(), view.name(), view.type().name(), view.host(), view.port(), view.databaseName(), view.timezone(), view.username(), encryptedPassword, view.status(), view.metadataVisible(), view.lastCheckedAt(), view.lastCheckMessage());
     }
     public void persistProject(DevProjectView view) {
         if (jdbc == null) return;

@@ -33,10 +33,8 @@ const historyLoading = ref(false)
 const historyTask = ref<IntegrationTask | null>(null)
 const history = ref<IntegrationInstance[]>([])
 const batches = ref<IntegrationBatch[]>([])
-const attempts = ref<IntegrationAttempt[]>([])
-const attemptVisible = ref(false)
-const attemptLoading = ref(false)
-const attemptBatch = ref<IntegrationBatch | null>(null)
+const historyAttempts = ref<Record<number, IntegrationAttempt[]>>({})
+const historyLogs = ref<Record<number, string>>({})
 const backfillVisible = ref(false)
 const backfillTask = ref<IntegrationTask | null>(null)
 const backfillSaving = ref(false)
@@ -45,10 +43,6 @@ const cursorTask = ref<IntegrationTask | null>(null)
 const cursorSaving = ref(false)
 const cursorState = reactive<IntegrationCursor>({ taskId: 0, cursorColumn: '', cursorValue: '' })
 const backfillForm = reactive({ where: '', startLabel: '', endLabel: '' })
-const logVisible = ref(false)
-const logLoading = ref(false)
-const logTitle = ref('运行日志')
-const logContent = ref('')
 
 const form = reactive({
   name: '',
@@ -392,24 +386,33 @@ async function showHistory(task: IntegrationTask) {
   historyTask.value = task
   historyVisible.value = true
   historyLoading.value = true
+  historyAttempts.value = {}
+  historyLogs.value = {}
   try {
     const [batchRows, instanceRows] = await Promise.all([integrationApi.batches(task.id), integrationApi.instances(task.id)])
     batches.value = batchRows
     history.value = instanceRows
+    if (batchRows.length) {
+      const attemptPairs = await Promise.all(batchRows.map(async batch => [batch.id, await integrationApi.attempts(batch.id)] as const))
+      historyAttempts.value = Object.fromEntries(attemptPairs)
+      const allAttempts = attemptPairs.flatMap(([, rows]) => rows).filter(row => row.executionId)
+      const logPairs = await Promise.all(allAttempts.map(async attempt => {
+        try { return [attempt.id, await integrationApi.log(attempt.executionId!)] as const }
+        catch (error) { return [attempt.id, messageOf(error)] as const }
+      }))
+      historyLogs.value = Object.fromEntries(logPairs)
+    } else {
+      const logPairs = await Promise.all(instanceRows.filter(row => row.executionId).map(async row => {
+        try { return [row.id, await integrationApi.log(row.executionId)] as const }
+        catch (error) { return [row.id, messageOf(error)] as const }
+      }))
+      historyLogs.value = Object.fromEntries(logPairs)
+    }
   } catch (error) {
     ElMessage.error(messageOf(error))
   } finally {
     historyLoading.value = false
   }
-}
-
-async function showAttempts(batch: IntegrationBatch) {
-  attemptBatch.value = batch
-  attemptVisible.value = true
-  attemptLoading.value = true
-  try { attempts.value = await integrationApi.attempts(batch.id) }
-  catch (error) { ElMessage.error(messageOf(error)) }
-  finally { attemptLoading.value = false }
 }
 
 async function retryBatch(batch: IntegrationBatch) {
@@ -469,17 +472,6 @@ async function saveCursor() {
     cursorVisible.value = false
   } catch (error) { ElMessage.error(messageOf(error)) }
   finally { cursorSaving.value = false }
-}
-
-async function showLog(instance: { executionId?: string }) {
-  if (!instance.executionId) return ElMessage.warning('该次尝试尚未产生 SeaTunnel 执行 ID')
-  logVisible.value = true
-  logLoading.value = true
-  logTitle.value = `运行日志 · ${instance.executionId}`
-  logContent.value = ''
-  try { logContent.value = await integrationApi.log(instance.executionId) }
-  catch (error) { logContent.value = messageOf(error) }
-  finally { logLoading.value = false }
 }
 
 function sourceLabel(task: IntegrationTask) {
@@ -696,6 +688,7 @@ onMounted(load)
           </el-tab-pane>
 
           <el-tab-pane :label="`运行记录 (${detailBatches.length || detailInstances.length})`" name="runs">
+            <div class="detail-run-toolbar"><el-button type="primary" plain @click="showHistory(detailTask!)">查看完整运行记录与日志</el-button></div>
             <section class="detail-section no-top">
               <el-table v-if="detailBatches.length" :data="detailBatches" border>
                 <el-table-column prop="batchCode" label="批次" min-width="190" show-overflow-tooltip />
@@ -703,14 +696,14 @@ onMounted(load)
                 <el-table-column label="状态" width="110"><template #default="scope"><StatusBadge :status="scope.row.status" /></template></el-table-column>
                 <el-table-column prop="startedAt" label="开始时间" width="175" />
                 <el-table-column prop="finishedAt" label="结束时间" width="175" />
-                <el-table-column label="操作" width="110"><template #default="scope"><el-button link type="primary" @click="showAttempts(scope.row)">尝试记录</el-button></template></el-table-column>
+                <el-table-column label="日志" width="110"><template #default><span class="muted-inline">见运行记录</span></template></el-table-column>
               </el-table>
               <el-table v-else :data="detailInstances" border>
                 <el-table-column prop="executionId" label="执行 ID" min-width="220" show-overflow-tooltip />
                 <el-table-column label="状态" width="110"><template #default="scope"><StatusBadge :status="scope.row.status" /></template></el-table-column>
                 <el-table-column prop="startedAt" label="开始时间" width="175" />
                 <el-table-column prop="finishedAt" label="结束时间" width="175" />
-                <el-table-column label="操作" width="80"><template #default="scope"><el-button link type="primary" @click="showLog(scope.row)">日志</el-button></template></el-table-column>
+                <el-table-column label="日志" width="100"><template #default><span class="muted-inline">见运行记录</span></template></el-table-column>
               </el-table>
             </section>
           </el-tab-pane>
@@ -851,42 +844,44 @@ onMounted(load)
       </template>
     </el-drawer>
 
-    <el-drawer v-model="historyVisible" :title="`运行记录 · ${historyTask?.name || ''}`" size="940px">
-      <div class="runtime-note">每次手动运行、工作流触发或补数都会形成独立 Batch；失败重试在同一 Batch 下新增 Attempt，并复用批次创建时固化的运行快照。</div>
-      <el-table v-if="batches.length" :data="batches" v-loading="historyLoading">
-        <el-table-column prop="batchCode" label="批次" min-width="170" show-overflow-tooltip />
-        <el-table-column label="触发方式" width="100"><template #default="scope">{{ triggerLabel(scope.row.triggerType) }}</template></el-table-column>
-        <el-table-column label="状态" width="110"><template #default="scope"><StatusBadge :status="scope.row.status" /></template></el-table-column>
-        <el-table-column prop="startedAt" label="开始时间" min-width="165" />
-        <el-table-column prop="finishedAt" label="结束时间" min-width="165" />
-        <el-table-column label="操作" width="210" fixed="right">
-          <template #default="scope">
-            <el-button link type="primary" @click="showAttempts(scope.row)">尝试记录</el-button>
-            <el-button link :disabled="!canRetryBatch(scope.row)" @click="retryBatch(scope.row)">重试</el-button>
-            <el-button link @click="reconcileBatch(scope.row)">核对状态</el-button>
-          </template>
-        </el-table-column>
-      </el-table>
+    <el-drawer v-model="historyVisible" :title="`运行记录 · ${historyTask?.name || ''}`" size="1040px">
+      <div class="runtime-note">运行记录已经直接展示 Attempt 与 SeaTunnel 日志，不再需要进入第二层页面。</div>
+      <div v-loading="historyLoading" class="history-flat-list" v-if="batches.length">
+        <section v-for="batch in batches" :key="batch.id" class="history-batch-card">
+          <div class="history-batch-head">
+            <div><strong>{{ batch.batchCode }}</strong><span>{{ triggerLabel(batch.triggerType) }}</span></div>
+            <StatusBadge :status="batch.status" />
+            <span>{{ batch.startedAt || batch.createdAt || '—' }} → {{ batch.finishedAt || '—' }}</span>
+            <div class="history-batch-actions">
+              <el-button v-if="isOnline(historyTask!)" link :disabled="!canRetryBatch(batch)" @click="retryBatch(batch)">重试</el-button>
+              <el-button link @click="reconcileBatch(batch)">核对状态</el-button>
+            </div>
+          </div>
+          <div v-if="historyAttempts[batch.id]?.length" class="history-attempts">
+            <div v-for="attempt in historyAttempts[batch.id]" :key="attempt.id" class="history-attempt">
+              <div class="attempt-meta">
+                <strong>Attempt #{{ attempt.attemptNo }}</strong>
+                <StatusBadge :status="attempt.status" />
+                <span class="mono">{{ attempt.executionId || '尚未生成执行 ID' }}</span>
+                <span>{{ attempt.startedAt || attempt.createdAt || '—' }}</span>
+              </div>
+              <div class="inline-log"><pre>{{ attempt.executionId ? (historyLogs[attempt.id] || '暂无日志') : (attempt.errorMessage || batch.errorMessage || '尚无执行日志') }}</pre></div>
+            </div>
+          </div>
+          <div v-else class="runtime-note">该批次没有 Attempt 记录。{{ batch.errorMessage || '' }}</div>
+        </section>
+      </div>
       <template v-else>
-        <div class="runtime-note">以下为升级批次模型之前的历史执行记录。</div>
-        <el-table :data="history" v-loading="historyLoading">
-          <el-table-column prop="executionId" label="执行 ID" min-width="210" show-overflow-tooltip />
-          <el-table-column label="状态" width="120"><template #default="scope"><StatusBadge :status="scope.row.status" /></template></el-table-column>
-          <el-table-column prop="startedAt" label="开始时间" min-width="165" />
-          <el-table-column prop="finishedAt" label="结束时间" min-width="165" />
-          <el-table-column label="操作" width="80"><template #default="scope"><el-button link type="primary" @click="showLog(scope.row)">日志</el-button></template></el-table-column>
-        </el-table>
+        <div class="runtime-note">以下为升级批次模型之前的历史执行记录，日志同样直接展示。</div>
+        <section v-for="row in history" :key="row.id" class="history-batch-card legacy-history">
+          <div class="history-batch-head">
+            <div><strong>{{ row.executionId || `历史执行 #${row.id}` }}</strong></div>
+            <StatusBadge :status="row.status" />
+            <span>{{ row.startedAt || '—' }} → {{ row.finishedAt || '—' }}</span>
+          </div>
+          <div class="inline-log"><pre>{{ historyLogs[row.id] || row.message || '暂无日志' }}</pre></div>
+        </section>
       </template>
-    </el-drawer>
-
-    <el-drawer v-model="attemptVisible" :title="`尝试记录 · ${attemptBatch?.batchCode || ''}`" size="760px">
-      <el-table :data="attempts" v-loading="attemptLoading">
-        <el-table-column prop="attemptNo" label="Attempt" width="90" />
-        <el-table-column prop="executionId" label="SeaTunnel 执行 ID" min-width="210" show-overflow-tooltip />
-        <el-table-column label="状态" width="120"><template #default="scope"><StatusBadge :status="scope.row.status" /></template></el-table-column>
-        <el-table-column prop="startedAt" label="开始时间" min-width="165" />
-        <el-table-column label="操作" width="80"><template #default="scope"><el-button link type="primary" @click="showLog(scope.row)">日志</el-button></template></el-table-column>
-      </el-table>
     </el-drawer>
 
     <el-dialog v-model="backfillVisible" :title="`补数 · ${backfillTask?.name || ''}`" width="680px">
@@ -910,9 +905,6 @@ onMounted(load)
       <template #footer><el-button @click="cursorVisible=false">取消</el-button><el-button type="primary" :loading="cursorSaving" @click="saveCursor">保存游标</el-button></template>
     </el-dialog>
 
-    <el-dialog v-model="logVisible" :title="logTitle" width="820px">
-      <div v-loading="logLoading" class="log-box"><pre>{{ logContent || '暂无日志' }}</pre></div>
-    </el-dialog>
   </div>
 </template>
 
@@ -930,5 +922,6 @@ onMounted(load)
 .detail-head{width:100%;display:flex;align-items:flex-start;justify-content:space-between;gap:24px;padding-right:8px}.detail-head h3{margin:4px 0 6px;font-size:20px;color:var(--ds-text-primary)}.detail-eyebrow{font-size:12px;color:var(--el-color-primary);font-weight:600}.detail-subtitle{font-size:12px;color:var(--ds-text-secondary)}.detail-actions{display:flex;gap:8px;flex:0 0 auto}.task-detail{padding:0 2px 24px}.detail-summary{display:grid;grid-template-columns:repeat(4,1fr);border:1px solid var(--ds-border);background:#fff;margin:2px 0 18px}.summary-item{min-height:72px;padding:12px 16px;border-right:1px solid var(--ds-border);display:flex;flex-direction:column;justify-content:center;gap:8px}.summary-item:last-child{border-right:0}.summary-item>span{font-size:12px;color:var(--ds-text-secondary)}.summary-item>strong{font-size:14px;color:var(--ds-text-primary);font-weight:600}.detail-tabs{margin-top:4px}.detail-section{margin-top:14px}.detail-section.no-top{margin-top:0}.detail-section-title{font-size:14px;font-weight:600;color:var(--ds-text-primary);margin:0 0 10px}.readonly-code{display:block;white-space:pre-wrap;word-break:break-all;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;color:#475467;background:#f8fafc;padding:2px 6px;border-radius:3px}.object-name{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:#344054}.object-name.target{color:var(--el-color-primary)}
 
 .editor-steps :deep(.el-step__title){white-space:nowrap!important;font-size:14px!important}.editor-steps :deep(.el-step.is-simple .el-step__main){min-width:max-content}.editor-steps :deep(.el-step.is-simple){min-width:0;padding:0 14px}
+.history-flat-list{display:flex;flex-direction:column;gap:12px}.history-batch-card{border:1px solid var(--ds-border);background:#fff}.history-batch-head{min-height:52px;padding:9px 12px;display:grid;grid-template-columns:minmax(220px,1fr) 110px 300px auto;align-items:center;gap:12px;background:#f8fafc;border-bottom:1px solid var(--ds-border);font-size:12px;color:var(--ds-text-secondary)}.history-batch-head>div:first-child{display:flex;align-items:center;gap:10px;min-width:0}.history-batch-head strong{color:var(--ds-text-primary)}.history-batch-head span{white-space:nowrap}.history-batch-actions{display:flex;justify-content:flex-end}.history-attempts{display:flex;flex-direction:column}.history-attempt{padding:12px;border-bottom:1px solid #eef0f2}.history-attempt:last-child{border-bottom:0}.attempt-meta{display:flex;align-items:center;gap:12px;margin-bottom:9px;font-size:12px;color:var(--ds-text-secondary)}.attempt-meta strong{color:var(--ds-text-primary)}.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;overflow:hidden;text-overflow:ellipsis}.inline-log{max-height:280px;overflow:auto;background:#111827;border-radius:3px;padding:10px 12px}.inline-log pre{margin:0;color:#d1d5db;white-space:pre-wrap;word-break:break-word;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;line-height:1.6}.legacy-history{margin-bottom:12px}.muted-inline{font-size:12px;color:var(--ds-text-tertiary)}.detail-run-toolbar{display:flex;justify-content:flex-end;margin:0 0 10px}
 @media (max-width:1000px){.form-grid,.table-selector{grid-template-columns:1fr}.span-2{grid-column:auto}.table-source-pane{border-right:0;border-bottom:1px solid var(--ds-border)}}
 </style>

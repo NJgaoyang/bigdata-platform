@@ -31,17 +31,27 @@ public class IntegrationService {
     private final DataSourceService dataSourceService;
     private final StarRocksSchemaService schemaService;
     private final IntegrationRuntimeRepository runtimeRepository;
+    private final IntegrationPreCheckService preCheckService;
+    private final IntegrationStagingService stagingService;
 
     /** Retained for existing focused unit tests. */
     public IntegrationService(PlatformStore store, SeaTunnelConfigBuilder builder, SeaTunnelGateway gateway,
                               ObjectMapper mapper, PasswordCipher passwordCipher, DataSourceService dataSourceService) {
-        this(store, builder, gateway, mapper, passwordCipher, dataSourceService, null, null);
+        this(store, builder, gateway, mapper, passwordCipher, dataSourceService, null, null, null, null);
+    }
+
+    /** Backwards-compatible constructor for batch runtime focused tests. */
+    public IntegrationService(PlatformStore store, SeaTunnelConfigBuilder builder, SeaTunnelGateway gateway,
+                              ObjectMapper mapper, PasswordCipher passwordCipher, DataSourceService dataSourceService,
+                              StarRocksSchemaService schemaService, IntegrationRuntimeRepository runtimeRepository) {
+        this(store, builder, gateway, mapper, passwordCipher, dataSourceService, schemaService, runtimeRepository, null, null);
     }
 
     @Autowired
     public IntegrationService(PlatformStore store, SeaTunnelConfigBuilder builder, SeaTunnelGateway gateway,
                               ObjectMapper mapper, PasswordCipher passwordCipher, DataSourceService dataSourceService,
-                              StarRocksSchemaService schemaService, IntegrationRuntimeRepository runtimeRepository) {
+                              StarRocksSchemaService schemaService, IntegrationRuntimeRepository runtimeRepository,
+                              IntegrationPreCheckService preCheckService, IntegrationStagingService stagingService) {
         this.store = store;
         this.builder = builder;
         this.gateway = gateway;
@@ -50,6 +60,8 @@ public class IntegrationService {
         this.dataSourceService = dataSourceService;
         this.schemaService = schemaService;
         this.runtimeRepository = runtimeRepository;
+        this.preCheckService = preCheckService;
+        this.stagingService = stagingService;
     }
 
     public List<IntegrationTaskView> list() {
@@ -59,17 +71,18 @@ public class IntegrationService {
 
     @Transactional
     public IntegrationTaskView create(IntegrationRequests.TaskRequest request) {
-        validateMode(request.syncMode(), request.options());
+        Map<String, Object> options = effectiveOptions(request.options(), request.sourceDataSourceId(), request.targetDataSourceId());
+        validateMode(request.syncMode(), options);
         List<IntegrationRequests.TableRequest> tables = resolveTables(request, null);
         IntegrationRequests.Endpoint source = resolveDataSource(request.sourceDataSourceId(), request.source());
         IntegrationRequests.Endpoint target = resolveDataSource(request.targetDataSourceId(), request.target());
         IntegrationTask task = new IntegrationTask(request.name(), request.sourceType(), request.targetType(),
-                request.syncMode(), source, target, request.mappings(), request.options(), tables);
+                request.syncMode(), source, target, request.mappings(), options, tables);
         builder.build(task);
         long id = store.nextId();
         IntegrationTaskView view = new IntegrationTaskView(id, request.name(), request.sourceType(), request.targetType(),
                 normalizeMode(request.syncMode()), "GENERATED", "OFFLINE", secureEndpoint(source), secureEndpoint(target),
-                secureTransform(request.mappings(), request.options(), tables), safeConfig(task), tableViews(id, tables));
+                secureTransform(request.mappings(), options, tables), safeConfig(task), tableViews(id, tables));
         store.persistIntegrationTask(view);
         store.integrationTasks.put(id, view);
         store.integrationTaskTables.put(id, view.tables());
@@ -78,7 +91,8 @@ public class IntegrationService {
 
     @Transactional
     public IntegrationTaskView update(long id, IntegrationRequests.TaskRequest request) {
-        validateMode(request.syncMode(), request.options());
+        Map<String, Object> options = effectiveOptions(request.options(), request.sourceDataSourceId(), request.targetDataSourceId());
+        validateMode(request.syncMode(), options);
         IntegrationTaskView currentView = raw(id);
         ensureOffline(currentView);
         IntegrationTask current = hasStructuredConfig(currentView) ? task(id) : null;
@@ -90,11 +104,11 @@ public class IntegrationService {
                 : resolveDataSource(request.targetDataSourceId(), request.target());
         List<IntegrationRequests.TableRequest> tables = resolveTables(request, current);
         IntegrationTask task = new IntegrationTask(request.name(), request.sourceType(), request.targetType(),
-                request.syncMode(), source, target, request.mappings(), request.options(), tables);
+                request.syncMode(), source, target, request.mappings(), options, tables);
         builder.build(task);
         IntegrationTaskView view = new IntegrationTaskView(id, request.name(), request.sourceType(), request.targetType(),
                 normalizeMode(request.syncMode()), currentView.status(), currentView.lifecycleStatus(), secureEndpoint(source), secureEndpoint(target),
-                secureTransform(request.mappings(), request.options(), tables), safeConfig(task), tableViews(id, tables));
+                secureTransform(request.mappings(), options, tables), safeConfig(task), tableViews(id, tables));
         store.persistIntegrationTask(view);
         store.integrationTasks.put(id, view);
         store.integrationTaskTables.put(id, view.tables());
@@ -114,6 +128,13 @@ public class IntegrationService {
         SeaTunnelGateway.ValidationResult validation = validate(id);
         if (!validation.valid()) throw new BadRequestException(validation.message() == null || validation.message().isBlank()
                 ? "任务配置校验失败，无法上线" : validation.message());
+        IntegrationPreCheckService.Report report = precheck(id);
+        if (!report.allowed()) {
+            String detail = report.items().stream().filter(IntegrationPreCheckService.Item::blocking)
+                    .map(item -> item.message() + (item.detail() == null || item.detail().isBlank() ? "" : "（" + item.detail() + "）"))
+                    .reduce((a,b) -> a + "；" + b).orElse("离线任务发布前检查失败");
+            throw new BadRequestException(detail);
+        }
         return updateLifecycle(current, "ONLINE");
     }
 
@@ -146,6 +167,13 @@ public class IntegrationService {
         return gateway.validate(builder.build(runtimeTask), runtimeClusterId());
     }
 
+
+    public IntegrationPreCheckService.Report precheck(long id) {
+        IntegrationTask runtimeTask = task(id);
+        if (preCheckService == null) return new IntegrationPreCheckService.Report(true, List.of());
+        return preCheckService.check(runtimeTask);
+    }
+
     public List<StarRocksSchemaService.SchemaResult> syncSchema(long id, boolean recreate) {
         if (schemaService == null) throw new BadRequestException("StarRocks 表结构同步组件不可用");
         IntegrationTask runtimeTask = task(id);
@@ -167,8 +195,14 @@ public class IntegrationService {
             throw new BadRequestException("离线同步任务已下线，请先上线后再运行");
         }
         IntegrationTask runtimeTask = hasStructuredConfig(view) ? task(id) : null;
-        String config = runtimeTask == null ? view.seatunnelConfig() : builder.build(runtimeTask);
         Long clusterId = runtimeClusterId();
+        if (runtimeTask != null && stagingService != null && stagingService.requiresStaging(runtimeTask)) {
+            IntegrationStagingService.Prepared staged = stagingService.prepare(runtimeTask);
+            String parameters = stagingService.parametersJson(staged.mappings(), "FULL_OVERWRITE");
+            BatchExecution execution = submitNewBatch(id, normalizedTrigger, parameters, null, staged.task(), builder.build(staged.task()), clusterId);
+            return execution.result();
+        }
+        String config = runtimeTask == null ? view.seatunnelConfig() : builder.build(runtimeTask);
         BatchExecution execution = submitNewBatch(id, normalizedTrigger, "{}", null, runtimeTask, config, clusterId);
         return execution.result();
     }
@@ -179,6 +213,9 @@ public class IntegrationService {
         IntegrationTask runtimeTask = task(id);
         Map<String, Object> options = new HashMap<>(runtimeTask.options() == null ? Map.of() : runtimeTask.options());
         options.put("where", request.where().trim());
+        options.put("targetPolicy", "APPEND_NO_SCHEMA");
+        options.put("schemaSaveMode", "ERROR_WHEN_SCHEMA_NOT_EXIST");
+        options.put("dataSaveMode", "APPEND_DATA");
         IntegrationTask backfillTask = new IntegrationTask(runtimeTask.name(), runtimeTask.sourceType(), runtimeTask.targetType(),
                 "INCREMENTAL", runtimeTask.source(), runtimeTask.target(), runtimeTask.mappings(), options, runtimeTask.tables());
         String parameters = json(Map.of("where", request.where().trim(),
@@ -195,6 +232,9 @@ public class IntegrationService {
         IntegrationAttemptView latest = runtimeRepository.latestAttempt(batchId);
         if (latest != null && active(latest.status())) throw new BadRequestException("该批次仍在运行，不能重复重试");
         String config = runtimeRepository.runtimeConfig(batchId);
+        if (config != null && config.contains("data_save_mode = \"APPEND_DATA\"")) {
+            throw new BadRequestException("该历史批次使用仅追加写入，直接重试可能产生重复数据；请改用全量覆盖/主键幂等策略后重新运行");
+        }
         runtimeRepository.updateBatch(batchId, "QUEUED", null, null);
         submitExistingBatch(batch, config);
         return runtimeRepository.getBatch(batchId);
@@ -448,8 +488,21 @@ public class IntegrationService {
         }
         if ("INCREMENTAL".equals(mode)) {
             String where = options == null || options.get("where") == null ? "" : String.valueOf(options.get("where")).trim();
-            if (where.isBlank()) throw new BadRequestException("增量同步必须填写 WHERE 条件");
+            if (where.isBlank()) throw new BadRequestException("增量同步必须填写增量条件；留空请使用全量同步");
+            String normalized = where.replaceAll("\\s+", " ").toLowerCase();
+            if (!normalized.contains(">=") || !normalized.contains("<")) {
+                throw new BadRequestException("离线增量必须使用 [start, end) 半开区间，例如 update_time >= :start AND update_time < :end，避免同时间戳漏数");
+            }
         }
+    }
+
+    private Map<String, Object> effectiveOptions(Map<String, Object> requested, Long sourceDataSourceId, Long targetDataSourceId) {
+        Map<String, Object> result = new HashMap<>(requested == null ? Map.of() : requested);
+        if (sourceDataSourceId != null) result.put("sourceTimezone", dataSourceService.get(sourceDataSourceId).timezone());
+        result.putIfAbsent("sourceTimezone", "Asia/Shanghai");
+        if (targetDataSourceId != null) result.put("targetTimezone", dataSourceService.get(targetDataSourceId).timezone());
+        result.putIfAbsent("targetTimezone", "Asia/Shanghai");
+        return result;
     }
 
     private String normalizeMode(String value) {
