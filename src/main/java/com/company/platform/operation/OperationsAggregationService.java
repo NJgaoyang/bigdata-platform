@@ -79,6 +79,22 @@ public class OperationsAggregationService {
                 item.status(), item.errorMessage(), item.startedAt(), "OPEN")).toList();
     }
 
+    public String log(String type, String id) {
+        return switch (normalizeType(type)) {
+            case "OFFLINE" -> {
+                Map<String,Object> row = jdbc.queryForMap("SELECT execution_id FROM integration_instance WHERE id=?", Long.parseLong(id));
+                String executionId = String.valueOf(row.get("execution_id"));
+                yield integration.log(executionId);
+            }
+            case "REALTIME" -> {
+                Long jobId = jdbc.queryForObject("SELECT job_id FROM realtime_sync_execution WHERE id=?", Long.class, Long.parseLong(id));
+                if (jobId == null) throw new BadRequestException("实时运行实例不存在：" + id);
+                yield realtime.logs(jobId).toPrettyString();
+            }
+            default -> throw new BadRequestException("当前实例类型暂不支持查看日志：" + type);
+        };
+    }
+
     public void stop(String type, String id) {
         switch (normalizeType(type)) {
             case "WORKFLOW" -> scheduler.stop(id);

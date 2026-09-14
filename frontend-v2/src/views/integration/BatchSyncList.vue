@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import PageHeader from '../../components/PageHeader.vue'
 import StatusBadge from '../../components/StatusBadge.vue'
@@ -34,7 +34,11 @@ const historyTask = ref<IntegrationTask | null>(null)
 const history = ref<IntegrationInstance[]>([])
 const batches = ref<IntegrationBatch[]>([])
 const historyAttempts = ref<Record<number, IntegrationAttempt[]>>({})
-const historyLogs = ref<Record<number, string>>({})
+const historyLogs = ref<Record<string, string>>({})
+const selectedHistoryLogKey = ref('')
+const selectedHistoryLogTitle = ref('')
+const historyLogMaximized = ref(false)
+let historyPollTimer: ReturnType<typeof setInterval> | null = null
 const backfillVisible = ref(false)
 const backfillTask = ref<IntegrationTask | null>(null)
 const backfillSaving = ref(false)
@@ -382,36 +386,105 @@ async function offlineTask(task: IntegrationTask) {
   }
 }
 
-async function showHistory(task: IntegrationTask) {
-  historyTask.value = task
-  historyVisible.value = true
-  historyLoading.value = true
-  historyAttempts.value = {}
-  historyLogs.value = {}
+async function refreshHistory(showLoading = false) {
+  if (!historyTask.value) return
+  if (showLoading) historyLoading.value = true
   try {
-    const [batchRows, instanceRows] = await Promise.all([integrationApi.batches(task.id), integrationApi.instances(task.id)])
+    const [batchRows, instanceRows] = await Promise.all([
+      integrationApi.batches(historyTask.value.id),
+      integrationApi.instances(historyTask.value.id)
+    ])
     batches.value = batchRows
     history.value = instanceRows
+    const nextLogs: Record<string, string> = { ...historyLogs.value }
     if (batchRows.length) {
       const attemptPairs = await Promise.all(batchRows.map(async batch => [batch.id, await integrationApi.attempts(batch.id)] as const))
       historyAttempts.value = Object.fromEntries(attemptPairs)
-      const allAttempts = attemptPairs.flatMap(([, rows]) => rows).filter(row => row.executionId)
-      const logPairs = await Promise.all(allAttempts.map(async attempt => {
-        try { return [attempt.id, await integrationApi.log(attempt.executionId!)] as const }
-        catch (error) { return [attempt.id, messageOf(error)] as const }
-      }))
-      historyLogs.value = Object.fromEntries(logPairs)
+      for (const [batchId, rows] of attemptPairs) {
+        const batch = batchRows.find(item => item.id === batchId)
+        for (const attempt of rows) {
+          const key = `attempt-${attempt.id}`
+          if (!selectedHistoryLogKey.value && attempt.executionId) {
+            selectedHistoryLogKey.value = key
+            selectedHistoryLogTitle.value = `${batch?.batchCode || 'Batch'} / Attempt #${attempt.attemptNo}`
+          }
+          if (!attempt.executionId) {
+            nextLogs[key] = attempt.errorMessage || batch?.errorMessage || '尚未生成执行日志'
+            continue
+          }
+          try { nextLogs[key] = await integrationApi.log(attempt.executionId) }
+          catch (error) { nextLogs[key] = messageOf(error) }
+        }
+      }
     } else {
-      const logPairs = await Promise.all(instanceRows.filter(row => row.executionId).map(async row => {
-        try { return [row.id, await integrationApi.log(row.executionId)] as const }
-        catch (error) { return [row.id, messageOf(error)] as const }
-      }))
-      historyLogs.value = Object.fromEntries(logPairs)
+      historyAttempts.value = {}
+      for (const row of instanceRows) {
+        const key = `instance-${row.id}`
+        if (!selectedHistoryLogKey.value && row.executionId) {
+          selectedHistoryLogKey.value = key
+          selectedHistoryLogTitle.value = row.executionId
+        }
+        if (!row.executionId) {
+          nextLogs[key] = row.message || '暂无日志'
+          continue
+        }
+        try { nextLogs[key] = await integrationApi.log(row.executionId) }
+        catch (error) { nextLogs[key] = messageOf(error) }
+      }
     }
+    historyLogs.value = nextLogs
   } catch (error) {
-    ElMessage.error(messageOf(error))
+    if (showLoading) ElMessage.error(messageOf(error))
   } finally {
-    historyLoading.value = false
+    if (showLoading) historyLoading.value = false
+  }
+}
+
+function startHistoryPolling() {
+  stopHistoryPolling()
+  historyPollTimer = setInterval(() => {
+    if (historyVisible.value) void refreshHistory(false)
+  }, 2000)
+}
+
+function stopHistoryPolling() {
+  if (historyPollTimer) clearInterval(historyPollTimer)
+  historyPollTimer = null
+}
+
+async function showHistory(task: IntegrationTask) {
+  historyTask.value = task
+  historyVisible.value = true
+  selectedHistoryLogKey.value = ''
+  selectedHistoryLogTitle.value = ''
+  historyLogs.value = {}
+  await refreshHistory(true)
+  startHistoryPolling()
+}
+
+function selectAttempt(batch: IntegrationBatch, attempt: IntegrationAttempt) {
+  selectedHistoryLogKey.value = `attempt-${attempt.id}`
+  selectedHistoryLogTitle.value = `${batch.batchCode} / Attempt #${attempt.attemptNo}`
+}
+
+function selectLegacyInstance(row: IntegrationInstance) {
+  selectedHistoryLogKey.value = `instance-${row.id}`
+  selectedHistoryLogTitle.value = row.executionId || `历史执行 #${row.id}`
+}
+
+function selectedHistoryLog() {
+  return selectedHistoryLogKey.value ? (historyLogs.value[selectedHistoryLogKey.value] || '暂无日志') : '暂无日志'
+}
+
+function closeHistory() {
+  stopHistoryPolling()
+  historyLogMaximized.value = false
+}
+
+function handleGlobalKeydown(event: KeyboardEvent) {
+  if (event.key === 'Escape' && historyLogMaximized.value) {
+    event.preventDefault()
+    historyLogMaximized.value = false
   }
 }
 
@@ -521,7 +594,23 @@ function latestStatus(task: IntegrationTask) {
 }
 
 function latestStartedAt(task: IntegrationTask) {
-  return latestBatch.value[task.id]?.startedAt || latestBatch.value[task.id]?.createdAt || latest.value[task.id]?.startedAt || '—'
+  return formatDateTime(latestBatch.value[task.id]?.startedAt || latestBatch.value[task.id]?.createdAt || latest.value[task.id]?.startedAt)
+}
+
+function formatDateTime(value?: string) {
+  if (!value) return '—'
+  return value.replace('T', ' ').replace(/\.\d+$/, '').slice(0, 19)
+}
+
+function statusLabel(status?: string) {
+  const value = (status || '').toUpperCase()
+  if (!value || value === '未运行' || value === 'UNKNOWN') return value === '未运行' ? '未运行' : '未知'
+  if (value.includes('FINISHED') || value.includes('SUCCESS')) return '成功'
+  if (value.includes('RUNNING')) return '运行中'
+  if (value.includes('START') || value.includes('SUBMIT') || value.includes('QUEUED') || value.includes('PENDING') || value.includes('WAIT')) return '等待运行'
+  if (value.includes('FAIL') || value.includes('ERROR') || value.includes('LOST')) return '失败'
+  if (value.includes('STOP') || value.includes('CANCEL')) return '已停止'
+  return status || '未知'
 }
 
 function isOnline(task: IntegrationTask) {
@@ -579,7 +668,14 @@ function messageOf(error: unknown) {
   return error instanceof Error ? error.message : '操作失败'
 }
 
-onMounted(load)
+onMounted(() => {
+  void load()
+  window.addEventListener('keydown', handleGlobalKeydown)
+})
+onBeforeUnmount(() => {
+  stopHistoryPolling()
+  window.removeEventListener('keydown', handleGlobalKeydown)
+})
 </script>
 
 <template>
@@ -606,10 +702,9 @@ onMounted(load)
             <button class="task-name-link" @click.stop="openDetail(scope.row)">{{ scope.row.name }}</button>
           </template>
         </el-table-column>
-        <el-table-column label="来源 → 目标" min-width="180"><template #default="scope">{{ path(scope.row) }}</template></el-table-column>
         <el-table-column label="表数" width="72"><template #default="scope">{{ scope.row.tables?.length || 0 }}</template></el-table-column>
         <el-table-column label="同步方式" width="105"><template #default="scope">{{ modeLabel(scope.row.syncMode) }}</template></el-table-column>
-        <el-table-column label="最近状态" width="120"><template #default="scope"><StatusBadge :status="latestStatus(scope.row)" /></template></el-table-column>
+        <el-table-column label="最近状态" width="120"><template #default="scope"><StatusBadge :status="latestStatus(scope.row)" :label="statusLabel(latestStatus(scope.row))" /></template></el-table-column>
         <el-table-column label="最近运行" width="175"><template #default="scope"><span class="time-cell">{{ latestStartedAt(scope.row) }}</span></template></el-table-column>
         <el-table-column label="操作" width="260" fixed="right">
           <template #default="scope">
@@ -645,10 +740,10 @@ onMounted(load)
 
       <div class="task-detail" v-loading="detailLoading" v-if="detailTask">
         <div class="detail-summary">
-          <div class="summary-item"><span>当前状态</span><StatusBadge :status="latestDetailBatch()?.status || latestStatus(detailTask)" /></div>
+          <div class="summary-item"><span>当前状态</span><StatusBadge :status="latestDetailBatch()?.status || latestStatus(detailTask)" :label="statusLabel(latestDetailBatch()?.status || latestStatus(detailTask))" /></div>
           <div class="summary-item"><span>同步方式</span><strong>{{ modeLabel(detailTask.syncMode) }}</strong></div>
           <div class="summary-item"><span>同步表数</span><strong>{{ detailTask.tables?.length || 0 }} 张</strong></div>
-          <div class="summary-item"><span>最近运行</span><strong>{{ latestDetailBatch()?.startedAt || latestStartedAt(detailTask) }}</strong></div>
+          <div class="summary-item"><span>最近运行</span><strong>{{ latestDetailBatch()?.startedAt ? formatDateTime(latestDetailBatch()?.startedAt) : latestStartedAt(detailTask) }}</strong></div>
         </div>
 
         <el-tabs v-model="detailTab" class="detail-tabs">
@@ -670,10 +765,10 @@ onMounted(load)
             <section class="detail-section">
               <div class="detail-section-title">最近运行</div>
               <el-descriptions :column="2" border>
-                <el-descriptions-item label="最近状态"><StatusBadge :status="latestDetailBatch()?.status || latestStatus(detailTask)" /></el-descriptions-item>
+                <el-descriptions-item label="最近状态"><StatusBadge :status="latestDetailBatch()?.status || latestStatus(detailTask)" :label="statusLabel(latestDetailBatch()?.status || latestStatus(detailTask))" /></el-descriptions-item>
                 <el-descriptions-item label="触发方式">{{ latestDetailBatch() ? triggerLabel(latestDetailBatch()?.triggerType || '') : '—' }}</el-descriptions-item>
-                <el-descriptions-item label="开始时间">{{ latestDetailBatch()?.startedAt || latestStartedAt(detailTask) }}</el-descriptions-item>
-                <el-descriptions-item label="结束时间">{{ latestDetailBatch()?.finishedAt || '—' }}</el-descriptions-item>
+                <el-descriptions-item label="开始时间">{{ formatDateTime(latestDetailBatch()?.startedAt) }}</el-descriptions-item>
+                <el-descriptions-item label="结束时间">{{ formatDateTime(latestDetailBatch()?.finishedAt) }}</el-descriptions-item>
               </el-descriptions>
             </section>
           </el-tab-pane>
@@ -844,44 +939,64 @@ onMounted(load)
       </template>
     </el-drawer>
 
-    <el-drawer v-model="historyVisible" :title="`运行记录 · ${historyTask?.name || ''}`" size="1040px">
-      <div class="runtime-note">运行记录已经直接展示 Attempt 与 SeaTunnel 日志，不再需要进入第二层页面。</div>
-      <div v-loading="historyLoading" class="history-flat-list" v-if="batches.length">
-        <section v-for="batch in batches" :key="batch.id" class="history-batch-card">
-          <div class="history-batch-head">
-            <div><strong>{{ batch.batchCode }}</strong><span>{{ triggerLabel(batch.triggerType) }}</span></div>
-            <StatusBadge :status="batch.status" />
-            <span>{{ batch.startedAt || batch.createdAt || '—' }} → {{ batch.finishedAt || '—' }}</span>
-            <div class="history-batch-actions">
-              <el-button v-if="isOnline(historyTask!)" link :disabled="!canRetryBatch(batch)" @click="retryBatch(batch)">重试</el-button>
-              <el-button link @click="reconcileBatch(batch)">核对状态</el-button>
-            </div>
-          </div>
-          <div v-if="historyAttempts[batch.id]?.length" class="history-attempts">
-            <div v-for="attempt in historyAttempts[batch.id]" :key="attempt.id" class="history-attempt">
-              <div class="attempt-meta">
-                <strong>Attempt #{{ attempt.attemptNo }}</strong>
-                <StatusBadge :status="attempt.status" />
-                <span class="mono">{{ attempt.executionId || '尚未生成执行 ID' }}</span>
-                <span>{{ attempt.startedAt || attempt.createdAt || '—' }}</span>
+    <el-drawer v-model="historyVisible" :title="`运行记录 · ${historyTask?.name || ''}`" size="1040px" :close-on-press-escape="!historyLogMaximized" @closed="closeHistory">
+      <div class="history-shell" v-loading="historyLoading">
+        <div class="runtime-note">点击运行记录后直接展示日志；任务执行中每 2 秒自动刷新，无需等待任务结束。</div>
+        <div class="history-records">
+          <template v-if="batches.length">
+            <section v-for="batch in batches" :key="batch.id" class="history-batch-card">
+              <div class="history-batch-head">
+                <div><strong>{{ batch.batchCode }}</strong><span>{{ triggerLabel(batch.triggerType) }}</span></div>
+                <StatusBadge :status="batch.status" :label="statusLabel(batch.status)" />
+                <span>{{ formatDateTime(batch.startedAt || batch.createdAt) }} → {{ formatDateTime(batch.finishedAt) }}</span>
+                <div class="history-batch-actions">
+                  <el-button v-if="isOnline(historyTask!)" link :disabled="!canRetryBatch(batch)" @click.stop="retryBatch(batch)">重试</el-button>
+                  <el-button link @click.stop="reconcileBatch(batch)">核对状态</el-button>
+                </div>
               </div>
-              <div class="inline-log"><pre>{{ attempt.executionId ? (historyLogs[attempt.id] || '暂无日志') : (attempt.errorMessage || batch.errorMessage || '尚无执行日志') }}</pre></div>
+              <div v-if="historyAttempts[batch.id]?.length" class="history-attempts">
+                <button v-for="attempt in historyAttempts[batch.id]" :key="attempt.id" type="button"
+                  :class="['history-attempt-row', { selected: selectedHistoryLogKey === `attempt-${attempt.id}` }]"
+                  @click="selectAttempt(batch, attempt)">
+                  <strong>Attempt #{{ attempt.attemptNo }}</strong>
+                  <StatusBadge :status="attempt.status" :label="statusLabel(attempt.status)" />
+                  <span class="mono">{{ attempt.executionId || '尚未生成执行 ID' }}</span>
+                  <span>{{ formatDateTime(attempt.startedAt || attempt.createdAt) }}</span>
+                  <span class="view-log-text">查看日志</span>
+                </button>
+              </div>
+              <div v-else class="runtime-note compact-note">该批次没有 Attempt 记录。{{ batch.errorMessage || '' }}</div>
+            </section>
+          </template>
+          <template v-else>
+            <div class="runtime-note compact-note">以下为升级批次模型之前的历史执行记录。</div>
+            <button v-for="row in history" :key="row.id" type="button"
+              :class="['legacy-run-row', { selected: selectedHistoryLogKey === `instance-${row.id}` }]"
+              @click="selectLegacyInstance(row)">
+              <strong>{{ row.executionId || `历史执行 #${row.id}` }}</strong>
+              <StatusBadge :status="row.status" :label="statusLabel(row.status)" />
+              <span>{{ formatDateTime(row.startedAt) }} → {{ formatDateTime(row.finishedAt) }}</span>
+              <span class="view-log-text">查看日志</span>
+            </button>
+          </template>
+        </div>
+
+        <div :class="['history-log-panel', { 'is-maximized': historyLogMaximized }]">
+          <div class="history-log-toolbar">
+            <div>
+              <strong>执行日志</strong>
+              <span>{{ selectedHistoryLogTitle || '选择一条 Attempt 查看日志' }}</span>
+              <em>运行中自动刷新</em>
+            </div>
+            <div class="history-log-actions">
+              <el-button size="small" @click="refreshHistory(false)">刷新</el-button>
+              <el-button v-if="!historyLogMaximized" size="small" type="primary" plain @click="historyLogMaximized = true">放大</el-button>
+              <el-button v-else size="small" type="primary" @click="historyLogMaximized = false">还原（Esc）</el-button>
             </div>
           </div>
-          <div v-else class="runtime-note">该批次没有 Attempt 记录。{{ batch.errorMessage || '' }}</div>
-        </section>
+          <div class="history-log-viewer"><pre>{{ selectedHistoryLog() }}</pre></div>
+        </div>
       </div>
-      <template v-else>
-        <div class="runtime-note">以下为升级批次模型之前的历史执行记录，日志同样直接展示。</div>
-        <section v-for="row in history" :key="row.id" class="history-batch-card legacy-history">
-          <div class="history-batch-head">
-            <div><strong>{{ row.executionId || `历史执行 #${row.id}` }}</strong></div>
-            <StatusBadge :status="row.status" />
-            <span>{{ row.startedAt || '—' }} → {{ row.finishedAt || '—' }}</span>
-          </div>
-          <div class="inline-log"><pre>{{ historyLogs[row.id] || row.message || '暂无日志' }}</pre></div>
-        </section>
-      </template>
     </el-drawer>
 
     <el-dialog v-model="backfillVisible" :title="`补数 · ${backfillTask?.name || ''}`" width="680px">
@@ -922,6 +1037,6 @@ onMounted(load)
 .detail-head{width:100%;display:flex;align-items:flex-start;justify-content:space-between;gap:24px;padding-right:8px}.detail-head h3{margin:4px 0 6px;font-size:20px;color:var(--ds-text-primary)}.detail-eyebrow{font-size:12px;color:var(--el-color-primary);font-weight:600}.detail-subtitle{font-size:12px;color:var(--ds-text-secondary)}.detail-actions{display:flex;gap:8px;flex:0 0 auto}.task-detail{padding:0 2px 24px}.detail-summary{display:grid;grid-template-columns:repeat(4,1fr);border:1px solid var(--ds-border);background:#fff;margin:2px 0 18px}.summary-item{min-height:72px;padding:12px 16px;border-right:1px solid var(--ds-border);display:flex;flex-direction:column;justify-content:center;gap:8px}.summary-item:last-child{border-right:0}.summary-item>span{font-size:12px;color:var(--ds-text-secondary)}.summary-item>strong{font-size:14px;color:var(--ds-text-primary);font-weight:600}.detail-tabs{margin-top:4px}.detail-section{margin-top:14px}.detail-section.no-top{margin-top:0}.detail-section-title{font-size:14px;font-weight:600;color:var(--ds-text-primary);margin:0 0 10px}.readonly-code{display:block;white-space:pre-wrap;word-break:break-all;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;color:#475467;background:#f8fafc;padding:2px 6px;border-radius:3px}.object-name{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:#344054}.object-name.target{color:var(--el-color-primary)}
 
 .editor-steps :deep(.el-step__title){white-space:nowrap!important;font-size:14px!important}.editor-steps :deep(.el-step.is-simple .el-step__main){min-width:max-content}.editor-steps :deep(.el-step.is-simple){min-width:0;padding:0 14px}
-.history-flat-list{display:flex;flex-direction:column;gap:12px}.history-batch-card{border:1px solid var(--ds-border);background:#fff}.history-batch-head{min-height:52px;padding:9px 12px;display:grid;grid-template-columns:minmax(220px,1fr) 110px 300px auto;align-items:center;gap:12px;background:#f8fafc;border-bottom:1px solid var(--ds-border);font-size:12px;color:var(--ds-text-secondary)}.history-batch-head>div:first-child{display:flex;align-items:center;gap:10px;min-width:0}.history-batch-head strong{color:var(--ds-text-primary)}.history-batch-head span{white-space:nowrap}.history-batch-actions{display:flex;justify-content:flex-end}.history-attempts{display:flex;flex-direction:column}.history-attempt{padding:12px;border-bottom:1px solid #eef0f2}.history-attempt:last-child{border-bottom:0}.attempt-meta{display:flex;align-items:center;gap:12px;margin-bottom:9px;font-size:12px;color:var(--ds-text-secondary)}.attempt-meta strong{color:var(--ds-text-primary)}.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;overflow:hidden;text-overflow:ellipsis}.inline-log{max-height:280px;overflow:auto;background:#111827;border-radius:3px;padding:10px 12px}.inline-log pre{margin:0;color:#d1d5db;white-space:pre-wrap;word-break:break-word;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;line-height:1.6}.legacy-history{margin-bottom:12px}.muted-inline{font-size:12px;color:var(--ds-text-tertiary)}.detail-run-toolbar{display:flex;justify-content:flex-end;margin:0 0 10px}
+.history-shell{height:calc(100vh - 104px);display:flex;flex-direction:column;gap:10px;min-height:520px}.history-records{flex:0 0 auto;max-height:255px;overflow:auto;display:flex;flex-direction:column;gap:10px;padding-right:2px}.history-batch-card{border:1px solid var(--ds-border);background:#fff}.history-batch-head{min-height:48px;padding:8px 12px;display:grid;grid-template-columns:minmax(220px,1fr) 100px 285px auto;align-items:center;gap:12px;background:#f8fafc;border-bottom:1px solid var(--ds-border);font-size:12px;color:var(--ds-text-secondary)}.history-batch-head>div:first-child{display:flex;align-items:center;gap:10px;min-width:0}.history-batch-head strong{color:var(--ds-text-primary)}.history-batch-head span{white-space:nowrap}.history-batch-actions{display:flex;justify-content:flex-end}.history-attempts{display:flex;flex-direction:column}.history-attempt-row,.legacy-run-row{width:100%;border:0;border-bottom:1px solid #eef0f2;background:#fff;padding:9px 12px;display:grid;grid-template-columns:100px 100px minmax(220px,1fr) 170px 72px;align-items:center;gap:10px;text-align:left;font:inherit;color:var(--ds-text-secondary);cursor:pointer}.history-attempt-row:last-child{border-bottom:0}.history-attempt-row:hover,.legacy-run-row:hover,.history-attempt-row.selected,.legacy-run-row.selected{background:#f5f8ff}.history-attempt-row.selected,.legacy-run-row.selected{box-shadow:inset 3px 0 0 var(--el-color-primary)}.history-attempt-row strong,.legacy-run-row strong{color:var(--ds-text-primary)}.legacy-run-row{grid-template-columns:minmax(260px,1fr) 110px 320px 72px;border:1px solid var(--ds-border);margin-bottom:8px}.view-log-text{color:var(--el-color-primary);white-space:nowrap}.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.compact-note{margin:0;padding:9px 12px}.history-log-panel{flex:1;min-height:0;display:flex;flex-direction:column;border:1px solid var(--ds-border);background:#fff}.history-log-toolbar{min-height:52px;padding:8px 12px;border-bottom:1px solid var(--ds-border);display:flex;align-items:center;justify-content:space-between;gap:16px}.history-log-toolbar>div:first-child{display:flex;align-items:center;gap:10px;min-width:0}.history-log-toolbar strong{color:var(--ds-text-primary)}.history-log-toolbar span{font-size:12px;color:var(--ds-text-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.history-log-toolbar em{font-style:normal;font-size:12px;color:var(--ds-success);white-space:nowrap}.history-log-actions{display:flex;gap:6px;flex:0 0 auto}.history-log-viewer{flex:1;min-height:260px;overflow:auto;background:#111827;padding:14px 16px}.history-log-viewer pre{margin:0;color:#d1d5db;white-space:pre-wrap;word-break:break-word;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;line-height:1.65}.history-log-panel.is-maximized{position:fixed;z-index:4000;inset:18px;background:#fff;border:1px solid #cfd4dc;box-shadow:0 16px 48px rgba(0,0,0,.24)}.history-log-panel.is-maximized .history-log-viewer{min-height:0}.muted-inline{font-size:12px;color:var(--ds-text-tertiary)}.detail-run-toolbar{display:flex;justify-content:flex-end;margin:0 0 10px}
 @media (max-width:1000px){.form-grid,.table-selector{grid-template-columns:1fr}.span-2{grid-column:auto}.table-source-pane{border-right:0;border-bottom:1px solid var(--ds-border)}}
 </style>

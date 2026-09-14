@@ -104,6 +104,7 @@ export const operationsApi = {
   failures: () => api.get<FailureItem[]>('/operations/failures'),
   alerts: () => api.get<AlertItem[]>('/operations/alerts'),
   stop: (type:string,id:string) => api.post<void>(`/operations/instances/${type}/${id}/stop`),
+  log: (type:string,id:string) => api.get<string>(`/operations/instances/${type}/${id}/log`),
   rerun: (instanceId:string) => api.post<{instanceId:string;status:string}>(`/operations/workflow-instances/${instanceId}/rerun`)
 }
 
