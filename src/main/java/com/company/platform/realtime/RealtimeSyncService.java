@@ -46,16 +46,86 @@ public class RealtimeSyncService {
         return get(id);
     }
 
-    @Transactional
     public RealtimeViews.Job saveDraft(long id,RealtimeRequests.DraftRequest request,String operator){
-        RealtimeViews.Job current=get(id);Map<String,Object> spec=new LinkedHashMap<>(request.spec()==null?current.spec():request.spec());
-        String name=request.name()==null||request.name().isBlank()?current.name():request.name().trim();spec.put("name",name);String json=json(spec),digest=digest(json);int version=current.definitionVersion()+1;
-        Long env=request.runtimeEnvironmentId()==null?current.runtimeEnvironmentId():request.runtimeEnvironmentId();String desc=request.description()==null?current.description():request.description();
-        if(Set.of("STARTING","RUNNING","STOPPING").contains(current.observedState())) throw new BadRequestException("实时任务运行中，请先停止后再修改配置");
-        jdbc.update("UPDATE realtime_sync_definition SET name=?,description=?,runtime_environment_id=?,release_state='DRAFT',definition_version=?,spec_json=?,config_digest=?,last_error=NULL WHERE id=?",name,desc,env,version,json,digest,id);
-        jdbc.update("INSERT INTO realtime_sync_version(job_id,version_no,spec_json,config_digest,published,created_by) VALUES(?,?,?,?,FALSE,?)",id,version,json,digest,operator(operator));
+        RealtimeViews.Job current=get(id);
+        Map<String,Object> spec=new LinkedHashMap<>(request.spec()==null?current.spec():request.spec());
+        String name=request.name()==null||request.name().isBlank()?current.name():request.name().trim();spec.put("name",name);
+        Long env=request.runtimeEnvironmentId()==null?current.runtimeEnvironmentId():request.runtimeEnvironmentId();
+        String desc=request.description()==null?current.description():request.description();
+        if("RUNNING".equals(current.observedState())) return saveRunningTableAddition(current,spec,name,desc,env,operator);
+        if(Set.of("STARTING","STOPPING").contains(current.observedState())) throw new BadRequestException("实时任务正在切换状态，请稍后再修改配置");
+        String specJson=json(spec),digest=digest(specJson);int version=current.definitionVersion()+1;
+        jdbc.update("UPDATE realtime_sync_definition SET name=?,description=?,runtime_environment_id=?,release_state='DRAFT',definition_version=?,spec_json=?,config_digest=?,last_error=NULL WHERE id=?",name,desc,env,version,specJson,digest,id);
+        jdbc.update("INSERT INTO realtime_sync_version(job_id,version_no,spec_json,config_digest,published,created_by) VALUES(?,?,?,?,FALSE,?)",id,version,specJson,digest,operator(operator));
         event(id,null,"CONFIG_UPDATED","保存配置 V"+version);
         return get(id);
+    }
+
+    private RealtimeViews.Job saveRunningTableAddition(RealtimeViews.Job current,Map<String,Object> requested,String name,String desc,Long envId,String operator){
+        if(current.runtimeEnvironmentId()==null||envId==null) throw new BadRequestException("运行中的实时任务缺少 Flink 环境");
+        if(!Objects.equals(current.runtimeEnvironmentId(),envId)) throw new BadRequestException("运行中新增表不允许切换 Flink 环境，请停止任务后修改");
+        if(current.publishedVersion()==null) throw new BadRequestException("运行中的实时任务没有已发布版本，无法从状态恢复");
+        RealtimeViews.Execution oldExecution=latestExecution(current.id());
+        if(oldExecution==null||oldExecution.engineJobId()==null||!"RUNNING".equals(oldExecution.status())) throw new BadRequestException("未找到可保存状态的运行中 Flink Job，请刷新任务状态后重试");
+
+        Map<String,Object> previous=publishedSpec(current.id(),current.publishedVersion());
+        ensureSameEndpoint(previous,requested,"sourceDataSourceId","源数据源");
+        ensureSameEndpoint(previous,requested,"sourceDatabase","源数据库");
+        ensureSameEndpoint(previous,requested,"sinkDataSourceId","目标数据源");
+        ensureSameEndpoint(previous,requested,"sinkDatabase","目标数据库");
+        if(!"initial".equalsIgnoreCase(str(previous.getOrDefault("startupMode","initial")))||!"initial".equalsIgnoreCase(str(requested.getOrDefault("startupMode","initial"))))
+            throw new BadRequestException("运行中新增表并补全历史数据要求启动方式为“全量 + 增量（initial）”");
+
+        Map<String,String> oldTables=tableMapping(previous), newTables=tableMapping(requested);
+        for(Map.Entry<String,String> old:oldTables.entrySet()){
+            if(!newTables.containsKey(old.getKey())) throw new BadRequestException("运行中新增表不能移除原同步表："+old.getKey());
+            if(!Objects.equals(old.getValue(),newTables.get(old.getKey()))) throw new BadRequestException("运行中新增表不能修改原表目标映射："+old.getKey());
+        }
+        List<String> added=newTables.keySet().stream().filter(t->!oldTables.containsKey(t)).toList();
+        if(added.isEmpty()) throw new BadRequestException("运行中的任务当前只支持新增同步表；未检测到新增表");
+
+        int version=current.definitionVersion()+1;
+        Map<String,Object> effective=prepareEffectiveSpec(current.id(),requested);
+        String effectiveJson=json(effective), effectiveDigest=digest(effectiveJson);
+        FlinkEnvironmentService.RuntimeEnvironment runtimeEnv=environments.runtime(envId);
+        String savepointDirectory=savepointDirectory(requested);
+
+        jdbc.update("UPDATE realtime_sync_definition SET desired_state='RUNNING',observed_state='STOPPING',last_error=NULL WHERE id=?",current.id());
+        event(current.id(),oldExecution.id(),"SAVEPOINT_START","新增表前保存 Flink 状态，新增表："+String.join("、",added));
+        FlinkCdcGateway.SavepointResult savepoint;
+        try{
+            savepoint=gateway.stopWithSavepoint(runtimeEnv.view(),oldExecution.engineJobId(),savepointDirectory);
+        }catch(RuntimeException ex){
+            String m=msg(ex);
+            jdbc.update("UPDATE realtime_sync_definition SET observed_state='UNKNOWN',last_error=? WHERE id=?",m,current.id());
+            jdbc.update("UPDATE realtime_sync_execution SET result_uncertain=TRUE,error_message=? WHERE id=?",m,oldExecution.id());
+            event(current.id(),oldExecution.id(),"SAVEPOINT_FAILED",m);
+            throw ex;
+        }
+
+        jdbc.update("UPDATE realtime_sync_execution SET status='STOPPED',finished_at=CURRENT_TIMESTAMP,result_uncertain=FALSE,error_message=NULL WHERE id=?",oldExecution.id());
+        event(current.id(),oldExecution.id(),"SAVEPOINT_COMPLETED","Savepoint="+savepoint.location()+"；新增表："+String.join("、",added));
+
+        jdbc.update("UPDATE realtime_sync_version SET published=FALSE WHERE job_id=?",current.id());
+        jdbc.update("INSERT INTO realtime_sync_version(job_id,version_no,spec_json,config_digest,published,created_by) VALUES(?,?,?,?,TRUE,?)",current.id(),version,effectiveJson,effectiveDigest,operator(operator));
+        jdbc.update("UPDATE realtime_sync_definition SET name=?,description=?,runtime_environment_id=?,release_state='PUBLISHED',desired_state='RUNNING',observed_state='STARTING',definition_version=?,published_version=?,spec_json=?,config_digest=?,last_error=NULL WHERE id=?",name,desc,envId,version,version,effectiveJson,effectiveDigest,current.id());
+        jdbc.update("INSERT INTO realtime_sync_execution(job_id,definition_version,runtime_environment_snapshot,status,started_at) VALUES(?,?,?,'STARTING',CURRENT_TIMESTAMP)",current.id(),version,json(runtimeEnv.view()));
+        long newExecutionId=Objects.requireNonNull(jdbc.queryForObject("SELECT id FROM realtime_sync_execution WHERE job_id=? ORDER BY id DESC LIMIT 1",Long.class,current.id()));
+        event(current.id(),newExecutionId,"RESTORE_START","V"+version+" 从 Savepoint 恢复；新增表将先 Snapshot 全量，再追 Binlog 增量；Savepoint="+savepoint.location());
+        try{
+            String yaml=configBuilder.build(effective,false);
+            FlinkCdcGateway.SubmitResult submitted=gateway.submit(runtimeEnv,yaml,effective,savepoint.location());
+            jdbc.update("UPDATE realtime_sync_execution SET engine_job_id=?,status='RUNNING',runtime_revision=?,local_log=? WHERE id=?",submitted.jobId(),"v"+version,submitted.log(),newExecutionId);
+            jdbc.update("UPDATE realtime_sync_definition SET observed_state='RUNNING',last_error=NULL WHERE id=?",current.id());
+            event(current.id(),newExecutionId,"RUNNING","V"+version+" 已从 Savepoint 恢复，Flink JobId="+submitted.jobId()+"；新增表："+String.join("、",added));
+        }catch(RuntimeException ex){
+            String m=msg(ex);
+            jdbc.update("UPDATE realtime_sync_execution SET status='FAILED',finished_at=CURRENT_TIMESTAMP,error_message=?,local_log=? WHERE id=?",m,m,newExecutionId);
+            jdbc.update("UPDATE realtime_sync_definition SET observed_state='FAILED',last_error=? WHERE id=?",m,current.id());
+            event(current.id(),newExecutionId,"RESTORE_FAILED","Savepoint 已生成但新版本恢复失败："+m+"；Savepoint="+savepoint.location());
+            throw ex;
+        }
+        return get(current.id());
     }
 
     public Validation validateDraft(RealtimeRequests.CreateJobRequest request){
@@ -86,17 +156,25 @@ public class RealtimeSyncService {
     }
 
     @Transactional
-    public RealtimeViews.Job publish(long id,String operator){
-        return prepareRunnableVersion(id,operator,"PUBLISHED");
-    }
+    public RealtimeViews.Job publish(long id,String operator){return prepareRunnableVersion(id,operator,"PUBLISHED");}
 
     private RealtimeViews.Job prepareRunnableVersion(long id,String operator,String eventType){
         RealtimeViews.Job job=get(id);
         if(job.runtimeEnvironmentId()==null)throw new BadRequestException("必须选择 Flink 运行环境");
         if(!environments.get(job.runtimeEnvironmentId()).enabled())throw new BadRequestException("Flink 运行环境已禁用");
-        int parallelism=intValue(job.spec().get("parallelism"),1);
+        Map<String,Object> effective=prepareEffectiveSpec(id,job.spec());
+        String effectiveJson=json(effective), effectiveDigest=digest(effectiveJson);
+        jdbc.update("UPDATE realtime_sync_version SET published=FALSE WHERE job_id=?",id);
+        jdbc.update("UPDATE realtime_sync_version SET spec_json=?,config_digest=?,published=TRUE WHERE job_id=? AND version_no=?",effectiveJson,effectiveDigest,id,job.definitionVersion());
+        jdbc.update("UPDATE realtime_sync_definition SET spec_json=?,config_digest=?,release_state='PUBLISHED',published_version=?,last_error=NULL WHERE id=?",effectiveJson,effectiveDigest,job.definitionVersion(),id);
+        event(id,null,eventType,"运行配置已就绪 V"+job.definitionVersion()+"，Server ID="+str(effective.get("serverId"))+" by "+operator(operator));
+        return get(id);
+    }
+
+    private Map<String,Object> prepareEffectiveSpec(long id,Map<String,Object> sourceSpec){
+        int parallelism=intValue(sourceSpec.get("parallelism"),1);
         String serverId=serverIds.allocate(id,parallelism);
-        Map<String,Object> effective=new LinkedHashMap<>(job.spec());
+        Map<String,Object> effective=new LinkedHashMap<>(sourceSpec);
         effective.put("serverId",serverId);
         effective.put("jobId",id);
         effective.put("labelPrefix","datasphere_rt_"+id);
@@ -107,12 +185,7 @@ public class RealtimeSyncService {
             throw new BadRequestException(errors);
         }
         preCheck.prepareTargets(effective);
-        String effectiveJson=json(effective), effectiveDigest=digest(effectiveJson);
-        jdbc.update("UPDATE realtime_sync_version SET published=FALSE WHERE job_id=?",id);
-        jdbc.update("UPDATE realtime_sync_version SET spec_json=?,config_digest=?,published=TRUE WHERE job_id=? AND version_no=?",effectiveJson,effectiveDigest,id,job.definitionVersion());
-        jdbc.update("UPDATE realtime_sync_definition SET spec_json=?,config_digest=?,release_state='PUBLISHED',published_version=?,last_error=NULL WHERE id=?",effectiveJson,effectiveDigest,job.definitionVersion(),id);
-        event(id,null,eventType,"运行配置已就绪 V"+job.definitionVersion()+"，Server ID="+serverId+" by "+operator(operator));
-        return get(id);
+        return effective;
     }
 
     @Transactional
@@ -141,9 +214,7 @@ public class RealtimeSyncService {
                 return runtime(id);
             }
             FlinkEnvironmentView env=environments.get(job.runtimeEnvironmentId());
-            try {
-                gateway.cancel(env,execution.engineJobId());
-            } catch (RuntimeException ex) {
+            try {gateway.cancel(env,execution.engineJobId());} catch (RuntimeException ex) {
                 if (isJobNotFound(ex)) {
                     jdbc.update("UPDATE realtime_sync_execution SET status='STOPPED',finished_at=COALESCE(finished_at,CURRENT_TIMESTAMP),result_uncertain=FALSE,error_message=NULL WHERE id=?",execution.id());
                     jdbc.update("UPDATE realtime_sync_definition SET observed_state='STOPPED',desired_state='STOPPED',last_error=NULL WHERE id=?",id);
@@ -160,8 +231,7 @@ public class RealtimeSyncService {
                 event(id,execution.id(),"STOP_UNCONFIRMED",m);
                 throw new BadRequestException(m);
             }
-            String observed=mapState(terminal);
-            String executionState=mapExecution(terminal);
+            String observed=mapState(terminal), executionState=mapExecution(terminal);
             jdbc.update("UPDATE realtime_sync_execution SET status=?,finished_at=CURRENT_TIMESTAMP,result_uncertain=FALSE,error_message=NULL WHERE id=?",executionState,execution.id());
             jdbc.update("UPDATE realtime_sync_definition SET observed_state=?,last_error=NULL WHERE id=?",observed,id);
             event(id,execution.id(),observed,"Flink 终态="+terminal+", 停止任务 by "+operator(operator));
@@ -199,40 +269,26 @@ public class RealtimeSyncService {
             try{
                 JsonNode state=gateway.job(environments.get(job.runtimeEnvironmentId()),execution.engineJobId());
                 String flink=state.path("state").asText("UNKNOWN");
-                String observed=mapState(flink);
-                String executionState=mapExecution(flink);
+                String observed=mapState(flink), executionState=mapExecution(flink);
                 jdbc.update("UPDATE realtime_sync_definition SET observed_state=?,last_error=NULL WHERE id=?",observed,id);
-                if(Set.of("FINISHED","FAILED","CANCELED").contains(flink))
-                    jdbc.update("UPDATE realtime_sync_execution SET status=?,finished_at=CURRENT_TIMESTAMP,result_uncertain=FALSE WHERE id=?",executionState,execution.id());
-                else
-                    jdbc.update("UPDATE realtime_sync_execution SET status=?,finished_at=NULL,result_uncertain=FALSE WHERE id=?",executionState,execution.id());
-                job=get(id);
-                execution=latestExecution(id);
+                if(Set.of("FINISHED","FAILED","CANCELED").contains(flink)) jdbc.update("UPDATE realtime_sync_execution SET status=?,finished_at=CURRENT_TIMESTAMP,result_uncertain=FALSE WHERE id=?",executionState,execution.id());
+                else jdbc.update("UPDATE realtime_sync_execution SET status=?,finished_at=NULL,result_uncertain=FALSE WHERE id=?",executionState,execution.id());
+                job=get(id);execution=latestExecution(id);
             }catch(RuntimeException ignored){}
         }
         return new RealtimeViews.Runtime(job,execution,job.runtimeEnvironmentId()==null?null:environments.get(job.runtimeEnvironmentId()));
     }
 
-    public void refreshAllRuntimeStates(){
-        for(RealtimeViews.Job job:list()){
-            try{ runtime(job.id()); }catch(RuntimeException ignored){}
-        }
-    }
-
+    public void refreshAllRuntimeStates(){for(RealtimeViews.Job job:list()){try{ runtime(job.id()); }catch(RuntimeException ignored){}}}
     public JsonNode checkpoints(long id){RealtimeViews.Job job=requireActiveJob(id,"Checkpoint");RealtimeViews.Execution e=requireExecution(id);JsonNode raw=gateway.checkpoints(environments.get(requireEnv(job)),e.engineJobId());persistCheckpoint(id,e.id(),raw);return raw;}
     public JsonNode metrics(long id){RealtimeViews.Job job=requireActiveJob(id,"运行指标");RealtimeViews.Execution e=requireExecution(id);return gateway.metrics(environments.get(requireEnv(job)),e.engineJobId());}
-    public String logs(long id){
-        get(id);
-        RealtimeViews.Execution e=latestExecution(id);
-        if(e==null) return "暂无本地执行日志";
-        String local=jdbc.query("SELECT local_log FROM realtime_sync_execution WHERE id=?",rs->rs.next()?rs.getString(1):null,e.id());
-        if(local!=null&&!local.isBlank()) return local;
-        if(e.errorMessage()!=null&&!e.errorMessage().isBlank()) return e.errorMessage();
-        return "当前执行实例暂无本地日志";
-    }
+    public String logs(long id){get(id);RealtimeViews.Execution e=latestExecution(id);if(e==null)return "暂无本地执行日志";String local=jdbc.query("SELECT local_log FROM realtime_sync_execution WHERE id=?",rs->rs.next()?rs.getString(1):null,e.id());if(local!=null&&!local.isBlank())return local;if(e.errorMessage()!=null&&!e.errorMessage().isBlank())return e.errorMessage();return "当前执行实例暂无本地日志";}
     public String yaml(long id){return configBuilder.build(get(id).spec(),true);}
 
-    private Map<String,Object> publishedSpec(long id,int version){String json=jdbc.queryForObject("SELECT spec_json FROM realtime_sync_version WHERE job_id=? AND version_no=?",String.class,id,version);return parse(json);}
+    private void ensureSameEndpoint(Map<String,Object> oldSpec,Map<String,Object> newSpec,String key,String label){if(!Objects.equals(str(oldSpec.get(key)),str(newSpec.get(key))))throw new BadRequestException("运行中新增表不允许修改"+label+"，请停止任务后修改");}
+    @SuppressWarnings("unchecked") private Map<String,String> tableMapping(Map<String,Object> spec){Map<String,String> out=new LinkedHashMap<>();Object raw=spec.get("tables");if(raw instanceof List<?> list)for(Object item:list)if(item instanceof Map<?,?> m){String source=str(m.get("sourceTable"));if(!source.isBlank())out.put(source,str(m.get("targetTable")).isBlank()?source:str(m.get("targetTable")));}return out;}
+    @SuppressWarnings("unchecked") private String savepointDirectory(Map<String,Object> spec){Object raw=spec.get("resources");if(raw instanceof Map<?,?> m)return str(((Map<String,Object>)m).get("savepointPath"));return "";}
+    private Map<String,Object> publishedSpec(long id,int version){String raw=jdbc.queryForObject("SELECT spec_json FROM realtime_sync_version WHERE job_id=? AND version_no=?",String.class,id,version);return parse(raw);}
     private RealtimeViews.Execution latestExecution(long jobId){return jdbc.query("SELECT * FROM realtime_sync_execution WHERE job_id=? ORDER BY id DESC LIMIT 1",(rs,n)->execution(rs),jobId).stream().findFirst().orElse(null);}
     private RealtimeViews.Execution requireExecution(long id){RealtimeViews.Execution e=latestExecution(id);if(e==null||e.engineJobId()==null)throw new BadRequestException("实时任务尚无 Flink 运行实例");return e;}
     private RealtimeViews.Job requireActiveJob(long id,String resource){RealtimeViews.Job job=get(id);if(!Set.of("RUNNING","STARTING").contains(job.observedState()))throw new BadRequestException("实时任务当前为"+job.observedState()+"，没有可读取的当前"+resource);return job;}
@@ -245,25 +301,10 @@ public class RealtimeSyncService {
     private String json(Object value){try{return mapper.writeValueAsString(value);}catch(Exception ex){throw new BadRequestException("配置无法序列化");}}
     private String digest(String value){try{return java.util.HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8)));}catch(Exception ex){return UUID.randomUUID().toString();}}
     private String operator(String value){return value==null||value.isBlank()?"admin":value.trim();}
+    private String str(Object value){return value==null?"":String.valueOf(value).trim();}
     private String msg(Throwable ex){return ex.getMessage()==null?ex.getClass().getSimpleName():ex.getMessage();}
-    private boolean isJobNotFound(Throwable ex){
-        String value=msg(ex);
-        return value.contains("Flink REST 返回 404") || value.contains("Job could not be found") || value.contains("Could not find Flink job");
-    }
-    private String waitForTerminal(FlinkEnvironmentView env,String engineJobId,long timeoutMs){
-        long deadline=System.currentTimeMillis()+Math.max(1000L,timeoutMs);
-        while(System.currentTimeMillis()<deadline){
-            try {
-                String state=gateway.job(env,engineJobId).path("state").asText("UNKNOWN");
-                if(Set.of("FINISHED","CANCELED","FAILED").contains(state)) return state;
-            } catch (RuntimeException ex) {
-                if (isJobNotFound(ex)) return "CANCELED";
-                throw ex;
-            }
-            try{Thread.sleep(250L);}catch(InterruptedException ex){Thread.currentThread().interrupt();return null;}
-        }
-        return null;
-    }
+    private boolean isJobNotFound(Throwable ex){String value=msg(ex);return value.contains("Flink REST 返回 404")||value.contains("Job could not be found")||value.contains("Could not find Flink job");}
+    private String waitForTerminal(FlinkEnvironmentView env,String engineJobId,long timeoutMs){long deadline=System.currentTimeMillis()+Math.max(1000L,timeoutMs);while(System.currentTimeMillis()<deadline){try{String state=gateway.job(env,engineJobId).path("state").asText("UNKNOWN");if(Set.of("FINISHED","CANCELED","FAILED").contains(state))return state;}catch(RuntimeException ex){if(isJobNotFound(ex))return "CANCELED";throw ex;}try{Thread.sleep(250L);}catch(InterruptedException ex){Thread.currentThread().interrupt();return null;}}return null;}
     private String mapState(String s){return switch(s){case "RUNNING"->"RUNNING";case "CREATED","INITIALIZING","RECONCILING"->"STARTING";case "FINISHED","CANCELED"->"STOPPED";case "FAILED"->"FAILED";default->"UNKNOWN";};}
     private String mapExecution(String s){return switch(s){case "RUNNING"->"RUNNING";case "CREATED","INITIALIZING","RECONCILING"->"STARTING";case "FINISHED"->"FINISHED";case "CANCELED"->"STOPPED";case "FAILED"->"FAILED";default->"UNKNOWN";};}
     private boolean executionNeedsRefresh(String status){return !Set.of("FINISHED","FAILED","STOPPED","CANCELED","SUCCESS").contains(status==null?"":status.toUpperCase(Locale.ROOT));}
