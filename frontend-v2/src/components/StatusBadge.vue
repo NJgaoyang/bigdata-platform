@@ -5,7 +5,7 @@ const props = defineProps<{ status?: string; label?: string }>()
 const normalized = computed(() => (props.status || 'UNKNOWN').toUpperCase())
 const tone = computed(() => {
   const value = normalized.value
-  if (value.includes('SUCCESS') || value.includes('FINISHED') || value === 'ACTIVE' || value === 'RUNNING') return 'success'
+  if (value.includes('SUCCESS') || value.includes('FINISHED') || value === 'ACTIVE' || value === 'RUNNING' || value === 'HEALTHY' || value === 'UP') return 'success'
   if (value.includes('FAIL') || value.includes('ERROR') || value.includes('DOWN')) return 'danger'
   if (value.includes('START') || value.includes('SUBMIT') || value.includes('PENDING') || value.includes('WAIT')) return 'warning'
   return 'neutral'

@@ -42,7 +42,7 @@ public class FlinkCdcConfigBuilder {
          .append("\n  scan.snapshot.fetch.size: ").append(intValue(spec.get("fetchSize"),1024))
          .append("\n  treat-tinyint1-as-boolean.enabled: false")
          .append("\n  schema-change.enabled: ").append(boolValue(spec, "syncSchema", true))
-         .append("\n  scan.newly-added-table.enabled: ").append(newTableAuto(spec))
+         .append("\n  scan.binlog.newly-added-table.enabled: ").append(newTableAuto(spec))
          .append("\n  heartbeat.interval: ").append(intValue(spec.get("heartbeatMs"),30000)).append("ms")
          .append("\n  server-time-zone: ").append(q(sourceView.timezone()==null||sourceView.timezone().isBlank()?"Asia/Shanghai":sourceView.timezone())).append("\n");
         if("timestamp".equalsIgnoreCase(str(spec.get("startupMode")))) y.append("  scan.startup.timestamp-millis: ").append(longValue(spec.get("timestampMillis"))).append("\n");

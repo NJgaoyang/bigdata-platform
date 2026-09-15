@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import PageHeader from '../../components/PageHeader.vue'
 import StatusBadge from '../../components/StatusBadge.vue'
@@ -9,12 +9,17 @@ import { operationsApi, type OperationInstance } from '../../api/domain'
 const rows = ref<OperationInstance[]>([])
 const loading = ref(false)
 const type = ref('ALL')
+const keyword = ref('')
 const logVisible = ref(false)
 const logLoading = ref(false)
 const logMaximized = ref(false)
 const logText = ref('')
 const logRow = ref<OperationInstance | null>(null)
 let logTimer: ReturnType<typeof setInterval> | null = null
+const filteredRows = computed(() => {
+  const q=keyword.value.trim().toLowerCase()
+  return rows.value.filter(r => (type.value === 'ALL' || r.type === type.value) && (!q || [r.name,r.status,r.createdBy,r.externalId].some(v => String(v||'').toLowerCase().includes(q))))
+})
 
 async function load() {
   loading.value = true
@@ -70,9 +75,10 @@ onBeforeUnmount(() => { stopLogPolling(); window.removeEventListener('keydown', 
       <div class="ds-toolbar">
         <el-segmented v-model="type" :options="[{label:'全部',value:'ALL'},{label:'离线',value:'OFFLINE'},{label:'实时',value:'REALTIME'}]" />
         <div class="ds-spacer" />
+        <el-input v-model="keyword" clearable placeholder="搜索任务名称 / 状态 / 创建人" style="width:280px" />
         <el-button :loading="loading" @click="load">刷新</el-button>
       </div>
-      <el-table :data="rows.filter(r => type === 'ALL' || r.type === type)" v-loading="loading">
+      <el-table :data="filteredRows" v-loading="loading">
         <el-table-column prop="name" label="任务" width="180" show-overflow-tooltip />
         <el-table-column label="状态" width="120"><template #default="s"><StatusBadge :status="s.row.status" :label="statusLabel(s.row.status)" /></template></el-table-column>
         <el-table-column prop="createdBy" label="创建人" min-width="120" show-overflow-tooltip><template #default="s">{{ s.row.createdBy || 'platform' }}</template></el-table-column>

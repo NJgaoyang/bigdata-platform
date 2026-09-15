@@ -50,7 +50,8 @@ class FlinkCdcConfigBuilderTest {
         assertTrue(yaml.contains("sink.properties.strict_mode: 'true'"));
         assertFalse(yaml.contains("scan.incremental.snapshot.backfill.skip"));
         assertTrue(yaml.contains("schema-change.enabled: true"));
-        assertTrue(yaml.contains("scan.newly-added-table.enabled: true"));
+        assertTrue(yaml.contains("scan.binlog.newly-added-table.enabled: true"));
+        assertFalse(yaml.contains("scan.newly-added-table.enabled:"));
         assertTrue(yaml.contains("treat-tinyint1-as-boolean.enabled: false"));
         assertFalse(yaml.contains("debezium.bigint.unsigned.handling.mode"));
         assertFalse(yaml.contains("sink.buffer-flush.max-rows"));
