@@ -34,7 +34,7 @@ public class FlinkCdcConfigBuilder {
         StringBuilder y=new StringBuilder();
         y.append("source:\n  type: mysql\n  hostname: ").append(q(sourceView.host())).append("\n  port: ").append(sourceView.port())
          .append("\n  username: ").append(q(source.username())).append("\n  password: ").append(q(password))
-         .append("\n  tables: ").append(q(sourceDb+"."+tableRegex(tables,"sourceTable")));
+         .append("\n  tables: ").append(q(sourceTablePattern(spec,sourceDb,tables)));
         String serverId=str(spec.get("serverId"));
         if(!serverId.isBlank()) y.append("\n  server-id: ").append(q(serverId));
         y.append("\n  scan.startup.mode: ").append(q(startup(str(spec.getOrDefault("startupMode","initial")))))
@@ -76,7 +76,15 @@ public class FlinkCdcConfigBuilder {
          .append("  schema.change.behavior: ").append(q(str(spec.getOrDefault("schemaEvolution","EXCEPTION")).toLowerCase(Locale.ROOT))).append("\n")
          .append("  local-time-zone: ").append(q(sourceView.timezone()==null||sourceView.timezone().isBlank()?"Asia/Shanghai":sourceView.timezone())).append("\n");
         y.append("route:\n");
-        for(Map<String,Object> t:tables) y.append("  - source-table: ").append(q(sourceDb+"."+str(t.get("sourceTable")))).append("\n    sink-table: ").append(q(sinkDb+"."+str(t.getOrDefault("targetTable",t.get("sourceTable"))))).append("\n");
+        if (fullDatabase(spec)) {
+            Map<String,Object> naming=spec.get("targetNaming") instanceof Map<?,?> raw?(Map<String,Object>)raw:Map.of();
+            String prefix=str(naming.get("prefix")), suffix=str(naming.get("suffix"));
+            y.append("  - source-table: ").append(q(sourceDb+".\\.*"))
+             .append("\n    sink-table: ").append(q(sinkDb+"."+prefix+"<>"+suffix))
+             .append("\n    replace-symbol: '<>'\n");
+        } else {
+            for(Map<String,Object> t:tables) y.append("  - source-table: ").append(q(sourceDb+"."+str(t.get("sourceTable")))).append("\n    sink-table: ").append(q(sinkDb+"."+str(t.getOrDefault("targetTable",t.get("sourceTable"))))).append("\n");
+        }
         return y.toString();
     }
     private String sanitizeLegacyYaml(String yaml){
@@ -92,6 +100,8 @@ public class FlinkCdcConfigBuilder {
     private String str(Object o){return o==null?"":String.valueOf(o).trim();}
     private String q(String s){return "'"+(s==null?"":s.replace("'","''"))+"'";}
     private String tableRegex(List<Map<String,Object>> tables,String key){return "("+String.join("|",tables.stream().map(t->str(t.get(key)).replace(".","\\.")).toList())+")";}
+    private boolean fullDatabase(Map<String,Object> spec){return "FULL_DATABASE".equalsIgnoreCase(str(spec.get("syncScope")));}
+    private String sourceTablePattern(Map<String,Object> spec,String sourceDb,List<Map<String,Object>> tables){return fullDatabase(spec)?sourceDb+".\\.*":sourceDb+"."+tableRegex(tables,"sourceTable");}
     private String startup(String mode){return switch(mode){case "latest-offset"->"latest-offset";case "timestamp"->"timestamp";case "specific-offset"->"specific-offset";default->"initial";};}
     @SuppressWarnings("unchecked") private boolean newTableAuto(Map<String,Object> spec){Object raw=spec.get("schemaPolicies");if(!(raw instanceof Map<?,?> m))return true;return "AUTO".equalsIgnoreCase(str(((Map<String,Object>)m).getOrDefault("newTable","AUTO")));}
     @SuppressWarnings("unchecked") private boolean boolValue(Map<String,Object> spec,String key,boolean fallback){Object policies=spec.get("schemaPolicies");if(policies instanceof Map<?,?> m && ((Map<String,Object>)m).containsKey(key)){Object v=((Map<String,Object>)m).get(key);return v instanceof Boolean b?b:Boolean.parseBoolean(String.valueOf(v));}Object v=spec.get(key);return v==null?fallback:(v instanceof Boolean b?b:Boolean.parseBoolean(String.valueOf(v)));}

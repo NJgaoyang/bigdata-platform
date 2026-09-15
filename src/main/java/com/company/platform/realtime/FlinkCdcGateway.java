@@ -130,7 +130,7 @@ public class FlinkCdcGateway {
         if(resources.get("taskSlots")!=null)addD(out,"taskmanager.numberOfTaskSlots",String.valueOf(intValue(resources.get("taskSlots"),2)));
         addIf(out,"state.backend.type",resources.get("stateBackend"));
         String advanced=str(resources.get("advancedParams"));
-        for(String line:advanced.split("[\r\n,]+")){String v=line.trim();if(v.isBlank())continue;int idx=v.indexOf('=');if(idx<=0)throw new BadRequestException("高级 Flink 参数格式必须为 key=value");String key=v.substring(0,idx).trim(),value=v.substring(idx+1).trim();if(!key.matches("[A-Za-z0-9._-]+"))throw new BadRequestException("高级 Flink 参数名不合法："+key);addD(out,key,value);}
+        for(String line:advanced.split("[\r\n,]+")){String v=line.trim();if(v.isBlank())continue;int idx=v.indexOf('=');if(idx<=0)throw new BadRequestException("高级 Flink 参数格式必须为 key=value");String key=v.substring(0,idx).trim(),value=v.substring(idx+1).trim();if(!key.matches("[A-Za-z0-9._-]+"))throw new BadRequestException("高级 Flink 参数名不合法："+key);if(isUnsupportedOption(key)) continue;addD(out,key,value);}
         return out;
     }
     private String sanitizeYaml(String yaml){
@@ -139,6 +139,7 @@ public class FlinkCdcGateway {
                 .filter(line -> !line.matches("(?i)^\\s*scan\\.incremental\\.snapshot\\.backfill\\.skip\\s*:.*$"))
                 .collect(java.util.stream.Collectors.joining("\n"));
     }
+    private boolean isUnsupportedOption(String key){return "scan.incremental.snapshot.backfill.skip".equalsIgnoreCase(str(key));}
     private void addIf(List<String> out,String key,Object value){String v=str(value);if(!v.isBlank())addD(out,key,v);}
     private void addD(List<String> out,String key,String value){if(value!=null&&!value.isBlank())out.add("-D"+key+"="+value);}
     private String seconds(Object value,int fallback){return intValue(value,fallback)+"s";}
