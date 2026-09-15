@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { productNavigation, releaseNavigation, systemNavigation } from '../navigation'
 import { authApi, type CurrentUser } from '../api/auth'
+import { ArrowDown } from '@element-plus/icons-vue'
 import { moduleViewPermission, hasPermission } from '../auth/permissions'
 
 const route = useRoute()
@@ -48,9 +49,9 @@ onMounted(loadMe)
       <div class="topbar__right">
         <el-button v-if="canRelease" plain @click="go('/release/history')">发布中心</el-button>
         <el-dropdown trigger="click">
-          <button type="button" class="user-entry">
+          <button type="button" class="user-entry" :title="`${username} · ${roleName(roleCode)}`">
             <span class="user-entry__avatar">{{ (username||'U').slice(0,1).toUpperCase() }}</span>
-            <span class="user-entry__copy"><strong>{{ username }}</strong><small>{{ roleName(roleCode) }}</small></span>
+            <el-icon class="user-entry__arrow"><ArrowDown /></el-icon>
           </button>
           <template #dropdown>
             <el-dropdown-menu>
@@ -91,12 +92,10 @@ onMounted(loadMe)
 .product-nav__item:hover { color: var(--ds-brand); }
 .product-nav__item.active { color: var(--ds-text); font-weight: 650; }
 .product-nav__item.active::after { content: ''; position: absolute; left: 14px; right: 14px; bottom: 0; height: 3px; border-radius: 3px 3px 0 0; background: var(--ds-brand); }
-.topbar__right { min-width: 260px; margin-left: auto; display: flex; align-items: center; gap: 10px; }
-.user-entry { display: flex; align-items: center; gap: 8px; padding: 0 4px; border: 0; background: transparent; cursor: pointer; }
-.user-entry__avatar { width: 36px; height: 36px; display: grid; place-items: center; border-radius: 50%; background: var(--ds-brand-soft); color: var(--ds-brand); font-weight: 700; }
-.user-entry__copy { display: flex; flex-direction: column; align-items: flex-start; }
-.user-entry__copy strong { color: var(--ds-text); font-size: 12px; }
-.user-entry__copy small { margin-top: 2px; color: var(--ds-text-tertiary); font-size: 9px; }
+.topbar__right { margin-left: auto; display: flex; align-items: center; justify-content: flex-end; gap: 12px; }
+.user-entry { display: flex; align-items: center; gap: 8px; padding: 0; border: 0; background: transparent; cursor: pointer; }
+.user-entry__avatar { width: 40px; height: 40px; display: grid; place-items: center; border-radius: 50%; background: #f0f2f5; color: #52637a; font-size: 14px; font-weight: 700; }
+.user-entry__arrow { color: #98a2b3; font-size: 14px; }
 .body-shell { min-height: calc(100vh - var(--ds-topbar)); display: grid; grid-template-columns: var(--ds-sidebar) minmax(0, 1fr); }
 .body-shell--full { display: block; }
 .sidebar { position: sticky; top: var(--ds-topbar); align-self: start; height: calc(100vh - var(--ds-topbar)); overflow-y: auto; padding: 20px 10px; border-right: 1px solid var(--ds-border); background: #fff; }

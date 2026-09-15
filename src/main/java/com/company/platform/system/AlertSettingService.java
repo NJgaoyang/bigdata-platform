@@ -85,6 +85,7 @@ public class AlertSettingService {
 
     public String test(long id) {
         Row current = row(id);
+        if (!current.enabled()) throw new BadRequestException("告警配置已关闭，请先启用后再测试");
         Config config = parse(current.configJson());
         send(config, current.name(), "TEST", "这是一条来自大数据平台的钉钉告警测试消息", 0L, 0L, 0D);
         audit.record("TEST_ALERT_SETTING", "ALERT_CHANNEL", id, current.name(), "admin");
@@ -92,18 +93,22 @@ public class AlertSettingService {
     }
 
     public void notifyTask(String taskName, String status, String message, Long durationMs, Long rows, Double qps) {
-        List<Row> channels = jdbc.query("SELECT id,name,channel_type,config_json,enabled FROM alert_channel WHERE enabled=TRUE",
-                (rs, n) -> new Row(rs.getLong("id"), rs.getString("name"), rs.getString("channel_type"), rs.getString("config_json"), rs.getBoolean("enabled")));
-        for (Row channel : channels) {
-            if (!"DINGTALK".equalsIgnoreCase(channel.channelType())) continue;
-            Config config;
-            try { config = parse(channel.configJson()); } catch (RuntimeException ignored) { continue; }
-            if (!matches(config.triggerEvent(), status)) continue;
-            CompletableFuture.runAsync(() -> {
-                try { send(config, taskName, status, message, durationMs, rows, qps); }
-                catch (RuntimeException ignored) { }
-            });
+        List<Long> channelIds = jdbc.query("SELECT id FROM alert_channel WHERE enabled=TRUE AND UPPER(channel_type)='DINGTALK'",
+                (rs, n) -> rs.getLong("id"));
+        for (Long channelId : channelIds) {
+            CompletableFuture.runAsync(() -> sendIfStillEnabled(channelId, taskName, status, message, durationMs, rows, qps));
         }
+    }
+
+    private void sendIfStillEnabled(long channelId, String taskName, String status, String message, Long durationMs, Long rows, Double qps) {
+        try {
+            Row current = jdbc.query("SELECT id,name,channel_type,config_json,enabled FROM alert_channel WHERE id=? AND enabled=TRUE",
+                    rs -> rs.next() ? new Row(rs.getLong("id"), rs.getString("name"), rs.getString("channel_type"), rs.getString("config_json"), true) : null, channelId);
+            if (current == null || !"DINGTALK".equalsIgnoreCase(current.channelType())) return;
+            Config config = parse(current.configJson());
+            if (!matches(config.triggerEvent(), status)) return;
+            send(config, taskName, status, message, durationMs, rows, qps);
+        } catch (RuntimeException ignored) { }
     }
 
     private AlertSettingView get(long id) {
