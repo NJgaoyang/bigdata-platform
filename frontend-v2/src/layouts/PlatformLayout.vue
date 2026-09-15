@@ -14,7 +14,7 @@ const visibleProducts=computed(()=>productNavigation.filter(item=>hasPermission(
 const activeProduct = computed(() => productNavigation.find(item => item.key === moduleKey.value))
 const canRelease=computed(()=>hasPermission(me.value,moduleViewPermission.release))
 const canSystem=computed(()=>hasPermission(me.value,moduleViewPermission.system))
-const isFullWidth = computed(() => moduleKey.value === 'workbench' || moduleKey.value === 'metadata')
+const isFullWidth = computed(() => moduleKey.value === 'workbench' || moduleKey.value === 'metadata' || moduleKey.value === 'development')
 const sideTitle = computed(() => {
   if (moduleKey.value === 'release') return '发布中心'
   if (moduleKey.value === 'system') return '系统设置'
@@ -35,7 +35,7 @@ onMounted(loadMe)
 
 <template>
   <div class="platform-shell">
-    <header class="topbar">
+    <header :class="['topbar', {'topbar--development': moduleKey === 'development'}]">
       <button class="brand" type="button" @click="go('/')" aria-label="返回工作台">
         <span class="brand__mark"><i /></span>
         <span class="brand__copy"><strong>DataSphere</strong><small>企业数据开发平台</small></span>
