@@ -25,14 +25,39 @@ public class FlinkCdcGateway {
     private static final Pattern JOB_ID=Pattern.compile("(?i)(?:JobID|Job ID|jobId)[^0-9a-f]*([0-9a-f]{32})");
     private final FlinkRestClient rest;
     public FlinkCdcGateway(FlinkRestClient rest){this.rest=rest;}
-    public SubmitResult submit(FlinkEnvironmentService.RuntimeEnvironment env,String yaml){ return submit(env,yaml,Map.of()); }
-    public SubmitResult submit(FlinkEnvironmentService.RuntimeEnvironment env,String yaml,Map<String,Object> spec){
+    public SubmitResult submit(FlinkEnvironmentService.RuntimeEnvironment env,String yaml){ return submit(env,yaml,Map.of(),null); }
+    public SubmitResult submit(FlinkEnvironmentService.RuntimeEnvironment env,String yaml,Map<String,Object> spec){ return submit(env,yaml,spec,null); }
+    public SubmitResult submit(FlinkEnvironmentService.RuntimeEnvironment env,String yaml,Map<String,Object> spec,String restoreSavepoint){
         if(!env.view().enabled()) throw new BadRequestException("Flink 环境已禁用");
         yaml = sanitizeYaml(yaml);
         List<String> dynamic = dynamicOptions(spec);
-        return "SSH".equalsIgnoreCase(env.view().submitterType())?submitSsh(env,yaml,dynamic):submitLocal(env,yaml,dynamic);
+        return "SSH".equalsIgnoreCase(env.view().submitterType())?submitSsh(env,yaml,dynamic,restoreSavepoint):submitLocal(env,yaml,dynamic,restoreSavepoint);
     }
     public void cancel(FlinkEnvironmentView env,String jobId){rest.patch(env.restUrl(),"/jobs/"+jobId+"?mode=cancel");}
+    public SavepointResult stopWithSavepoint(FlinkEnvironmentView env,String jobId,String targetDirectory){
+        ObjectNode body=JsonNodeFactory.instance.objectNode();
+        body.put("drain",false);
+        body.put("formatType","NATIVE");
+        if(targetDirectory!=null&&!targetDirectory.isBlank()) body.put("targetDirectory",targetDirectory.trim());
+        JsonNode trigger=rest.post(env.restUrl(),"/jobs/"+jobId+"/stop",body);
+        String triggerId=trigger.path("request-id").asText();
+        if(triggerId.isBlank()) throw new BadRequestException("Flink 已接受 Stop With Savepoint，但未返回 request-id");
+        long deadline=System.currentTimeMillis()+120_000L;
+        while(System.currentTimeMillis()<deadline){
+            JsonNode status=rest.get(env.restUrl(),"/jobs/"+jobId+"/savepoints/"+triggerId);
+            String state=status.path("status").path("id").asText();
+            if("COMPLETED".equalsIgnoreCase(state)){
+                JsonNode operation=status.path("operation");
+                JsonNode failure=operation.path("failure-cause");
+                if(!failure.isMissingNode()&&!failure.isNull()&&!failure.isEmpty()) throw new BadRequestException("Flink Savepoint 失败："+failure.toString());
+                String location=operation.path("location").asText();
+                if(location.isBlank()) throw new BadRequestException("Flink Savepoint 已完成但未返回保存路径");
+                return new SavepointResult(triggerId,location);
+            }
+            try{Thread.sleep(500L);}catch(InterruptedException ex){Thread.currentThread().interrupt();throw new BadRequestException("等待 Flink Savepoint 时被中断");}
+        }
+        throw new BadRequestException("等待 Flink Stop With Savepoint 超时");
+    }
     public JsonNode job(FlinkEnvironmentView env,String jobId){return rest.get(env.restUrl(),"/jobs/"+jobId);}
     public JsonNode checkpoints(FlinkEnvironmentView env,String jobId){return rest.get(env.restUrl(),"/jobs/"+jobId+"/checkpoints");}
     public JsonNode metrics(FlinkEnvironmentView env,String jobId){
@@ -54,13 +79,13 @@ public class FlinkCdcGateway {
         return result;
     }
     public JsonNode exceptions(FlinkEnvironmentView env,String jobId){return rest.get(env.restUrl(),"/jobs/"+jobId+"/exceptions");}
-    private SubmitResult submitLocal(FlinkEnvironmentService.RuntimeEnvironment env,String yaml,List<String> dynamic){
+    private SubmitResult submitLocal(FlinkEnvironmentService.RuntimeEnvironment env,String yaml,List<String> dynamic,String restoreSavepoint){
         Path file=null;
         try{
             if(env.view().flinkCdcHome()==null||env.view().flinkCdcHome().isBlank())throw new BadRequestException("Flink CDC Home 未配置");
             file=Files.createTempFile("datasphere-cdc-",".yaml");Files.writeString(file,yaml,StandardCharsets.UTF_8);
             String script=Path.of(env.view().flinkCdcHome(),"bin","flink-cdc.sh").toString();
-            List<String> command=new ArrayList<>(); command.add(script); command.addAll(dynamic); command.add(file.toString()); command.add("--flink-home"); command.add(env.view().flinkHome());
+            List<String> command=new ArrayList<>(); command.add(script); if(restoreSavepoint!=null&&!restoreSavepoint.isBlank()){command.add("-s");command.add(restoreSavepoint);} command.addAll(dynamic); command.add(file.toString()); command.add("--flink-home"); command.add(env.view().flinkHome());
             ProcessBuilder pb=new ProcessBuilder(command);
             if(env.view().javaHome()!=null&&!env.view().javaHome().isBlank())pb.environment().put("JAVA_HOME",env.view().javaHome());
             Process proc=pb.redirectErrorStream(true).start();
@@ -72,7 +97,7 @@ public class FlinkCdcGateway {
         }catch(BadRequestException ex){throw ex;}catch(Exception ex){throw new BadRequestException("Flink CDC 提交失败："+ex.getMessage());}
         finally{if(file!=null)try{Files.deleteIfExists(file);}catch(IOException ignored){}}
     }
-    private SubmitResult submitSsh(FlinkEnvironmentService.RuntimeEnvironment env,String yaml,List<String> dynamic){
+    private SubmitResult submitSsh(FlinkEnvironmentService.RuntimeEnvironment env,String yaml,List<String> dynamic,String restoreSavepoint){
         Session session=null;ChannelSftp sftp=null;ChannelExec exec=null;String remote="/tmp/datasphere-cdc-"+UUID.randomUUID()+".yaml";
         try{
             JSch jsch=new JSch();
@@ -94,7 +119,7 @@ public class FlinkCdcGateway {
             session.setConfig("StrictHostKeyChecking",Files.isRegularFile(knownHosts)?"yes":"no");
             session.connect(10000);
             sftp=(ChannelSftp)session.openChannel("sftp");sftp.connect(5000);sftp.put(new ByteArrayInputStream(yaml.getBytes(StandardCharsets.UTF_8)),remote);sftp.disconnect();sftp=null;
-            List<String> args=new ArrayList<>();args.add(env.view().flinkCdcHome()+"/bin/flink-cdc.sh");args.addAll(dynamic);args.add(remote);args.add("--flink-home");args.add(env.view().flinkHome());
+            List<String> args=new ArrayList<>();args.add(env.view().flinkCdcHome()+"/bin/flink-cdc.sh");if(restoreSavepoint!=null&&!restoreSavepoint.isBlank()){args.add("-s");args.add(restoreSavepoint);}args.addAll(dynamic);args.add(remote);args.add("--flink-home");args.add(env.view().flinkHome());
             String command=String.join(" ",args.stream().map(this::shellQuote).toList());
             exec=(ChannelExec)session.openChannel("exec");exec.setCommand(command);ByteArrayOutputStream out=new ByteArrayOutputStream();exec.setOutputStream(out);exec.setErrStream(out);exec.connect(5000);
             long deadline=System.currentTimeMillis()+45000;while(!exec.isClosed()&&System.currentTimeMillis()<deadline)Thread.sleep(200);
@@ -149,4 +174,5 @@ public class FlinkCdcGateway {
     private String shellQuote(String value){return "'"+String.valueOf(value).replace("'","'\"'\"'")+"'";}
     private String parseJobId(String text){Matcher m=JOB_ID.matcher(text==null?"":text);if(!m.find())throw new BadRequestException("Flink CDC 已返回但未识别到 Job ID，请检查提交日志："+text);return m.group(1);}
     public record SubmitResult(String jobId,String log){}
+    public record SavepointResult(String triggerId,String location){}
 }
