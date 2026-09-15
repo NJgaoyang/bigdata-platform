@@ -5,7 +5,7 @@ const props = defineProps<{ status?: string; label?: string }>()
 const normalized = computed(() => (props.status || 'UNKNOWN').toUpperCase())
 const tone = computed(() => {
   const value = normalized.value
-  if (value.includes('SUCCESS') || value.includes('FINISHED') || value === 'ACTIVE' || value === 'RUNNING' || value === 'HEALTHY' || value === 'UP') return 'success'
+  if (value.includes('SUCCESS') || value.includes('FINISHED') || value.includes('COMPLETED') || value === 'ACTIVE' || value === 'RUNNING' || value === 'HEALTHY' || value === 'UP' || value === 'NORMAL' || value === 'OK') return 'success'
   if (value.includes('FAIL') || value.includes('ERROR') || value.includes('DOWN')) return 'danger'
   if (value.includes('START') || value.includes('SUBMIT') || value.includes('PENDING') || value.includes('WAIT')) return 'warning'
   return 'neutral'
@@ -15,6 +15,7 @@ const tone = computed(() => {
 <style scoped>
 .status-badge { display: inline-flex; align-items: center; gap: 6px; color: #475467; font-size: 12px; }
 .status-badge i { width: 7px; height: 7px; border-radius: 50%; background: #98a2b3; }
+.status-badge--success { color: var(--ds-success); }
 .status-badge--success i { background: var(--ds-success); }
 .status-badge--danger i { background: var(--ds-danger); }
 .status-badge--warning i { background: var(--ds-warning); }
