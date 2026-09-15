@@ -219,8 +219,8 @@ public class RealtimeSyncService {
         }
     }
 
-    public JsonNode checkpoints(long id){RealtimeViews.Job job=get(id);RealtimeViews.Execution e=requireExecution(id);JsonNode raw=gateway.checkpoints(environments.get(requireEnv(job)),e.engineJobId());persistCheckpoint(id,e.id(),raw);return raw;}
-    public JsonNode metrics(long id){RealtimeViews.Job job=get(id);RealtimeViews.Execution e=requireExecution(id);return gateway.metrics(environments.get(requireEnv(job)),e.engineJobId());}
+    public JsonNode checkpoints(long id){RealtimeViews.Job job=requireActiveJob(id,"Checkpoint");RealtimeViews.Execution e=requireExecution(id);JsonNode raw=gateway.checkpoints(environments.get(requireEnv(job)),e.engineJobId());persistCheckpoint(id,e.id(),raw);return raw;}
+    public JsonNode metrics(long id){RealtimeViews.Job job=requireActiveJob(id,"运行指标");RealtimeViews.Execution e=requireExecution(id);return gateway.metrics(environments.get(requireEnv(job)),e.engineJobId());}
     public String logs(long id){
         get(id);
         RealtimeViews.Execution e=latestExecution(id);
@@ -235,6 +235,7 @@ public class RealtimeSyncService {
     private Map<String,Object> publishedSpec(long id,int version){String json=jdbc.queryForObject("SELECT spec_json FROM realtime_sync_version WHERE job_id=? AND version_no=?",String.class,id,version);return parse(json);}
     private RealtimeViews.Execution latestExecution(long jobId){return jdbc.query("SELECT * FROM realtime_sync_execution WHERE job_id=? ORDER BY id DESC LIMIT 1",(rs,n)->execution(rs),jobId).stream().findFirst().orElse(null);}
     private RealtimeViews.Execution requireExecution(long id){RealtimeViews.Execution e=latestExecution(id);if(e==null||e.engineJobId()==null)throw new BadRequestException("实时任务尚无 Flink 运行实例");return e;}
+    private RealtimeViews.Job requireActiveJob(long id,String resource){RealtimeViews.Job job=get(id);if(!Set.of("RUNNING","STARTING").contains(job.observedState()))throw new BadRequestException("实时任务当前为"+job.observedState()+"，没有可读取的当前"+resource);return job;}
     private long requireEnv(RealtimeViews.Job job){if(job.runtimeEnvironmentId()==null)throw new BadRequestException("未配置 Flink 环境");return job.runtimeEnvironmentId();}
     private void event(long jobId,Long executionId,String type,String detail){jdbc.update("INSERT INTO realtime_sync_event(job_id,execution_id,event_type,detail) VALUES(?,?,?,?)",jobId,executionId,type,detail);}
     private void persistCheckpoint(long jobId,long executionId,JsonNode raw){JsonNode latest=raw.path("latest").path("completed");if(latest.isMissingNode()||latest.isNull())return;long checkpointId=latest.path("id").asLong(0);if(checkpointId<=0)return;Integer count=jdbc.queryForObject("SELECT COUNT(*) FROM realtime_checkpoint WHERE job_id=? AND checkpoint_id=?",Integer.class,jobId,checkpointId);if(count!=null&&count>0)return;jdbc.update("INSERT INTO realtime_checkpoint(job_id,execution_id,checkpoint_id,status,duration_ms,state_size_bytes,completed_at,raw_json) VALUES(?,?,?,'COMPLETED',?,?,CURRENT_TIMESTAMP,?)",jobId,executionId,checkpointId,latest.path("end_to_end_duration").asLong(0),latest.path("state_size").asLong(0),raw.toString());}

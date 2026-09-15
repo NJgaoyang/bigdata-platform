@@ -33,13 +33,16 @@ public class RealtimeManagementService {
         return jdbc.query("SELECT * FROM realtime_sync_definition ORDER BY updated_at DESC", (rs,n) -> {
             long id = rs.getLong("id"); Map<String,Object> spec = parse(rs.getString("spec_json"));
             ExecutionSummary exec = latestExecution(id); CheckpointSummary cp = latestCheckpoint(id);
+            String observedState = rs.getString("observed_state");
+            boolean active = Set.of("RUNNING","STARTING").contains(observedState == null ? "" : observedState.toUpperCase(Locale.ROOT));
+            String checkpointStatus = active ? (cp == null ? "NOT_COLLECTED" : cp.status()) : currentCheckpointState(observedState);
+            LocalDateTime checkpointAt = active && cp != null ? cp.completedAt() : null;
             Long envId = rs.getObject("runtime_environment_id", Long.class); String envName = null;
             if (envId != null) try { envName = environments.get(envId).name(); } catch (RuntimeException ignored) { }
             return new ManagementRow(id, rs.getString("name"), str(spec.get("sourceDataSourceId")), str(spec.get("sourceDatabase")),
                     str(spec.get("sinkDataSourceId")), str(spec.get("sinkDatabase")), tableCount(spec), scope(spec),
-                    rs.getString("release_state"), rs.getString("observed_state"), envId, envName,
-                    exec == null ? null : exec.engineJobId(), null,
-                    cp == null ? "NOT_COLLECTED" : cp.status(), cp == null ? null : cp.completedAt(),
+                    rs.getString("release_state"), observedState, envId, envName,
+                    exec == null ? null : exec.engineJobId(), null, checkpointStatus, checkpointAt,
                     rs.getString("created_by"), timestamp(rs,"updated_at"), rs.getString("last_error"));
         });
     }
@@ -136,6 +139,15 @@ public class RealtimeManagementService {
     private boolean hasDuplicate(Connection c,String db,String table,List<String> keys)throws SQLException{String group=String.join(",",keys.stream().map(this::id).toList());try(Statement st=c.createStatement();ResultSet rs=st.executeQuery("SELECT 1 FROM "+id(db)+"."+id(table)+" GROUP BY "+group+" HAVING COUNT(*)>1 LIMIT 1")){return rs.next();}}
     private ExecutionSummary latestExecution(long jobId){return jdbc.query("SELECT engine_job_id,status,started_at FROM realtime_sync_execution WHERE job_id=? ORDER BY created_at DESC LIMIT 1",rs->rs.next()?new ExecutionSummary(rs.getString(1),rs.getString(2),timestamp(rs,"started_at")):null,jobId);}
     private CheckpointSummary latestCheckpoint(long jobId){return jdbc.query("SELECT status,completed_at FROM realtime_checkpoint WHERE job_id=? ORDER BY created_at DESC LIMIT 1",rs->rs.next()?new CheckpointSummary(rs.getString(1),timestamp(rs,"completed_at")):null,jobId);}
+    private String currentCheckpointState(String observedState){
+        String state=observedState==null?"":observedState.toUpperCase(Locale.ROOT);
+        return switch(state){
+            case "FAILED" -> "FAILED";
+            case "STOPPED", "STOPPING", "CANCELED", "FINISHED" -> "STOPPED";
+            case "UNKNOWN" -> "UNKNOWN";
+            default -> "NOT_COLLECTED";
+        };
+    }
     @SuppressWarnings("unchecked") private List<Map<String,Object>> tableMaps(Map<String,Object> spec){Object raw=spec.get("tables");if(!(raw instanceof List<?> l))return List.of();return l.stream().filter(Map.class::isInstance).map(x->(Map<String,Object>)x).toList();}
     private int tableCount(Map<String,Object> spec){return tableMaps(spec).size();}
     private String scope(Map<String,Object> spec){String v=str(spec.get("syncScope"));return v.isBlank()?(tableCount(spec)==1?"SINGLE_TABLE":"MULTI_TABLE"):v;}
