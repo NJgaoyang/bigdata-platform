@@ -15,7 +15,7 @@ public class RealtimeSyncController {
     private final RealtimeManagementService management;
     public RealtimeSyncController(RealtimeSyncService service, RealtimeManagementService management){this.service=service;this.management=management;}
     @GetMapping public Result<List<RealtimeViews.Job>> list(){return Result.ok(service.list());}
-    @GetMapping("/management") public Result<List<RealtimeManagementService.ManagementRow>> management(){return Result.ok(management.management());}
+    @GetMapping("/management") public Result<List<RealtimeManagementService.ManagementRow>> management(){service.refreshAllRuntimeStates();return Result.ok(management.management());}
     @GetMapping("/metadata/tables") public Result<List<RealtimeManagementService.TableOption>> tables(@RequestParam long dataSourceId,@RequestParam String database){return Result.ok(management.tables(dataSourceId,database));}
     @GetMapping("/metadata/columns") public Result<List<RealtimeManagementService.ColumnOption>> columns(@RequestParam long dataSourceId,@RequestParam String database,@RequestParam String table){return Result.ok(management.columns(dataSourceId,database,table));}
     @PostMapping public Result<RealtimeViews.Job> create(@Valid @RequestBody RealtimeRequests.CreateJobRequest r,HttpServletRequest req){return Result.ok(service.create(r,operator(req)),"实时任务草稿已创建");}

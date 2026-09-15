@@ -185,18 +185,28 @@ public class RealtimeSyncService {
     public RealtimeViews.Runtime runtime(long id){
         RealtimeViews.Job job=get(id);
         RealtimeViews.Execution execution=latestExecution(id);
-        if(execution!=null&&execution.engineJobId()!=null&&job.runtimeEnvironmentId()!=null&&Set.of("RUNNING","STARTING","UNKNOWN").contains(job.observedState())){
+        if(execution!=null&&execution.engineJobId()!=null&&job.runtimeEnvironmentId()!=null&&executionNeedsRefresh(execution.status())){
             try{
                 JsonNode state=gateway.job(environments.get(job.runtimeEnvironmentId()),execution.engineJobId());
                 String flink=state.path("state").asText("UNKNOWN");
                 String observed=mapState(flink);
-                jdbc.update("UPDATE realtime_sync_definition SET observed_state=? WHERE id=?",observed,id);
-                if(Set.of("FINISHED","FAILED","CANCELED").contains(flink)) jdbc.update("UPDATE realtime_sync_execution SET status=?,finished_at=CURRENT_TIMESTAMP WHERE id=?",mapExecution(flink),execution.id());
+                String executionState=mapExecution(flink);
+                jdbc.update("UPDATE realtime_sync_definition SET observed_state=?,last_error=NULL WHERE id=?",observed,id);
+                if(Set.of("FINISHED","FAILED","CANCELED").contains(flink))
+                    jdbc.update("UPDATE realtime_sync_execution SET status=?,finished_at=CURRENT_TIMESTAMP,result_uncertain=FALSE WHERE id=?",executionState,execution.id());
+                else
+                    jdbc.update("UPDATE realtime_sync_execution SET status=?,finished_at=NULL,result_uncertain=FALSE WHERE id=?",executionState,execution.id());
                 job=get(id);
                 execution=latestExecution(id);
             }catch(RuntimeException ignored){}
         }
         return new RealtimeViews.Runtime(job,execution,job.runtimeEnvironmentId()==null?null:environments.get(job.runtimeEnvironmentId()));
+    }
+
+    public void refreshAllRuntimeStates(){
+        for(RealtimeViews.Job job:list()){
+            try{ runtime(job.id()); }catch(RuntimeException ignored){}
+        }
     }
 
     public JsonNode checkpoints(long id){RealtimeViews.Job job=get(id);RealtimeViews.Execution e=requireExecution(id);JsonNode raw=gateway.checkpoints(environments.get(requireEnv(job)),e.engineJobId());persistCheckpoint(id,e.id(),raw);return raw;}
@@ -227,7 +237,8 @@ public class RealtimeSyncService {
         return null;
     }
     private String mapState(String s){return switch(s){case "RUNNING"->"RUNNING";case "CREATED","INITIALIZING","RECONCILING"->"STARTING";case "FINISHED","CANCELED"->"STOPPED";case "FAILED"->"FAILED";default->"UNKNOWN";};}
-    private String mapExecution(String s){return switch(s){case "FINISHED"->"FINISHED";case "CANCELED"->"STOPPED";case "FAILED"->"FAILED";default->s;};}
+    private String mapExecution(String s){return switch(s){case "RUNNING"->"RUNNING";case "CREATED","INITIALIZING","RECONCILING"->"STARTING";case "FINISHED"->"FINISHED";case "CANCELED"->"STOPPED";case "FAILED"->"FAILED";default->"UNKNOWN";};}
+    private boolean executionNeedsRefresh(String status){return !Set.of("FINISHED","FAILED","STOPPED","CANCELED","SUCCESS").contains(status==null?"":status.toUpperCase(Locale.ROOT));}
     private int intValue(Object value,int fallback){if(value==null)return fallback;try{return value instanceof Number n?n.intValue():Integer.parseInt(String.valueOf(value));}catch(Exception ex){return fallback;}}
     public record Validation(boolean valid,String message,List<String>warnings,String yamlPreview,List<RealtimePreCheckService.Item> items){}
 }

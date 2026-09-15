@@ -39,6 +39,7 @@ public class OperationsAggregationService {
     }
 
     public List<InstanceItem> instances() {
+        realtime.refreshAllRuntimeStates();
         List<InstanceItem> result = new ArrayList<>();
         result.addAll(jdbc.query("SELECT wi.id,wi.instance_code,w.name,wi.status,wi.run_type,wi.started_at,wi.finished_at,wi.error_message,wi.created_at " +
                 "FROM workflow_instance wi LEFT JOIN workflow w ON w.workflow_code=wi.workflow_code ORDER BY wi.created_at DESC LIMIT 200",

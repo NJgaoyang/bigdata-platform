@@ -15,7 +15,7 @@ public class FlinkCdcConfigBuilder {
     @SuppressWarnings("unchecked")
     public String build(Map<String,Object> spec, boolean maskSecrets){
         if ("YAML".equalsIgnoreCase(str(spec.get("editorMode")))) {
-            String yaml = str(spec.get("yaml"));
+            String yaml = sanitizeLegacyYaml(str(spec.get("yaml")));
             if (yaml.isBlank()) throw new BadRequestException("YAML 模式下配置不能为空");
             if (!yaml.contains("source:") || !yaml.contains("sink:") || !yaml.contains("pipeline:"))
                 throw new BadRequestException("YAML 至少需要 source / sink / pipeline 配置段");
@@ -80,6 +80,13 @@ public class FlinkCdcConfigBuilder {
         for(Map<String,Object> t:tables) y.append("  - source-table: ").append(q(sourceDb+"."+str(t.get("sourceTable")))).append("\n    sink-table: ").append(q(sinkDb+"."+str(t.getOrDefault("targetTable",t.get("sourceTable"))))).append("\n");
         return y.toString();
     }
+    private String sanitizeLegacyYaml(String yaml){
+        if(yaml==null||yaml.isBlank()) return yaml==null?"":yaml;
+        return Arrays.stream(yaml.split("\\R",-1))
+                .filter(line -> !line.trim().startsWith("scan.incremental.snapshot.backfill.skip:"))
+                .collect(java.util.stream.Collectors.joining("\n"));
+    }
+
     public void validate(Map<String,Object> spec){build(spec,true); if ("YAML".equalsIgnoreCase(str(spec.get("editorMode")))) return; String mode=str(spec.getOrDefault("startupMode","initial")); if(!Set.of("initial","latest-offset","timestamp","specific-offset").contains(mode))throw new BadRequestException("startupMode 不支持："+mode); int p=intValue(spec.get("parallelism"),1);if(p<1||p>128)throw new BadRequestException("parallelism 必须在 1-128");}
     private long longValue(Object o){if(o==null)return 0;return o instanceof Number n?n.longValue():Long.parseLong(String.valueOf(o));}
     private int intValue(Object o,int d){if(o==null)return d;return o instanceof Number n?n.intValue():Integer.parseInt(String.valueOf(o));}

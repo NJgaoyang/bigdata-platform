@@ -9,7 +9,7 @@ export function statusLabel(status?: string | null) {
     SUCCESS:'成功', SUCCEEDED:'成功', FINISHED:'成功', COMPLETED:'成功',
     RUNNING:'运行中', STARTING:'启动中', SUBMITTED:'已提交', QUEUED:'等待运行', PENDING:'等待中', WAITING:'等待中',
     FAILED:'失败', FAIL:'失败', ERROR:'失败', LOST:'已丢失', UNKNOWN:'未知',
-    STOPPED:'已停止', STOP:'已停止', CANCELLED:'已取消', CANCELED:'已取消', KILLED:'已终止',
+    STOPPED:'已停止', STOP:'已停止', CANCELLED:'已停止', CANCELED:'已停止', KILLED:'已终止',
     ACTIVE:'启用', ENABLED:'启用', ONLINE:'已上线', OFFLINE:'已下线', DISABLED:'禁用', INACTIVE:'禁用',
     HEALTHY:'健康', UP:'正常', DOWN:'异常', UNHEALTHY:'异常',
     DRAFT:'草稿', PUBLISHED:'已发布', RELEASED:'已发布', UNPUBLISHED:'未发布', CERTIFIED:'已认证',

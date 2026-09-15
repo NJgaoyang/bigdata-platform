@@ -652,13 +652,21 @@ function stopHistoryPolling() {
   historyPollTimer = null
 }
 
-async function showHistory(task: IntegrationTask) {
+async function showHistory(task: IntegrationTask, batchId?: number, instanceId?: number) {
   historyTask.value = task
   historyVisible.value = true
   selectedHistoryLogKey.value = ''
   selectedHistoryLogTitle.value = ''
   historyLogs.value = {}
   await refreshHistory(true)
+  if (batchId) {
+    const batch = batches.value.find(item => item.id === batchId)
+    const attempt = batch ? (historyAttempts.value[batch.id] || []).find(item => item.executionId) || (historyAttempts.value[batch.id] || [])[0] : undefined
+    if (batch && attempt) selectAttempt(batch, attempt)
+  } else if (instanceId) {
+    const instance = history.value.find(item => item.id === instanceId)
+    if (instance) selectLegacyInstance(instance)
+  }
   startHistoryPolling()
 }
 
@@ -989,7 +997,6 @@ onBeforeUnmount(() => {
             <div class="detail-subtitle">点击任务默认进入只读详情；只有进入编辑向导后才可以修改任务配置。</div>
           </div>
           <div class="detail-actions" v-if="detailTask">
-            <el-button @click="detailTab = 'runs'">运行记录</el-button>
             <el-button v-if="!isOnline(detailTask)" type="primary" @click="editFromDetail">编辑任务</el-button>
           </div>
         </div>
@@ -1021,12 +1028,12 @@ onBeforeUnmount(() => {
             </section>
             <section class="detail-section">
               <div class="detail-section-title">调度配置</div>
-              <el-descriptions :column="5" border class="schedule-detail-line">
+              <el-descriptions :column="2" border class="schedule-detail-line">
                 <el-descriptions-item label="任务上线状态"><strong :class="isOnline(detailTask) ? 'schedule-online' : 'schedule-offline'">{{ isOnline(detailTask) ? '已上线' : '已下线' }}</strong></el-descriptions-item>
                 <el-descriptions-item label="调度状态">{{ detailSchedule?.enabled ? '已启用' : '未启用' }}</el-descriptions-item>
                 <el-descriptions-item label="调度策略"><span class="nowrap-value" :title="detailSchedule?.enabled ? scheduleTextFromCron(detailSchedule?.cronExpression) : '仅手动执行'">{{ detailSchedule?.enabled ? scheduleTextFromCron(detailSchedule?.cronExpression) : '仅手动执行' }}</span></el-descriptions-item>
                 <el-descriptions-item label="时区"><span class="nowrap-value">{{ detailSchedule?.timezone || 'Asia/Shanghai' }}</span></el-descriptions-item>
-                <el-descriptions-item label="下次执行"><span class="nowrap-value">{{ formatDateTime(taskSummary(detailTask)?.nextRunAt) }}</span></el-descriptions-item>
+                <el-descriptions-item label="下次执行" :span="2"><span class="nowrap-value">{{ formatDateTime(taskSummary(detailTask)?.nextRunAt) }}</span></el-descriptions-item>
               </el-descriptions>
               <div class="schedule-detail-note">上线只启用任务和调度，不会立即执行；手动运行或到达调度时间才会执行。</div>
             </section>
@@ -1051,7 +1058,6 @@ onBeforeUnmount(() => {
           </el-tab-pane>
 
           <el-tab-pane :label="`运行记录 (${detailBatches.length || detailInstances.length})`" name="runs">
-            <div class="detail-run-toolbar"><el-button type="primary" plain @click="showHistory(detailTask!)">查看完整运行记录与日志</el-button></div>
             <section class="detail-section no-top">
               <el-table v-if="detailBatches.length" :data="detailBatches" border>
                 <el-table-column prop="batchCode" label="批次" min-width="190" show-overflow-tooltip />
@@ -1059,14 +1065,14 @@ onBeforeUnmount(() => {
                 <el-table-column label="状态" width="110"><template #default="scope"><StatusBadge :status="scope.row.status" /></template></el-table-column>
                 <el-table-column label="开始时间" width="175"><template #default="scope">{{ formatDateTime(scope.row.startedAt) }}</template></el-table-column>
                 <el-table-column label="结束时间" width="175"><template #default="scope">{{ formatDateTime(scope.row.finishedAt) }}</template></el-table-column>
-                <el-table-column label="日志" width="110"><template #default><span class="muted-inline">见运行记录</span></template></el-table-column>
+                <el-table-column label="日志" width="110"><template #default="scope"><el-button link type="primary" @click.stop="showHistory(detailTask!, scope.row.id)">查看日志</el-button></template></el-table-column>
               </el-table>
               <el-table v-else :data="detailInstances" border>
                 <el-table-column prop="executionId" label="执行 ID" min-width="220" show-overflow-tooltip />
                 <el-table-column label="状态" width="110"><template #default="scope"><StatusBadge :status="scope.row.status" /></template></el-table-column>
                 <el-table-column label="开始时间" width="175"><template #default="scope">{{ formatDateTime(scope.row.startedAt) }}</template></el-table-column>
                 <el-table-column label="结束时间" width="175"><template #default="scope">{{ formatDateTime(scope.row.finishedAt) }}</template></el-table-column>
-                <el-table-column label="日志" width="100"><template #default><span class="muted-inline">见运行记录</span></template></el-table-column>
+                <el-table-column label="日志" width="100"><template #default="scope"><el-button link type="primary" @click.stop="showHistory(detailTask!, undefined, scope.row.id)">查看日志</el-button></template></el-table-column>
               </el-table>
             </section>
           </el-tab-pane>
