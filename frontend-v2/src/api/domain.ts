@@ -165,6 +165,15 @@ export const flinkApi = {
   test: (id:number) => api.post<unknown>(`/flink/environments/${id}/test`)
 }
 
+export interface SeaTunnelEnvironment { id:number; name:string; host:string; port:number; sshUsername?:string; sshPort:number; seatunnelHome:string; description?:string; healthStatus:string; createdAt?:string }
+export const seaTunnelEnvironmentApi = {
+  list: () => api.get<SeaTunnelEnvironment[]>('/system/clusters'),
+  create: (payload:Record<string,unknown>) => api.post<SeaTunnelEnvironment>('/system/clusters',payload),
+  update: (id:number,payload:Record<string,unknown>) => api.put<SeaTunnelEnvironment>(`/system/clusters/${id}`,payload),
+  remove: (id:number) => api.delete<void>(`/system/clusters/${id}`),
+  check: (id:number) => api.post<SeaTunnelEnvironment>(`/system/clusters/${id}/check`)
+}
+
 export interface ReleasePolicy { id:number; policyKey:string; approvalRequired:boolean; updatedBy:string; updatedAt:string }
 export interface ReleaseRequestView { id:number; resourceType:string; resourceId:number; resourceName?:string; requestedVersion?:number; status:string; requestedBy:string; reviewedBy?:string; reviewComment?:string; requestedAt:string; reviewedAt?:string }
 export interface ReleaseRecord { id:number; requestId?:number; resourceType:string; resourceId:number; resourceName?:string; releasedVersion?:number; resultStatus:string; detail?:string; operatorName:string; releasedAt:string }

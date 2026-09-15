@@ -123,9 +123,9 @@ public class RealtimeSyncService {
         long executionId=Objects.requireNonNull(jdbc.queryForObject("SELECT id FROM realtime_sync_execution WHERE job_id=? ORDER BY id DESC LIMIT 1",Long.class,id));event(id,executionId,"STARTING","提交 Flink CDC V"+job.publishedVersion());
         try{
             FlinkCdcGateway.SubmitResult submitted=gateway.submit(env,yaml,spec);
-            jdbc.update("UPDATE realtime_sync_execution SET engine_job_id=?,status='RUNNING',runtime_revision=? WHERE id=?",submitted.jobId(),"v"+job.publishedVersion(),executionId);
+            jdbc.update("UPDATE realtime_sync_execution SET engine_job_id=?,status='RUNNING',runtime_revision=?,local_log=? WHERE id=?",submitted.jobId(),"v"+job.publishedVersion(),submitted.log(),executionId);
             jdbc.update("UPDATE realtime_sync_definition SET observed_state='RUNNING' WHERE id=?",id);event(id,executionId,"RUNNING","Flink JobId="+submitted.jobId());
-        }catch(RuntimeException ex){String m=msg(ex);jdbc.update("UPDATE realtime_sync_execution SET status='FAILED',finished_at=CURRENT_TIMESTAMP,error_message=? WHERE id=?",m,executionId);jdbc.update("UPDATE realtime_sync_definition SET observed_state='FAILED',last_error=? WHERE id=?",m,id);event(id,executionId,"FAILED",m);throw ex;}
+        }catch(RuntimeException ex){String m=msg(ex);jdbc.update("UPDATE realtime_sync_execution SET status='FAILED',finished_at=CURRENT_TIMESTAMP,error_message=?,local_log=? WHERE id=?",m,m,executionId);jdbc.update("UPDATE realtime_sync_definition SET observed_state='FAILED',last_error=? WHERE id=?",m,id);event(id,executionId,"FAILED",m);throw ex;}
         return runtime(id);
     }
 
@@ -141,7 +141,17 @@ public class RealtimeSyncService {
                 return runtime(id);
             }
             FlinkEnvironmentView env=environments.get(job.runtimeEnvironmentId());
-            gateway.cancel(env,execution.engineJobId());
+            try {
+                gateway.cancel(env,execution.engineJobId());
+            } catch (RuntimeException ex) {
+                if (isJobNotFound(ex)) {
+                    jdbc.update("UPDATE realtime_sync_execution SET status='STOPPED',finished_at=COALESCE(finished_at,CURRENT_TIMESTAMP),result_uncertain=FALSE,error_message=NULL WHERE id=?",execution.id());
+                    jdbc.update("UPDATE realtime_sync_definition SET observed_state='STOPPED',desired_state='STOPPED',last_error=NULL WHERE id=?",id);
+                    event(id,execution.id(),"STOPPED","Flink 中已不存在该 Job，平台状态已收敛为已停止 by "+operator(operator));
+                    return runtime(id);
+                }
+                throw ex;
+            }
             String terminal=waitForTerminal(env,execution.engineJobId(),10_000L);
             if(terminal==null){
                 String m="Flink 取消请求已发送，但 10 秒内未确认终态";
@@ -211,7 +221,15 @@ public class RealtimeSyncService {
 
     public JsonNode checkpoints(long id){RealtimeViews.Job job=get(id);RealtimeViews.Execution e=requireExecution(id);JsonNode raw=gateway.checkpoints(environments.get(requireEnv(job)),e.engineJobId());persistCheckpoint(id,e.id(),raw);return raw;}
     public JsonNode metrics(long id){RealtimeViews.Job job=get(id);RealtimeViews.Execution e=requireExecution(id);return gateway.metrics(environments.get(requireEnv(job)),e.engineJobId());}
-    public JsonNode logs(long id){RealtimeViews.Job job=get(id);RealtimeViews.Execution e=requireExecution(id);return gateway.exceptions(environments.get(requireEnv(job)),e.engineJobId());}
+    public String logs(long id){
+        get(id);
+        RealtimeViews.Execution e=latestExecution(id);
+        if(e==null) return "暂无本地执行日志";
+        String local=jdbc.query("SELECT local_log FROM realtime_sync_execution WHERE id=?",rs->rs.next()?rs.getString(1):null,e.id());
+        if(local!=null&&!local.isBlank()) return local;
+        if(e.errorMessage()!=null&&!e.errorMessage().isBlank()) return e.errorMessage();
+        return "当前执行实例暂无本地日志";
+    }
     public String yaml(long id){return configBuilder.build(get(id).spec(),true);}
 
     private Map<String,Object> publishedSpec(long id,int version){String json=jdbc.queryForObject("SELECT spec_json FROM realtime_sync_version WHERE job_id=? AND version_no=?",String.class,id,version);return parse(json);}
@@ -227,11 +245,20 @@ public class RealtimeSyncService {
     private String digest(String value){try{return java.util.HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8)));}catch(Exception ex){return UUID.randomUUID().toString();}}
     private String operator(String value){return value==null||value.isBlank()?"admin":value.trim();}
     private String msg(Throwable ex){return ex.getMessage()==null?ex.getClass().getSimpleName():ex.getMessage();}
+    private boolean isJobNotFound(Throwable ex){
+        String value=msg(ex);
+        return value.contains("Flink REST 返回 404") || value.contains("Job could not be found") || value.contains("Could not find Flink job");
+    }
     private String waitForTerminal(FlinkEnvironmentView env,String engineJobId,long timeoutMs){
         long deadline=System.currentTimeMillis()+Math.max(1000L,timeoutMs);
         while(System.currentTimeMillis()<deadline){
-            String state=gateway.job(env,engineJobId).path("state").asText("UNKNOWN");
-            if(Set.of("FINISHED","CANCELED","FAILED").contains(state)) return state;
+            try {
+                String state=gateway.job(env,engineJobId).path("state").asText("UNKNOWN");
+                if(Set.of("FINISHED","CANCELED","FAILED").contains(state)) return state;
+            } catch (RuntimeException ex) {
+                if (isJobNotFound(ex)) return "CANCELED";
+                throw ex;
+            }
             try{Thread.sleep(250L);}catch(InterruptedException ex){Thread.currentThread().interrupt();return null;}
         }
         return null;

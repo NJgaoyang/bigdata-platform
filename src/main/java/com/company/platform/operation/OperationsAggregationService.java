@@ -93,7 +93,7 @@ public class OperationsAggregationService {
             case "REALTIME" -> {
                 Long jobId = jdbc.queryForObject("SELECT job_id FROM realtime_sync_execution WHERE id=?", Long.class, Long.parseLong(id));
                 if (jobId == null) throw new BadRequestException("实时运行实例不存在：" + id);
-                yield realtime.logs(jobId).toPrettyString();
+                yield realtime.logs(jobId);
             }
             default -> throw new BadRequestException("当前实例类型暂不支持查看日志：" + type);
         };

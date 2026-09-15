@@ -52,7 +52,7 @@ class FlinkCdcConfigBuilderTest {
         assertTrue(yaml.contains("schema-change.enabled: true"));
         assertTrue(yaml.contains("scan.newly-added-table.enabled: true"));
         assertTrue(yaml.contains("treat-tinyint1-as-boolean.enabled: false"));
-        assertTrue(yaml.contains("debezium.bigint.unsigned.handling.mode: 'precise'"));
+        assertFalse(yaml.contains("debezium.bigint.unsigned.handling.mode"));
         assertFalse(yaml.contains("sink.buffer-flush.max-rows"));
         assertFalse(yaml.contains("sink.max-retries"));
     }

@@ -32,7 +32,7 @@ public class RealtimeSyncController {
     @GetMapping("/{id}/runtime") public Result<RealtimeViews.Runtime> runtime(@PathVariable long id){return Result.ok(service.runtime(id));}
     @GetMapping("/{id}/checkpoints") public Result<JsonNode> checkpoints(@PathVariable long id){return Result.ok(service.checkpoints(id));}
     @GetMapping("/{id}/metrics") public Result<JsonNode> metrics(@PathVariable long id){return Result.ok(service.metrics(id));}
-    @GetMapping("/{id}/logs") public Result<JsonNode> logs(@PathVariable long id){return Result.ok(service.logs(id));}
+    @GetMapping("/{id}/logs") public Result<String> logs(@PathVariable long id){return Result.ok(service.logs(id));}
     @GetMapping("/{id}/yaml") public Result<String> yaml(@PathVariable long id){return Result.ok(service.yaml(id));}
     @GetMapping("/{id}/executions") public Result<List<RealtimeManagementService.ExecutionRow>> executions(@PathVariable long id){service.get(id);return Result.ok(management.executions(id));}
     @GetMapping("/{id}/events") public Result<List<RealtimeManagementService.EventRow>> events(@PathVariable long id){service.get(id);return Result.ok(management.events(id));}

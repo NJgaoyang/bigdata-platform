@@ -1057,7 +1057,7 @@ onBeforeUnmount(() => {
             </section>
           </el-tab-pane>
 
-          <el-tab-pane :label="`运行记录 (${detailBatches.length || detailInstances.length})`" name="runs">
+          <el-tab-pane :label="`日志 (${detailBatches.length || detailInstances.length})`" name="runs">
             <section class="detail-section no-top">
               <el-table v-if="detailBatches.length" :data="detailBatches" border>
                 <el-table-column prop="batchCode" label="批次" min-width="190" show-overflow-tooltip />
@@ -1266,53 +1266,15 @@ onBeforeUnmount(() => {
       </template>
     </el-drawer>
 
-    <el-drawer v-model="historyVisible" :title="`运行记录 · ${historyTask?.name || ''}`" size="1040px" :close-on-press-escape="!historyLogMaximized" @closed="closeHistory">
+    <el-drawer v-model="historyVisible" :title="`执行日志 · ${historyTask?.name || ''}`" size="60%" :close-on-press-escape="!historyLogMaximized" @closed="closeHistory">
       <div class="history-shell" v-loading="historyLoading">
-        <div class="runtime-note">点击运行记录后直接展示日志；任务执行中每 2 秒自动刷新，无需等待任务结束。</div>
-        <div class="history-records">
-          <template v-if="batches.length">
-            <section v-for="batch in batches" :key="batch.id" class="history-batch-card">
-              <div class="history-batch-head">
-                <div><strong>{{ batch.batchCode }}</strong><span>{{ triggerLabel(batch.triggerType) }}</span></div>
-                <StatusBadge :status="batch.status" :label="statusLabel(batch.status)" />
-                <span>{{ formatDateTime(batch.startedAt || batch.createdAt) }} → {{ formatDateTime(batch.finishedAt) }}</span>
-                <div class="history-batch-actions">
-                  <el-button v-if="isOnline(historyTask!)" link :disabled="!canRetryBatch(batch)" @click.stop="retryBatch(batch)">重试</el-button>
-                  <el-button link @click.stop="reconcileBatch(batch)">核对状态</el-button>
-                </div>
-              </div>
-              <div v-if="historyAttempts[batch.id]?.length" class="history-attempts">
-                <button v-for="attempt in historyAttempts[batch.id]" :key="attempt.id" type="button"
-                  :class="['history-attempt-row', { selected: selectedHistoryLogKey === `attempt-${attempt.id}` }]"
-                  @click="selectAttempt(batch, attempt)">
-                  <strong>Attempt #{{ attempt.attemptNo }}</strong>
-                  <StatusBadge :status="attempt.status" :label="statusLabel(attempt.status)" />
-                  <span class="mono">{{ attempt.executionId || '尚未生成执行 ID' }}</span>
-                  <span>{{ formatDateTime(attempt.startedAt || attempt.createdAt) }}</span>
-                  <span class="view-log-text">查看日志</span>
-                </button>
-              </div>
-              <div v-else class="runtime-note compact-note">该批次没有 Attempt 记录。{{ batch.errorMessage || '' }}</div>
-            </section>
-          </template>
-          <template v-else>
-            <div class="runtime-note compact-note">以下为升级批次模型之前的历史执行记录。</div>
-            <button v-for="row in history" :key="row.id" type="button"
-              :class="['legacy-run-row', { selected: selectedHistoryLogKey === `instance-${row.id}` }]"
-              @click="selectLegacyInstance(row)">
-              <strong>{{ row.executionId || `历史执行 #${row.id}` }}</strong>
-              <StatusBadge :status="row.status" :label="statusLabel(row.status)" />
-              <span>{{ formatDateTime(row.startedAt) }} → {{ formatDateTime(row.finishedAt) }}</span>
-              <span class="view-log-text">查看日志</span>
-            </button>
-          </template>
-        </div>
+        <div class="runtime-note">当前日志对应所选批次；任务执行中每 2 秒自动刷新，无需等待任务结束。</div>
 
         <div :class="['history-log-panel', { 'is-maximized': historyLogMaximized }]">
           <div class="history-log-toolbar">
             <div>
               <strong>执行日志</strong>
-              <span>{{ selectedHistoryLogTitle || '选择一条 Attempt 查看日志' }}</span>
+              <span>{{ selectedHistoryLogTitle || '当前执行' }}</span>
               <em>运行中自动刷新</em>
             </div>
             <div class="history-log-actions">

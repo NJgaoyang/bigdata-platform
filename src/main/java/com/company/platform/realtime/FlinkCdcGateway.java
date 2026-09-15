@@ -28,6 +28,7 @@ public class FlinkCdcGateway {
     public SubmitResult submit(FlinkEnvironmentService.RuntimeEnvironment env,String yaml){ return submit(env,yaml,Map.of()); }
     public SubmitResult submit(FlinkEnvironmentService.RuntimeEnvironment env,String yaml,Map<String,Object> spec){
         if(!env.view().enabled()) throw new BadRequestException("Flink 环境已禁用");
+        yaml = sanitizeYaml(yaml);
         List<String> dynamic = dynamicOptions(spec);
         return "SSH".equalsIgnoreCase(env.view().submitterType())?submitSsh(env,yaml,dynamic):submitLocal(env,yaml,dynamic);
     }
@@ -131,6 +132,12 @@ public class FlinkCdcGateway {
         String advanced=str(resources.get("advancedParams"));
         for(String line:advanced.split("[\r\n,]+")){String v=line.trim();if(v.isBlank())continue;int idx=v.indexOf('=');if(idx<=0)throw new BadRequestException("高级 Flink 参数格式必须为 key=value");String key=v.substring(0,idx).trim(),value=v.substring(idx+1).trim();if(!key.matches("[A-Za-z0-9._-]+"))throw new BadRequestException("高级 Flink 参数名不合法："+key);addD(out,key,value);}
         return out;
+    }
+    private String sanitizeYaml(String yaml){
+        if(yaml==null||yaml.isBlank()) return yaml==null?"":yaml;
+        return Arrays.stream(yaml.split("\\R",-1))
+                .filter(line -> !line.trim().startsWith("scan.incremental.snapshot.backfill.skip:"))
+                .collect(java.util.stream.Collectors.joining("\n"));
     }
     private void addIf(List<String> out,String key,Object value){String v=str(value);if(!v.isBlank())addD(out,key,v);}
     private void addD(List<String> out,String key,String value){if(value!=null&&!value.isBlank())out.add("-D"+key+"="+value);}

@@ -14,7 +14,8 @@ export function statusLabel(status?: string | null) {
     HEALTHY:'健康', UP:'正常', DOWN:'异常', UNHEALTHY:'异常',
     DRAFT:'草稿', PUBLISHED:'已发布', RELEASED:'已发布', UNPUBLISHED:'未发布', CERTIFIED:'已认证',
     PENDING_APPROVAL:'待审批', APPROVED:'已通过', REJECTED:'已驳回',
-    READY:'就绪', PAUSED:'已暂停', CREATED:'已创建', OPEN:'待处理', ACKNOWLEDGED:'已确认', RESOLVED:'已解决',
+    READY:'就绪', PAUSED:'已暂停', CREATED:'已创建', PASSED:'通过', WARNING:'警告', DETECTED:'已检测',
+    NOT_COLLECTED:'未采集', IN_PROGRESS:'进行中', BLOCKED:'已阻塞', OPEN:'待处理', ACKNOWLEDGED:'已确认', RESOLVED:'已解决',
     MANUAL:'手动', SCHEDULED:'调度', WORKFLOW:'工作流', BACKFILL:'补数'
   }
   return labels[value] || value
