@@ -41,7 +41,7 @@ public class RealtimeManagementService {
             if (envId != null) try { envName = environments.get(envId).name(); } catch (RuntimeException ignored) { }
             return new ManagementRow(id, rs.getString("name"), str(spec.get("sourceDataSourceId")), str(spec.get("sourceDatabase")),
                     str(spec.get("sinkDataSourceId")), str(spec.get("sinkDatabase")), tableCount(spec), scope(spec),
-                    rs.getString("release_state"), observedState, envId, envName,
+                    rs.getString("release_state"), observedState, rs.getInt("definition_version"), envId, envName,
                     exec == null ? null : exec.engineJobId(), null, checkpointStatus, checkpointAt,
                     rs.getString("created_by"), timestamp(rs,"updated_at"), rs.getString("last_error"));
         });
@@ -161,7 +161,7 @@ public class RealtimeManagementService {
 
     private record ExecutionSummary(String engineJobId,String status,LocalDateTime startedAt){}
     private record CheckpointSummary(String status,LocalDateTime completedAt){}
-    public record ManagementRow(long id,String name,String sourceDataSourceId,String sourceDatabase,String sinkDataSourceId,String sinkDatabase,int tableCount,String syncScope,String releaseState,String observedState,Long runtimeEnvironmentId,String environmentName,String engineJobId,Long lagMs,String checkpointStatus,LocalDateTime checkpointAt,String owner,LocalDateTime updatedAt,String lastError){}
+    public record ManagementRow(long id,String name,String sourceDataSourceId,String sourceDatabase,String sinkDataSourceId,String sinkDatabase,int tableCount,String syncScope,String releaseState,String observedState,int definitionVersion,Long runtimeEnvironmentId,String environmentName,String engineJobId,Long lagMs,String checkpointStatus,LocalDateTime checkpointAt,String owner,LocalDateTime updatedAt,String lastError){}
     public record TableOption(String name,String comment,long estimatedRows,boolean primaryKey,String cdcStatus){}
     public record ColumnOption(String name,String mysqlType,boolean primaryKey,boolean nullable,String starRocksType,String comment,int ordinalPosition){}
     public record ExecutionRow(long id,int definitionVersion,String engineJobId,String status,boolean resultUncertain,String errorMessage,LocalDateTime startedAt,LocalDateTime finishedAt,LocalDateTime createdAt){}
