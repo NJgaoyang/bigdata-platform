@@ -136,7 +136,7 @@ public class FlinkCdcGateway {
     private String sanitizeYaml(String yaml){
         if(yaml==null||yaml.isBlank()) return yaml==null?"":yaml;
         return Arrays.stream(yaml.split("\\R",-1))
-                .filter(line -> !line.matches("(?i)^\\s*scan\\.incremental\\.snapshot\\.backfill\\.skip\\s*:.*$"))
+                .filter(line -> !line.matches("(?i)^\\s*[\'\"]?scan\\.incremental\\.snapshot\\.backfill\\.skip[\'\"]?\\s*:.*$"))
                 .collect(java.util.stream.Collectors.joining("\n"));
     }
     private boolean isUnsupportedOption(String key){return "scan.incremental.snapshot.backfill.skip".equalsIgnoreCase(str(key));}
