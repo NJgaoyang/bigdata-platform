@@ -13,7 +13,8 @@ import java.util.List;
 public class RealtimeSyncController {
     private final RealtimeSyncService service;
     private final RealtimeManagementService management;
-    public RealtimeSyncController(RealtimeSyncService service, RealtimeManagementService management){this.service=service;this.management=management;}
+    private final RealtimeVersionService versions;
+    public RealtimeSyncController(RealtimeSyncService service, RealtimeManagementService management, RealtimeVersionService versions){this.service=service;this.management=management;this.versions=versions;}
     @GetMapping public Result<List<RealtimeViews.Job>> list(){return Result.ok(service.list());}
     @GetMapping("/management") public Result<List<RealtimeManagementService.ManagementRow>> management(){service.refreshAllRuntimeStates();return Result.ok(management.management());}
     @GetMapping("/metadata/tables") public Result<List<RealtimeManagementService.TableOption>> tables(@RequestParam long dataSourceId,@RequestParam String database){return Result.ok(management.tables(dataSourceId,database));}
@@ -34,6 +35,7 @@ public class RealtimeSyncController {
     @GetMapping("/{id}/metrics") public Result<JsonNode> metrics(@PathVariable long id){return Result.ok(service.metrics(id));}
     @GetMapping("/{id}/logs") public Result<String> logs(@PathVariable long id){return Result.ok(service.logs(id));}
     @GetMapping("/{id}/yaml") public Result<String> yaml(@PathVariable long id){return Result.ok(service.yaml(id));}
+    @GetMapping("/{id}/versions") public Result<List<RealtimeVersionService.VersionRow>> versions(@PathVariable long id){service.get(id);return Result.ok(versions.versions(id));}
     @GetMapping("/{id}/executions") public Result<List<RealtimeManagementService.ExecutionRow>> executions(@PathVariable long id){service.get(id);return Result.ok(management.executions(id));}
     @GetMapping("/{id}/events") public Result<List<RealtimeManagementService.EventRow>> events(@PathVariable long id){service.get(id);return Result.ok(management.events(id));}
     @GetMapping("/{id}/checkpoint-history") public Result<List<RealtimeManagementService.CheckpointRow>> checkpointHistory(@PathVariable long id){service.get(id);return Result.ok(management.checkpointHistory(id));}
