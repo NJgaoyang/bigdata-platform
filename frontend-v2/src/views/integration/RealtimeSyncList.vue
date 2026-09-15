@@ -178,9 +178,9 @@ onMounted(load);onBeforeUnmount(stopDetailPoll)
       <el-table-column label="任务名称" min-width="260" show-overflow-tooltip><template #default="s"><button class="name-link" @click.stop="openDetail(s.row)">{{s.row.name}}</button><div class="minor">{{s.row.owner||'—'}} · {{scopeLabel(s.row.syncScope)}} {{s.row.tableCount}} 张表<span v-if="s.row.engineJobId" class="task-job-id mono" :title="s.row.engineJobId"> · JobId {{jobIdShort(s.row.engineJobId)}}</span></div></template></el-table-column>
       <el-table-column label="发布状态" min-width="130" align="center" header-align="center"><template #default="s"><div class="release-cell"><StatusBadge :status="s.row.observedState==='RUNNING'?'RUNNING':'STOPPED'" :label="releaseLabel(s.row)"/><span>当前版本 V{{s.row.definitionVersion||1}}</span></div></template></el-table-column>
       <el-table-column label="运行状态" min-width="110" align="center" header-align="center"><template #default="s"><StatusBadge :status="s.row.observedState"/></template></el-table-column>
-      <el-table-column label="运行指标" min-width="230"><template #default="s"><div class="runtime-cell"><span>延迟：{{s.row.observedState==='RUNNING'?lagLabel(s.row.lagMs):'—'}}</span><span>Checkpoint：{{checkpointLabel(s.row.checkpointStatus)}}</span></div></template></el-table-column>
-      <el-table-column label="最后更新时间" min-width="190" align="center" header-align="center"><template #default="s"><span class="updated-time">{{formatDateTime(s.row.updatedAt)}}</span></template></el-table-column>
-      <el-table-column label="操作" min-width="170" fixed="right" align="center" header-align="center">
+      <el-table-column label="运行指标" min-width="200"><template #default="s"><div class="runtime-cell"><span>延迟：{{s.row.observedState==='RUNNING'?lagLabel(s.row.lagMs):'—'}}</span><span>Checkpoint：{{checkpointLabel(s.row.checkpointStatus)}}</span></div></template></el-table-column>
+      <el-table-column label="最后更新时间" width="165" align="center" header-align="center"><template #default="s"><span class="updated-time">{{formatDateTime(s.row.updatedAt)}}</span></template></el-table-column>
+      <el-table-column label="操作" width="220" fixed="right" align="center" header-align="center">
         <template #default="s">
           <div class="row-actions realtime-row-actions" @click.stop>
             <el-button class="inline-run-action" text :loading="isActionLoading(s.row)" @click="toggleRuntime(s.row)">
