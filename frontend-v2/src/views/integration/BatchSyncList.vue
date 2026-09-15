@@ -828,7 +828,20 @@ function handleTaskCommand(command: string, task: IntegrationTask) {
 }
 
 function latestStatus(task: IntegrationTask) {
-  return latestBatch.value[task.id]?.status || latest.value[task.id]?.status || '未运行'
+  return latestBatch.value[task.id]?.status || latest.value[task.id]?.status || 'PENDING'
+}
+
+function taskStateLabel(task: IntegrationTask) {
+  const value = String(latestStatus(task) || '').toUpperCase()
+  if (['RUNNING','STARTING','SUBMITTED','QUEUED','WAITING'].includes(value)) return '运行中'
+  if (['SUCCESS','SUCCEEDED','FINISHED','COMPLETED'].includes(value)) return '成功'
+  if (['FAILED','FAIL','ERROR','LOST'].includes(value)) return '失败'
+  return '待调度'
+}
+
+function taskStateClass(task: IntegrationTask) {
+  const label = taskStateLabel(task)
+  return label === '运行中' ? 'task-state-running' : label === '成功' ? 'task-state-success' : label === '失败' ? 'task-state-failed' : 'task-state-pending'
 }
 
 function latestStartedAt(task: IntegrationTask) {
@@ -974,8 +987,11 @@ onBeforeUnmount(() => {
         <el-table-column label="执行概况" min-width="165">
           <template #default="scope"><div class="runtime-summary"><span>数据量：<strong>{{ formatCount(taskSummary(scope.row)?.dataCount) }}</strong></span><span>耗时：{{ formatDuration(taskSummary(scope.row)?.durationMs) }}</span></div></template>
         </el-table-column>
-        <el-table-column label="状态" width="110">
-          <template #default="scope"><strong :class="isOnline(scope.row) ? 'schedule-online' : 'schedule-offline'">{{ isOnline(scope.row) ? '已上线' : '已下线' }}</strong></template>
+        <el-table-column label="状态" width="100">
+          <template #default="scope"><span :class="['publish-state-tag', isOnline(scope.row) ? 'is-online' : 'is-offline']">{{ isOnline(scope.row) ? '上线' : '下线' }}</span></template>
+        </el-table-column>
+        <el-table-column label="任务状态" width="110">
+          <template #default="scope"><span :class="['task-state-tag', taskStateClass(scope.row)]">{{ taskStateLabel(scope.row) }}</span></template>
         </el-table-column>
         <el-table-column label="调度" min-width="205">
           <template #default="scope"><div class="schedule-summary"><span>上次：{{ formatDateTime(taskSummary(scope.row)?.lastRunAt) }}</span><span>下次：{{ formatDateTime(taskSummary(scope.row)?.nextRunAt) }}</span></div></template>
@@ -1351,5 +1367,5 @@ onBeforeUnmount(() => {
 
 .schedule-wheel-grid{display:grid;grid-template-columns:repeat(4,minmax(96px,1fr));gap:12px;width:100%}.schedule-wheel{display:flex;flex-direction:column;gap:6px}.schedule-wheel>span{font-size:12px;color:var(--ds-text-secondary);text-align:center}.schedule-wheel :deep(.el-select){width:100%}.schedule-wheel-grid.disabled{opacity:.65}@media(max-width:1100px){.schedule-wheel-grid{grid-template-columns:repeat(2,minmax(110px,1fr))}}
 .schedule-config-box{width:100%;border:1px solid var(--ds-border);border-radius:6px;background:#fff;overflow:hidden}.schedule-config-box.disabled{opacity:.65}.schedule-config-title{height:40px;padding:0 16px;display:flex;align-items:center;border-bottom:1px solid var(--ds-border);background:#fafbfc;color:var(--el-color-primary);font-weight:650}.schedule-custom{padding:0 14px 14px}.schedule-unit-tabs{display:grid;grid-template-columns:repeat(5,1fr);border:1px solid var(--ds-border);border-top:0;background:#f7f8fa}.schedule-unit-tabs button{height:38px;border:0;border-right:1px solid var(--ds-border);background:transparent;color:var(--ds-text-secondary);cursor:pointer;font-weight:600}.schedule-unit-tabs button:last-child{border-right:0}.schedule-unit-tabs button.active{background:#fff;color:var(--el-color-primary)}.schedule-unit-picker{padding:14px 0 0}.schedule-preview-card{margin:0 14px 14px;padding:12px 14px;border:1px solid #d8e5f5;border-radius:6px;background:#f7fbff}.schedule-preview-title{font-size:12px;color:#8793a5;margin-bottom:8px}.schedule-preview-row{display:flex;align-items:center;gap:8px;height:28px;font-size:13px;color:#344054}.schedule-preview-row i{width:20px;height:20px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;background:var(--el-color-primary);color:#fff;font-style:normal;font-size:11px}.schedule-preview-empty{font-size:12px;color:var(--ds-text-tertiary)}
-.row-actions{display:flex;align-items:center;gap:4px;white-space:nowrap}.more-caret{margin-left:2px}.danger-menu-item{color:#f56c6c}.batch-row-actions{gap:8px}.inline-run-action,.inline-more-action{height:36px!important;padding:0 12px!important;border-radius:8px!important;color:#667085!important;font-weight:500!important}.inline-run-action{gap:5px;background:#fafbfc!important}.inline-run-action:not(.is-disabled):hover,.inline-more-action:hover{background:#f4f5f7!important;color:#344054!important}.inline-run-action.is-disabled{opacity:.45}.inline-more-action{gap:5px}.more-arrow{margin-left:2px;font-size:13px} :global(.batch-action-popper.el-popper){border:0!important;border-radius:16px!important;box-shadow:0 12px 30px rgba(16,24,40,.16)!important;overflow:hidden} :global(.batch-action-popper .el-popper__arrow){display:none} :global(.batch-action-popper .el-dropdown-menu){min-width:168px;padding:8px!important;border-radius:16px!important} :global(.batch-action-popper .el-dropdown-menu__item){height:44px;padding:0 16px!important;gap:10px;border-radius:7px;font-size:14px;color:#202124} :global(.batch-action-popper .el-dropdown-menu__item .el-icon){font-size:17px;color:#667085} :global(.batch-action-popper .el-dropdown-menu__item:not(.is-disabled):hover){background:#f5f6f8;color:#202124} :global(.batch-action-popper .el-dropdown-menu__item.is-disabled){color:#c0c4cc} :global(.batch-action-popper .el-dropdown-menu__item.is-disabled .el-icon){color:#c0c4cc} :global(.batch-action-popper .el-dropdown-menu__item--divided){margin-top:7px!important;border-top:1px solid #ebeef2!important} :global(.batch-action-popper .batch-delete-item:not(.is-disabled)){color:#f04438} :global(.batch-action-popper .batch-delete-item:not(.is-disabled) .el-icon){color:#f04438}
+.row-actions{display:flex;align-items:center;gap:4px;white-space:nowrap}.more-caret{margin-left:2px}.danger-menu-item{color:#f56c6c}.publish-state-tag,.task-state-tag{display:inline-flex;align-items:center;justify-content:center;min-width:48px;height:24px;padding:0 9px;border-radius:12px;font-size:12px;font-weight:600}.publish-state-tag.is-online{color:#1f9d55;background:#ecf9f1}.publish-state-tag.is-offline{color:#667085;background:#f2f4f7}.task-state-running{color:#1677ff;background:#eaf3ff}.task-state-success{color:#1f9d55;background:#ecf9f1}.task-state-failed{color:#d92d20;background:#fff0ee}.task-state-pending{color:#667085;background:#f2f4f7}:global(.batch-action-popper){min-width:196px!important}:global(.batch-action-popper .el-dropdown-menu){min-width:196px}.batch-row-actions{gap:8px}.inline-run-action,.inline-more-action{height:36px!important;padding:0 12px!important;border-radius:8px!important;color:#667085!important;font-weight:500!important}.inline-run-action{gap:5px;background:#fafbfc!important}.inline-run-action:not(.is-disabled):hover,.inline-more-action:hover{background:#f4f5f7!important;color:#344054!important}.inline-run-action.is-disabled{opacity:.45}.inline-more-action{gap:5px}.more-arrow{margin-left:2px;font-size:13px} :global(.batch-action-popper.el-popper){border:0!important;border-radius:16px!important;box-shadow:0 12px 30px rgba(16,24,40,.16)!important;overflow:hidden} :global(.batch-action-popper .el-popper__arrow){display:none} :global(.batch-action-popper .el-dropdown-menu){min-width:168px;padding:8px!important;border-radius:16px!important} :global(.batch-action-popper .el-dropdown-menu__item){height:44px;padding:0 16px!important;gap:10px;border-radius:7px;font-size:14px;color:#202124} :global(.batch-action-popper .el-dropdown-menu__item .el-icon){font-size:17px;color:#667085} :global(.batch-action-popper .el-dropdown-menu__item:not(.is-disabled):hover){background:#f5f6f8;color:#202124} :global(.batch-action-popper .el-dropdown-menu__item.is-disabled){color:#c0c4cc} :global(.batch-action-popper .el-dropdown-menu__item.is-disabled .el-icon){color:#c0c4cc} :global(.batch-action-popper .el-dropdown-menu__item--divided){margin-top:7px!important;border-top:1px solid #ebeef2!important} :global(.batch-action-popper .batch-delete-item:not(.is-disabled)){color:#f04438} :global(.batch-action-popper .batch-delete-item:not(.is-disabled) .el-icon){color:#f04438}
 </style>
