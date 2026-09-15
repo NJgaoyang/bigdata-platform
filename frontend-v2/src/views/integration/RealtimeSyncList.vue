@@ -187,7 +187,7 @@ onMounted(load);onBeforeUnmount(stopDetailPoll)
               <el-icon v-if="!isActionLoading(s.row)"><SwitchButton v-if="['RUNNING','STARTING'].includes(String(s.row.observedState).toUpperCase())"/><VideoPlay v-else/></el-icon>
               <span>{{isActionLoading(s.row)?actionLoadingText(s.row):(['RUNNING','STARTING'].includes(String(s.row.observedState).toUpperCase())?'停止':'启动')}}</span>
             </el-button>
-            <el-dropdown trigger="click" placement="bottom-end" :offset="4" :popper-options="{modifiers:[{name:'offset',options:{offset:[-18,4]}}]}" popper-class="realtime-action-popper" @command="(cmd:string)=>handleMoreCommand(cmd,s.row)">
+            <el-dropdown trigger="click" placement="bottom" :offset="6" popper-class="realtime-action-popper" @command="(cmd:string)=>handleMoreCommand(cmd,s.row)">
               <el-button class="inline-more-action" text>更多<el-icon class="more-arrow"><ArrowDown/></el-icon></el-button>
               <template #dropdown>
                 <el-dropdown-menu>
