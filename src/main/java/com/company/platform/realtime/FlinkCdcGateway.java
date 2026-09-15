@@ -107,10 +107,10 @@ public class FlinkCdcGateway {
         List<String> out=new ArrayList<>();
         Map<String,Object> checkpoint=spec.get("checkpoint") instanceof Map<?,?> m?(Map<String,Object>)m:Map.of();
         if(bool(checkpoint.get("enabled"),true)){
-            addD(out,"execution.checkpointing.interval",seconds(checkpoint.get("intervalSec"),60));
+            addD(out,"execution.checkpointing.interval",seconds(checkpoint.get("intervalSec"),3));
             addD(out,"execution.checkpointing.timeout",seconds(checkpoint.get("timeoutSec"),600));
             addD(out,"execution.checkpointing.tolerable-failed-checkpoints",String.valueOf(intValue(checkpoint.get("tolerableFailures"),3)));
-            addD(out,"execution.checkpointing.min-pause",seconds(checkpoint.get("minPauseSec"),5));
+            addD(out,"execution.checkpointing.min-pause",seconds(checkpoint.get("minPauseSec"),0));
             addD(out,"execution.checkpointing.max-concurrent-checkpoints",String.valueOf(intValue(checkpoint.get("maxConcurrent"),1)));
             String ext=str(checkpoint.get("externalized"));
             addD(out,"execution.checkpointing.externalized-checkpoint-retention","DELETE".equalsIgnoreCase(ext)?"DELETE_ON_CANCELLATION":"RETAIN_ON_CANCELLATION");
