@@ -926,6 +926,15 @@ function messageOf(error: unknown) {
   return error instanceof Error ? error.message : '操作失败'
 }
 
+function handleBatchMoreCommand(command: string, task: IntegrationTask) {
+  if (command === 'online') void onlineTask(task)
+  else if (command === 'offline') void offlineTask(task)
+  else if (command === 'edit') { if (!isOnline(task)) void openEdit(task) }
+  else if (command === 'logs') void showHistory(task)
+  else if (command === 'delete') { if (!isOnline(task)) void remove(task) }
+}
+
+
 onMounted(() => {
   void load()
   window.addEventListener('keydown', handleGlobalKeydown)
@@ -971,18 +980,23 @@ onBeforeUnmount(() => {
         </el-table-column>
         <el-table-column label="创建时间" min-width="175"><template #default="scope"><span class="time-cell">{{ taskCreatedAt(scope.row) }}</span></template></el-table-column>
         <el-table-column label="创建人" min-width="100"><template #default="scope">{{ taskCreatedBy(scope.row) }}</template></el-table-column>
-        <el-table-column label="操作" width="180" fixed="right">
+        <el-table-column label="操作" width="150" fixed="right">
           <template #default="scope">
-            <template v-if="isOnline(scope.row)">
-              <el-button link type="primary" @click.stop="run(scope.row)">运行</el-button>
-              <el-button link type="primary" @click.stop="openDetail(scope.row)">查看</el-button>
-              <el-button link type="warning" @click.stop="offlineTask(scope.row)">下线</el-button>
-            </template>
-            <template v-else>
-              <el-button link type="primary" @click.stop="openEdit(scope.row)">编辑</el-button>
-              <el-button link type="success" @click.stop="onlineTask(scope.row)">上线</el-button>
-              <el-button link type="danger" @click.stop="remove(scope.row)">删除</el-button>
-            </template>
+            <div class="row-actions" @click.stop>
+              <el-button link type="primary" @click="openDetail(scope.row)">详情</el-button>
+              <el-dropdown trigger="click" @command="(cmd:string)=>handleBatchMoreCommand(cmd,scope.row)">
+                <el-button link>更多<span class="more-caret">⌄</span></el-button>
+                <template #dropdown>
+                  <el-dropdown-menu>
+                    <el-dropdown-item v-if="isOnline(scope.row)" command="offline">下线</el-dropdown-item>
+                    <el-dropdown-item v-else command="online">上线</el-dropdown-item>
+                    <el-dropdown-item command="edit" :disabled="isOnline(scope.row)">编辑</el-dropdown-item>
+                    <el-dropdown-item command="logs">日志</el-dropdown-item>
+                    <el-dropdown-item command="delete" divided :disabled="isOnline(scope.row)"><span class="danger-menu-item">删除</span></el-dropdown-item>
+                  </el-dropdown-menu>
+                </template>
+              </el-dropdown>
+            </div>
           </template>
         </el-table-column>
       </el-table>
@@ -1332,4 +1346,5 @@ onBeforeUnmount(() => {
 
 .schedule-wheel-grid{display:grid;grid-template-columns:repeat(4,minmax(96px,1fr));gap:12px;width:100%}.schedule-wheel{display:flex;flex-direction:column;gap:6px}.schedule-wheel>span{font-size:12px;color:var(--ds-text-secondary);text-align:center}.schedule-wheel :deep(.el-select){width:100%}.schedule-wheel-grid.disabled{opacity:.65}@media(max-width:1100px){.schedule-wheel-grid{grid-template-columns:repeat(2,minmax(110px,1fr))}}
 .schedule-config-box{width:100%;border:1px solid var(--ds-border);border-radius:6px;background:#fff;overflow:hidden}.schedule-config-box.disabled{opacity:.65}.schedule-config-title{height:40px;padding:0 16px;display:flex;align-items:center;border-bottom:1px solid var(--ds-border);background:#fafbfc;color:var(--el-color-primary);font-weight:650}.schedule-custom{padding:0 14px 14px}.schedule-unit-tabs{display:grid;grid-template-columns:repeat(5,1fr);border:1px solid var(--ds-border);border-top:0;background:#f7f8fa}.schedule-unit-tabs button{height:38px;border:0;border-right:1px solid var(--ds-border);background:transparent;color:var(--ds-text-secondary);cursor:pointer;font-weight:600}.schedule-unit-tabs button:last-child{border-right:0}.schedule-unit-tabs button.active{background:#fff;color:var(--el-color-primary)}.schedule-unit-picker{padding:14px 0 0}.schedule-preview-card{margin:0 14px 14px;padding:12px 14px;border:1px solid #d8e5f5;border-radius:6px;background:#f7fbff}.schedule-preview-title{font-size:12px;color:#8793a5;margin-bottom:8px}.schedule-preview-row{display:flex;align-items:center;gap:8px;height:28px;font-size:13px;color:#344054}.schedule-preview-row i{width:20px;height:20px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;background:var(--el-color-primary);color:#fff;font-style:normal;font-size:11px}.schedule-preview-empty{font-size:12px;color:var(--ds-text-tertiary)}
+.row-actions{display:flex;align-items:center;gap:4px;white-space:nowrap}.more-caret{margin-left:2px}.danger-menu-item{color:#f56c6c}
 </style>
