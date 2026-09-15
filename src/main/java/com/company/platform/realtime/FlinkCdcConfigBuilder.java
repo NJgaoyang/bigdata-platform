@@ -19,7 +19,7 @@ public class FlinkCdcConfigBuilder {
             if (yaml.isBlank()) throw new BadRequestException("YAML 模式下配置不能为空");
             if (!yaml.contains("source:") || !yaml.contains("sink:") || !yaml.contains("pipeline:"))
                 throw new BadRequestException("YAML 至少需要 source / sink / pipeline 配置段");
-            return maskSecrets ? yaml.replaceAll("(?im)(password\s*:\s*)[^\n\r]+", "$1'***'") : yaml;
+            return maskSecrets ? yaml.replaceAll("(?im)(password\\s*:\\s*)[^\\n\\r]+", "$1'***'") : yaml;
         }
         long sourceId=longValue(spec.get("sourceDataSourceId")); long sinkId=longValue(spec.get("sinkDataSourceId"));
         DataSourceService.ConnectionInfo source=dataSources.connectionInfo(sourceId), sink=dataSources.connectionInfo(sinkId);
@@ -42,7 +42,7 @@ public class FlinkCdcConfigBuilder {
          .append("\n  scan.snapshot.fetch.size: ").append(intValue(spec.get("fetchSize"),1024))
          .append("\n  treat-tinyint1-as-boolean.enabled: false")
          .append("\n  schema-change.enabled: ").append(boolValue(spec, "syncSchema", true))
-         .append("\n  scan.binlog.newly-added-table.enabled: ").append(newTableAuto(spec))
+         .append("\n  scan.newly-added-table.enabled: ").append(newTableAuto(spec))
          .append("\n  heartbeat.interval: ").append(intValue(spec.get("heartbeatMs"),30000)).append("ms")
          .append("\n  server-time-zone: ").append(q(sourceView.timezone()==null||sourceView.timezone().isBlank()?"Asia/Shanghai":sourceView.timezone())).append("\n");
         if("timestamp".equalsIgnoreCase(str(spec.get("startupMode")))) y.append("  scan.startup.timestamp-millis: ").append(longValue(spec.get("timestampMillis"))).append("\n");
@@ -57,7 +57,7 @@ public class FlinkCdcConfigBuilder {
          .append("\n  table.create.properties.replication_num: '1'\n");
         Map<String,Object> sinkCfg=spec.get("sink") instanceof Map<?,?>m?(Map<String,Object>)m:Map.of();
         long maxBytes = sinkCfg.get("maxBytes") == null ? 67108864L : longValue(sinkCfg.get("maxBytes"));
-        if(maxBytes < 67108864L) maxBytes = 67108864L; // StarRocks connector minimum is 64 MiB.
+        if(maxBytes < 67108864L) maxBytes = 67108864L;
         String labelPrefix=str(spec.getOrDefault("labelPrefix","datasphere_rt_draft"));
         y.append("  sink.buffer-flush.max-bytes: ").append(maxBytes).append("\n")
          .append("  sink.buffer-flush.interval-ms: ").append(intValue(sinkCfg.get("flushIntervalMs"),2000)).append("\n")
