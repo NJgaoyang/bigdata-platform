@@ -42,8 +42,8 @@ public class RealtimeSyncService {
                 request.name(),request.description(),env,json,digest,operator(operator));
         Long id=jdbc.queryForObject("SELECT id FROM realtime_sync_definition WHERE name=? AND created_by=? ORDER BY id DESC LIMIT 1",Long.class,request.name(),operator(operator));
         jdbc.update("INSERT INTO realtime_sync_version(job_id,version_no,spec_json,config_digest,published,created_by) VALUES(?,?,?,?,FALSE,?)",id,1,json,digest,operator(operator));
-        event(id,null,"CREATED","创建实时同步任务 V1");
-        return prepareRunnableVersion(id,operator,"READY");
+        event(id,null,"CREATED","创建实时任务草稿 V1");
+        return get(id);
     }
 
     @Transactional
@@ -55,7 +55,7 @@ public class RealtimeSyncService {
         jdbc.update("UPDATE realtime_sync_definition SET name=?,description=?,runtime_environment_id=?,release_state='DRAFT',definition_version=?,spec_json=?,config_digest=?,last_error=NULL WHERE id=?",name,desc,env,version,json,digest,id);
         jdbc.update("INSERT INTO realtime_sync_version(job_id,version_no,spec_json,config_digest,published,created_by) VALUES(?,?,?,?,FALSE,?)",id,version,json,digest,operator(operator));
         event(id,null,"CONFIG_UPDATED","保存配置 V"+version);
-        return prepareRunnableVersion(id,operator,"READY");
+        return get(id);
     }
 
     public Validation validateDraft(RealtimeRequests.CreateJobRequest request){

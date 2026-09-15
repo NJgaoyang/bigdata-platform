@@ -82,7 +82,7 @@ public class FlinkCdcConfigBuilder {
     private String sanitizeLegacyYaml(String yaml){
         if(yaml==null||yaml.isBlank()) return yaml==null?"":yaml;
         return Arrays.stream(yaml.split("\\R",-1))
-                .filter(line -> !line.trim().startsWith("scan.incremental.snapshot.backfill.skip:"))
+                .filter(line -> !line.matches("(?i)^\\s*scan\\.incremental\\.snapshot\\.backfill\\.skip\\s*:.*$"))
                 .collect(java.util.stream.Collectors.joining("\n"));
     }
 
