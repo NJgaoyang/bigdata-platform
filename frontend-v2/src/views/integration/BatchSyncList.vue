@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { ArrowDown, Delete, Document, Download, EditPen, Upload, VideoPlay, View } from '@element-plus/icons-vue'
 import PageHeader from '../../components/PageHeader.vue'
 import StatusBadge from '../../components/StatusBadge.vue'
 import { dataSourceApi, type DataSourceView } from '../../api/platform'
@@ -927,7 +928,8 @@ function messageOf(error: unknown) {
 }
 
 function handleBatchMoreCommand(command: string, task: IntegrationTask) {
-  if (command === 'online') void onlineTask(task)
+  if (command === 'detail') void openDetail(task)
+  else if (command === 'online') void onlineTask(task)
   else if (command === 'offline') void offlineTask(task)
   else if (command === 'edit') { if (!isOnline(task)) void openEdit(task) }
   else if (command === 'logs') void showHistory(task)
@@ -980,19 +982,22 @@ onBeforeUnmount(() => {
         </el-table-column>
         <el-table-column label="创建时间" min-width="175"><template #default="scope"><span class="time-cell">{{ taskCreatedAt(scope.row) }}</span></template></el-table-column>
         <el-table-column label="创建人" min-width="100"><template #default="scope">{{ taskCreatedBy(scope.row) }}</template></el-table-column>
-        <el-table-column label="操作" width="150" fixed="right">
+        <el-table-column label="操作" width="190" fixed="right">
           <template #default="scope">
-            <div class="row-actions" @click.stop>
-              <el-button link type="primary" @click="openDetail(scope.row)">详情</el-button>
-              <el-dropdown trigger="click" @command="(cmd:string)=>handleBatchMoreCommand(cmd,scope.row)">
-                <el-button link>更多<span class="more-caret">⌄</span></el-button>
+            <div class="row-actions batch-row-actions" @click.stop>
+              <el-button class="inline-run-action" text :disabled="!isOnline(scope.row)" @click="run(scope.row)">
+                <el-icon><VideoPlay /></el-icon><span>运行</span>
+              </el-button>
+              <el-dropdown trigger="click" popper-class="batch-action-popper" @command="(cmd:string)=>handleBatchMoreCommand(cmd,scope.row)">
+                <el-button class="inline-more-action" text>更多<el-icon class="more-arrow"><ArrowDown /></el-icon></el-button>
                 <template #dropdown>
-                  <el-dropdown-menu>
-                    <el-dropdown-item v-if="isOnline(scope.row)" command="offline">下线</el-dropdown-item>
-                    <el-dropdown-item v-else command="online">上线</el-dropdown-item>
-                    <el-dropdown-item command="edit" :disabled="isOnline(scope.row)">编辑</el-dropdown-item>
-                    <el-dropdown-item command="logs">日志</el-dropdown-item>
-                    <el-dropdown-item command="delete" divided :disabled="isOnline(scope.row)"><span class="danger-menu-item">删除</span></el-dropdown-item>
+                  <el-dropdown-menu class="batch-action-menu">
+                    <el-dropdown-item command="detail"><el-icon><View /></el-icon><span>查看详情</span></el-dropdown-item>
+                    <el-dropdown-item command="edit" :disabled="isOnline(scope.row)"><el-icon><EditPen /></el-icon><span>编辑配置</span></el-dropdown-item>
+                    <el-dropdown-item command="logs"><el-icon><Document /></el-icon><span>运行日志</span></el-dropdown-item>
+                    <el-dropdown-item v-if="isOnline(scope.row)" command="offline" divided><el-icon><Download /></el-icon><span>下线任务</span></el-dropdown-item>
+                    <el-dropdown-item v-else command="online" divided><el-icon><Upload /></el-icon><span>上线任务</span></el-dropdown-item>
+                    <el-dropdown-item command="delete" divided :disabled="isOnline(scope.row)" class="batch-delete-item"><el-icon><Delete /></el-icon><span>删除任务</span></el-dropdown-item>
                   </el-dropdown-menu>
                 </template>
               </el-dropdown>
@@ -1346,5 +1351,5 @@ onBeforeUnmount(() => {
 
 .schedule-wheel-grid{display:grid;grid-template-columns:repeat(4,minmax(96px,1fr));gap:12px;width:100%}.schedule-wheel{display:flex;flex-direction:column;gap:6px}.schedule-wheel>span{font-size:12px;color:var(--ds-text-secondary);text-align:center}.schedule-wheel :deep(.el-select){width:100%}.schedule-wheel-grid.disabled{opacity:.65}@media(max-width:1100px){.schedule-wheel-grid{grid-template-columns:repeat(2,minmax(110px,1fr))}}
 .schedule-config-box{width:100%;border:1px solid var(--ds-border);border-radius:6px;background:#fff;overflow:hidden}.schedule-config-box.disabled{opacity:.65}.schedule-config-title{height:40px;padding:0 16px;display:flex;align-items:center;border-bottom:1px solid var(--ds-border);background:#fafbfc;color:var(--el-color-primary);font-weight:650}.schedule-custom{padding:0 14px 14px}.schedule-unit-tabs{display:grid;grid-template-columns:repeat(5,1fr);border:1px solid var(--ds-border);border-top:0;background:#f7f8fa}.schedule-unit-tabs button{height:38px;border:0;border-right:1px solid var(--ds-border);background:transparent;color:var(--ds-text-secondary);cursor:pointer;font-weight:600}.schedule-unit-tabs button:last-child{border-right:0}.schedule-unit-tabs button.active{background:#fff;color:var(--el-color-primary)}.schedule-unit-picker{padding:14px 0 0}.schedule-preview-card{margin:0 14px 14px;padding:12px 14px;border:1px solid #d8e5f5;border-radius:6px;background:#f7fbff}.schedule-preview-title{font-size:12px;color:#8793a5;margin-bottom:8px}.schedule-preview-row{display:flex;align-items:center;gap:8px;height:28px;font-size:13px;color:#344054}.schedule-preview-row i{width:20px;height:20px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;background:var(--el-color-primary);color:#fff;font-style:normal;font-size:11px}.schedule-preview-empty{font-size:12px;color:var(--ds-text-tertiary)}
-.row-actions{display:flex;align-items:center;gap:4px;white-space:nowrap}.more-caret{margin-left:2px}.danger-menu-item{color:#f56c6c}
+.row-actions{display:flex;align-items:center;gap:4px;white-space:nowrap}.more-caret{margin-left:2px}.danger-menu-item{color:#f56c6c}.batch-row-actions{gap:8px}.inline-run-action,.inline-more-action{height:36px!important;padding:0 12px!important;border-radius:8px!important;color:#667085!important;font-weight:500!important}.inline-run-action{gap:5px;background:#fafbfc!important}.inline-run-action:not(.is-disabled):hover,.inline-more-action:hover{background:#f4f5f7!important;color:#344054!important}.inline-run-action.is-disabled{opacity:.45}.inline-more-action{gap:5px}.more-arrow{margin-left:2px;font-size:13px} :global(.batch-action-popper.el-popper){border:0!important;border-radius:16px!important;box-shadow:0 12px 30px rgba(16,24,40,.16)!important;overflow:hidden} :global(.batch-action-popper .el-popper__arrow){display:none} :global(.batch-action-popper .el-dropdown-menu){min-width:168px;padding:8px!important;border-radius:16px!important} :global(.batch-action-popper .el-dropdown-menu__item){height:44px;padding:0 16px!important;gap:10px;border-radius:7px;font-size:14px;color:#202124} :global(.batch-action-popper .el-dropdown-menu__item .el-icon){font-size:17px;color:#667085} :global(.batch-action-popper .el-dropdown-menu__item:not(.is-disabled):hover){background:#f5f6f8;color:#202124} :global(.batch-action-popper .el-dropdown-menu__item.is-disabled){color:#c0c4cc} :global(.batch-action-popper .el-dropdown-menu__item.is-disabled .el-icon){color:#c0c4cc} :global(.batch-action-popper .el-dropdown-menu__item--divided){margin-top:7px!important;border-top:1px solid #ebeef2!important} :global(.batch-action-popper .batch-delete-item:not(.is-disabled)){color:#f04438} :global(.batch-action-popper .batch-delete-item:not(.is-disabled) .el-icon){color:#f04438}
 </style>
