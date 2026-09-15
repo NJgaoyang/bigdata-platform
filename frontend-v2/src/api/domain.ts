@@ -129,6 +129,7 @@ export interface RealtimeEventRow { id:number; executionId?:number; eventType:st
 export interface RealtimeCheckpointRow { id:number; executionId?:number; checkpointId:number; status:string; durationMs:number; stateSizeBytes:number; completedAt?:string; createdAt?:string }
 export interface RealtimeSchemaChangeRow { id:number; sourceTable:string; changeType:string; ddlText?:string; policyAction?:string; targetResult?:string; status:string; detail?:string; occurredAt?:string }
 export interface RealtimeValidationRow { id:number; validationType:string; sourceTable?:string; sourceValue?:string; targetValue?:string; status:string; detail?:string; checkedAt?:string }
+export interface RealtimeVersionRow { versionNo:number; current:boolean; published:boolean; changeType:string; tables:string[]; addedTables:string[]; restoreSavepoint?:string; sourceExecutionId?:number; executionId?:number; engineJobId?:string; status?:string; createdBy:string; createdAt?:string }
 export const realtimeApi = {
   list: () => api.get<RealtimeJob[]>('/realtime/jobs'),
   management: () => api.get<RealtimeManagementRow[]>('/realtime/jobs/management'),
@@ -147,6 +148,7 @@ export const realtimeApi = {
   metrics: (id:number) => api.get<any>(`/realtime/jobs/${id}/metrics`),
   logs: (id:number) => api.get<any>(`/realtime/jobs/${id}/logs`),
   yaml: (id:number) => api.get<string>(`/realtime/jobs/${id}/yaml`),
+  versions: (id:number) => api.get<RealtimeVersionRow[]>(`/realtime/jobs/${id}/versions`),
   tables: (dataSourceId:number,database:string) => api.get<RealtimeTableOption[]>('/realtime/jobs/metadata/tables',{params:{dataSourceId,database}}),
   columns: (dataSourceId:number,database:string,table:string) => api.get<RealtimeColumnOption[]>('/realtime/jobs/metadata/columns',{params:{dataSourceId,database,table}}),
   executions: (id:number) => api.get<RealtimeExecution[]>(`/realtime/jobs/${id}/executions`),
