@@ -1,6 +1,7 @@
 package com.company.platform.integration;
 
 import com.company.platform.common.PlatformStore;
+import com.company.platform.system.AlertSettingService;
 import jakarta.annotation.PreDestroy;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
@@ -29,6 +30,7 @@ public class IntegrationExecutionMonitor {
     private final SeaTunnelGateway gateway;
     private final IntegrationRuntimeRepository runtimeRepository;
     private final IntegrationStagingService stagingService;
+    private final AlertSettingService alerts;
     private final IntegrationDataValidationService dataValidation;
     private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor(
             Thread.ofPlatform().daemon(true).name("integration-execution-monitor").factory());
@@ -37,12 +39,13 @@ public class IntegrationExecutionMonitor {
     public IntegrationExecutionMonitor(PlatformStore store, SeaTunnelGateway gateway,
                                        IntegrationRuntimeRepository runtimeRepository,
                                        IntegrationDataValidationService dataValidation,
-                                       IntegrationStagingService stagingService) {
+                                       IntegrationStagingService stagingService, AlertSettingService alerts) {
         this.store = store;
         this.gateway = gateway;
         this.runtimeRepository = runtimeRepository;
         this.dataValidation = dataValidation;
         this.stagingService = stagingService;
+        this.alerts = alerts;
     }
 
     @EventListener(ApplicationReadyEvent.class)
@@ -124,6 +127,12 @@ public class IntegrationExecutionMonitor {
         store.integrationInstances.put(updated.id(), updated);
         runtimeRepository.updateAttempt(updated.executionId(), updated.status(), updated.message());
         syncTaskStatus(updated.taskId());
+        if (terminal(updated.status())) {
+            IntegrationTaskView task = store.integrationTasks.get(updated.taskId());
+            long durationMs = updated.startedAt() == null ? 0L
+                    : java.time.Duration.between(updated.startedAt(), updated.finishedAt() == null ? LocalDateTime.now() : updated.finishedAt()).toMillis();
+            alerts.notifyTask(task == null ? "离线同步任务 " + updated.taskId() : task.name(), updated.status(), updated.message(), durationMs, null, null);
+        }
     }
 
     private void syncTaskStatus(long taskId) {

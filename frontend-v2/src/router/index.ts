@@ -34,6 +34,7 @@ const routes:RouteRecordRaw[]=[{path:'/login',name:'login',component:LoginView,m
 {path:'system/roles',component:()=>import('../views/system/SystemAccess.vue'),meta:{module:'system'}},
 {path:'system/data-source-permissions',component:()=>import('../views/system/DataSourcePermissions.vue'),meta:{module:'system'}},
 {path:'system/environments',component:()=>import('../views/system/RuntimeEnvironments.vue'),meta:{module:'system'}},
+{path:'system/alerts',component:()=>import('../views/system/AlertSettings.vue'),meta:{module:'system'}},
 {path:'system/audit',component:()=>import('../views/system/SystemAccess.vue'),meta:{module:'system'}}
 ]}]
 const router=createRouter({history:createWebHistory(),routes})

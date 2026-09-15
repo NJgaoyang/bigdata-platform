@@ -2,6 +2,7 @@ package com.company.platform.realtime;
 
 import com.company.platform.common.BadRequestException;
 import com.company.platform.common.NotFoundException;
+import com.company.platform.system.AlertSettingService;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -23,12 +24,13 @@ public class RealtimeSyncService {
     private final FlinkCdcGateway gateway;
     private final RealtimePreCheckService preCheck;
     private final CdcServerIdAllocator serverIds;
+    private final AlertSettingService alerts;
 
     public RealtimeSyncService(JdbcTemplate jdbc, ObjectMapper mapper, FlinkEnvironmentService environments,
                                FlinkCdcConfigBuilder configBuilder, FlinkCdcGateway gateway,
-                               RealtimePreCheckService preCheck, CdcServerIdAllocator serverIds) {
+                               RealtimePreCheckService preCheck, CdcServerIdAllocator serverIds, AlertSettingService alerts) {
         this.jdbc=jdbc;this.mapper=mapper;this.environments=environments;this.configBuilder=configBuilder;this.gateway=gateway;
-        this.preCheck=preCheck;this.serverIds=serverIds;
+        this.preCheck=preCheck;this.serverIds=serverIds;this.alerts=alerts;
     }
 
     public List<RealtimeViews.Job> list(){return jdbc.query("SELECT * FROM realtime_sync_definition ORDER BY updated_at DESC",(rs,n)->job(rs));}
@@ -118,11 +120,13 @@ public class RealtimeSyncService {
             jdbc.update("UPDATE realtime_sync_execution SET engine_job_id=?,status='RUNNING',runtime_revision=?,local_log=? WHERE id=?",submitted.jobId(),"v"+version,submitted.log(),newExecutionId);
             jdbc.update("UPDATE realtime_sync_definition SET observed_state='RUNNING',last_error=NULL WHERE id=?",current.id());
             event(current.id(),newExecutionId,"RUNNING","V"+version+" 已从 Savepoint 恢复，Flink JobId="+submitted.jobId()+"；新增表："+String.join("、",added));
+            alerts.notifyTask(current.name(),"RUNNING","V"+version+" 已从 Savepoint 恢复，Flink JobId="+submitted.jobId(),null,null,null);
         }catch(RuntimeException ex){
             String m=msg(ex);
             jdbc.update("UPDATE realtime_sync_execution SET status='FAILED',finished_at=CURRENT_TIMESTAMP,error_message=?,local_log=? WHERE id=?",m,m,newExecutionId);
             jdbc.update("UPDATE realtime_sync_definition SET observed_state='FAILED',last_error=? WHERE id=?",m,current.id());
             event(current.id(),newExecutionId,"RESTORE_FAILED","Savepoint 已生成但新版本恢复失败："+m+"；Savepoint="+savepoint.location());
+            alerts.notifyTask(current.name(),"FAILED","新版本从 Savepoint 恢复失败："+m,null,null,null);
             throw ex;
         }
         return get(current.id());
@@ -198,7 +202,8 @@ public class RealtimeSyncService {
             FlinkCdcGateway.SubmitResult submitted=gateway.submit(env,yaml,spec);
             jdbc.update("UPDATE realtime_sync_execution SET engine_job_id=?,status='RUNNING',runtime_revision=?,local_log=? WHERE id=?",submitted.jobId(),"v"+job.publishedVersion(),submitted.log(),executionId);
             jdbc.update("UPDATE realtime_sync_definition SET observed_state='RUNNING' WHERE id=?",id);event(id,executionId,"RUNNING","Flink JobId="+submitted.jobId());
-        }catch(RuntimeException ex){String m=msg(ex);jdbc.update("UPDATE realtime_sync_execution SET status='FAILED',finished_at=CURRENT_TIMESTAMP,error_message=?,local_log=? WHERE id=?",m,m,executionId);jdbc.update("UPDATE realtime_sync_definition SET observed_state='FAILED',last_error=? WHERE id=?",m,id);event(id,executionId,"FAILED",m);throw ex;}
+            alerts.notifyTask(job.name(),"RUNNING","Flink JobId="+submitted.jobId(),null,null,null);
+        }catch(RuntimeException ex){String m=msg(ex);jdbc.update("UPDATE realtime_sync_execution SET status='FAILED',finished_at=CURRENT_TIMESTAMP,error_message=?,local_log=? WHERE id=?",m,m,executionId);jdbc.update("UPDATE realtime_sync_definition SET observed_state='FAILED',last_error=? WHERE id=?",m,id);event(id,executionId,"FAILED",m);alerts.notifyTask(job.name(),"FAILED",m,null,null,null);throw ex;}
         return runtime(id);
     }
 
@@ -211,6 +216,7 @@ public class RealtimeSyncService {
                 if(execution!=null) jdbc.update("UPDATE realtime_sync_execution SET status='STOPPED',finished_at=CURRENT_TIMESTAMP WHERE id=?",execution.id());
                 jdbc.update("UPDATE realtime_sync_definition SET observed_state='STOPPED',last_error=NULL WHERE id=?",id);
                 event(id,execution==null?null:execution.id(),"STOPPED","无活动 Flink Job，任务已停止 by "+operator(operator));
+                alerts.notifyTask(job.name(),"STOPPED","任务已停止",null,null,null);
                 return runtime(id);
             }
             FlinkEnvironmentView env=environments.get(job.runtimeEnvironmentId());
@@ -219,6 +225,7 @@ public class RealtimeSyncService {
                     jdbc.update("UPDATE realtime_sync_execution SET status='STOPPED',finished_at=COALESCE(finished_at,CURRENT_TIMESTAMP),result_uncertain=FALSE,error_message=NULL WHERE id=?",execution.id());
                     jdbc.update("UPDATE realtime_sync_definition SET observed_state='STOPPED',desired_state='STOPPED',last_error=NULL WHERE id=?",id);
                     event(id,execution.id(),"STOPPED","Flink 中已不存在该 Job，平台状态已收敛为已停止 by "+operator(operator));
+                    alerts.notifyTask(job.name(),"STOPPED","任务已停止",null,null,null);
                     return runtime(id);
                 }
                 throw ex;
@@ -235,6 +242,7 @@ public class RealtimeSyncService {
             jdbc.update("UPDATE realtime_sync_execution SET status=?,finished_at=CURRENT_TIMESTAMP,result_uncertain=FALSE,error_message=NULL WHERE id=?",executionState,execution.id());
             jdbc.update("UPDATE realtime_sync_definition SET observed_state=?,last_error=NULL WHERE id=?",observed,id);
             event(id,execution.id(),observed,"Flink 终态="+terminal+", 停止任务 by "+operator(operator));
+            alerts.notifyTask(job.name(),executionState,"Flink 终态="+terminal,null,null,null);
             if("FAILED".equals(terminal)) throw new BadRequestException("Flink Job 在停止过程中进入 FAILED");
             return runtime(id);
         }catch(BadRequestException ex){throw ex;}catch(RuntimeException ex){
@@ -271,8 +279,10 @@ public class RealtimeSyncService {
                 String flink=state.path("state").asText("UNKNOWN");
                 String observed=mapState(flink), executionState=mapExecution(flink);
                 jdbc.update("UPDATE realtime_sync_definition SET observed_state=?,last_error=NULL WHERE id=?",observed,id);
-                if(Set.of("FINISHED","FAILED","CANCELED").contains(flink)) jdbc.update("UPDATE realtime_sync_execution SET status=?,finished_at=CURRENT_TIMESTAMP,result_uncertain=FALSE WHERE id=?",executionState,execution.id());
-                else jdbc.update("UPDATE realtime_sync_execution SET status=?,finished_at=NULL,result_uncertain=FALSE WHERE id=?",executionState,execution.id());
+                if(Set.of("FINISHED","FAILED","CANCELED").contains(flink)) {
+                    jdbc.update("UPDATE realtime_sync_execution SET status=?,finished_at=CURRENT_TIMESTAMP,result_uncertain=FALSE WHERE id=?",executionState,execution.id());
+                    alerts.notifyTask(job.name(),executionState,"Flink 终态="+flink,null,null,null);
+                } else jdbc.update("UPDATE realtime_sync_execution SET status=?,finished_at=NULL,result_uncertain=FALSE WHERE id=?",executionState,execution.id());
                 job=get(id);execution=latestExecution(id);
             }catch(RuntimeException ignored){}
         }

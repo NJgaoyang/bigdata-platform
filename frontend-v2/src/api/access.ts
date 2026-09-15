@@ -4,6 +4,8 @@ export interface PlatformUser { id:number; username:string; displayName:string; 
 export interface PlatformRole { id:number; roleCode:string; roleName:string; permissions:string[] }
 export interface DataSourcePermission { dataSourceId:number; dataSourceName:string; userId:number; username:string; displayName:string; permissionCode:'VIEW'|'QUERY'|'EDIT' }
 export interface AuditLog { id:number; action:string; resourceType:string; resourceId?:number; detail?:string; operatorName:string; createdAt:string }
+export interface AlertSetting { id:number; name:string; channelType:string; triggerEvent:string; webhookMasked:string; secretConfigured:boolean; keyword:string; customTemplate:string; enabled:boolean; createdAt?:string; updatedAt?:string }
+export interface AlertSettingPayload { name:string; channelType:'DINGTALK'; triggerEvent:'FAILURE_ONLY'|'SUCCESS_AND_FAILURE'|'ALL'; webhook:string; secret:string; keyword:string; customTemplate:string; enabled:boolean }
 
 export const accessApi = {
   users: () => api.get<PlatformUser[]>('/system/users'),
@@ -18,5 +20,11 @@ export const accessApi = {
   setRolePermissions: (id:number, permissions:string[]) => api.put<PlatformRole>(`/system/roles/${id}/permissions`, { permissions }),
   dataSourcePermissions: () => api.get<DataSourcePermission[]>('/system/data-source-permissions'),
   grantDataSource: (dataSourceId:number,userId:number,permissionCode:string) => api.post<string>(`/system/data-sources/${dataSourceId}/permissions`, { userId, permissionCode }),
-  revokeDataSource: (binding:DataSourcePermission) => api.delete<void>(`/system/data-sources/${binding.dataSourceId}/permissions/${binding.userId}/${binding.permissionCode}`)
+  revokeDataSource: (binding:DataSourcePermission) => api.delete<void>(`/system/data-sources/${binding.dataSourceId}/permissions/${binding.userId}/${binding.permissionCode}`),
+  alertSettings: () => api.get<AlertSetting[]>('/system/alert-settings'),
+  createAlertSetting: (payload:AlertSettingPayload) => api.post<AlertSetting>('/system/alert-settings', payload),
+  updateAlertSetting: (id:number,payload:AlertSettingPayload) => api.put<AlertSetting>(`/system/alert-settings/${id}`, payload),
+  setAlertSettingEnabled: (id:number,enabled:boolean) => api.post<AlertSetting>(`/system/alert-settings/${id}/enabled`, { enabled }),
+  testAlertSetting: (id:number) => api.post<string>(`/system/alert-settings/${id}/test`),
+  deleteAlertSetting: (id:number) => api.delete<void>(`/system/alert-settings/${id}`)
 }
