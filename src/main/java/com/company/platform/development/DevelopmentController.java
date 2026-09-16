@@ -182,6 +182,12 @@ public class DevelopmentController {
         return Result.ok(schedules.version(id, versionNo));
     }
 
+    @GetMapping("/files/{id}/schedule/runtime")
+    public Result<DevelopmentScheduleService.ScheduleRuntimeView> scheduleRuntime(@PathVariable long id, HttpServletRequest servletRequest) {
+        service.getFile(id, operator(servletRequest));
+        return Result.ok(schedules.runtime(id));
+    }
+
     @GetMapping("/files/{id}/bundle")
     public Result<DevelopmentScheduleService.BundleView> bundle(@PathVariable long id) {
         return Result.ok(schedules.bundle(id));

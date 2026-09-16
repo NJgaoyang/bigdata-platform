@@ -29,6 +29,7 @@ export interface DevelopmentScheduleDependency { fileId:number; name:string }
 export interface DevelopmentSchedule { fileId:number; currentVersion:number; publishedVersion:number; enabled:boolean; cycleType:string; executionTime:string; cronExpression:string; timezone:string; dataSourceId?:number; databaseName?:string; bizDateParam:string; retryTimes:number; retryIntervalMinutes:number; timeoutMinutes:number; dependencies:DevelopmentScheduleDependency[]; downstream:DevelopmentScheduleDependency[]; publishedSqlVersion:number; currentReleaseNo:number }
 export interface DevelopmentBundle { fileId:number; sqlVersion:number; publishedSqlVersion:number; scheduleVersion:number; publishedScheduleVersion:number; releaseNo:number; sqlDirty:boolean; scheduleDirty:boolean }
 export interface DevelopmentBundleRelease { releaseNo:number; sqlVersion:number; scheduleVersion:number; current:boolean; operatorName:string; remark?:string; releasedAt?:string }
+export interface DevelopmentScheduleRuntime { fileId:number; status:string; plannedAt?:string; startedAt?:string; finishedAt?:string; executionId?:string; errorMessage?:string; nextPlannedAt?:string }
 export interface DevelopmentSchedulePayload { enabled:boolean; cycleType:string; executionTime:string; cronExpression:string; timezone:string; dataSourceId:number; databaseName:string; bizDateParam:string; retryTimes:number; retryIntervalMinutes:number; timeoutMinutes:number; upstreamFileIds:number[] }
 
 export const developmentApi = {
@@ -53,6 +54,7 @@ export const developmentApi = {
   schedule: (id:number) => api.get<DevelopmentSchedule>(`/development/files/${id}/schedule`),
   saveSchedule: (id:number,payload:DevelopmentSchedulePayload) => api.put<DevelopmentSchedule>(`/development/files/${id}/schedule`,payload),
   scheduleVersion: (id:number,versionNo:number) => api.get<DevelopmentSchedule>(`/development/files/${id}/schedule/versions/${versionNo}`),
+  scheduleRuntime: (id:number) => api.get<DevelopmentScheduleRuntime>(`/development/files/${id}/schedule/runtime`),
   bundle: (id:number) => api.get<DevelopmentBundle>(`/development/files/${id}/bundle`),
   bundleReleases: (id:number) => api.get<DevelopmentBundleRelease[]>(`/development/files/${id}/bundle/releases`),
   rollbackBundle: (id:number,releaseNo:number) => api.post<DevelopmentBundle>(`/development/files/${id}/bundle/releases/${releaseNo}/rollback`)

@@ -10,6 +10,6 @@ public class DevelopmentScheduleQuartzJob implements Job {
     @Autowired private DevelopmentScheduleService service;
     @Override public void execute(JobExecutionContext context) {
         long fileId=Long.parseLong(context.getMergedJobDataMap().getString("fileId"));
-        service.executeScheduled(fileId);
+        service.executeScheduled(fileId, context.getScheduledFireTime());
     }
 }
