@@ -9,7 +9,7 @@ CREATE TABLE IF NOT EXISTS dev_file_schedule (
     timezone VARCHAR(64) NOT NULL DEFAULT 'Asia/Shanghai',
     data_source_id BIGINT,
     database_name VARCHAR(255),
-    biz_date_param VARCHAR(64) NOT NULL DEFAULT '${system.biz.date-1}',
+    biz_date_param VARCHAR(64) NOT NULL DEFAULT 'PREVIOUS_DAY',
     retry_times INT NOT NULL DEFAULT 3,
     retry_interval_minutes INT NOT NULL DEFAULT 5,
     timeout_minutes INT NOT NULL DEFAULT 120,
