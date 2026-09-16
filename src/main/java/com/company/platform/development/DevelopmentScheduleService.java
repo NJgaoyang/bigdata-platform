@@ -81,10 +81,14 @@ public class DevelopmentScheduleService {
 
     public void executeScheduled(long fileId){
         ProdConfig p=prodConfig(fileId); if(p==null||!p.enabled())return;
-        String sql=publishedSql(fileId,p.sqlVersion()); String biz=resolveBizDate(p.bizDateParam(),p.timezone());
+        String biz=resolveBizDate(p.bizDateParam(),p.timezone());
+        Integer existing=jdbc.queryForObject("SELECT COUNT(*) FROM dev_file_schedule_execution WHERE file_id=? AND business_date=? AND release_no=? AND status IN ('RUNNING','SUCCESS')",Integer.class,fileId,java.sql.Date.valueOf(biz),p.releaseNo());
+        if(existing!=null&&existing>0)return;
+        if(!dependenciesReady(p,biz)){insertExecution(fileId,p,biz,"WAITING_DEPENDENCY",null,null);return;}
+        String sql=publishedSql(fileId,p.sqlVersion());
         sql=sql.replace("${biz_date}",biz).replace("${system.biz.date-1}",LocalDate.now(ZoneId.of(p.timezone())).minusDays(1).toString()).replace("${system.biz.date}",LocalDate.now(ZoneId.of(p.timezone())).toString()).replace("${system.date}",LocalDate.now(ZoneId.of(p.timezone())).toString());
-        long executionId=insertExecution(fileId,p,"RUNNING",null,null);
-        try { var result=queryService.execute(sql,false,p.dataSourceId(),p.databaseName(),"scheduler"); jdbc.update("UPDATE dev_file_schedule_execution SET execution_id=?,status=?,finished_at=CURRENT_TIMESTAMP WHERE id=?",result.executionId(),result.status(),executionId); }
+        long executionId=insertExecution(fileId,p,biz,"RUNNING",null,null);
+        try { var result=queryService.execute(sql,false,p.dataSourceId(),p.databaseName(),"scheduler"); jdbc.update("UPDATE dev_file_schedule_execution SET execution_id=?,status=?,finished_at=CURRENT_TIMESTAMP WHERE id=?",result.executionId(),result.status(),executionId); if("SUCCESS".equals(result.status()))triggerReadyDownstream(fileId,biz); }
         catch(RuntimeException ex){jdbc.update("UPDATE dev_file_schedule_execution SET status='FAILED',finished_at=CURRENT_TIMESTAMP,error_message=? WHERE id=?",ex.getMessage(),executionId);throw ex;}
     }
 
@@ -92,15 +96,18 @@ public class DevelopmentScheduleService {
     public void restore(){jdbc.queryForList("SELECT file_id FROM dev_file_schedule WHERE published_version>0").forEach(r->syncQuartz(((Number)r.get("file_id")).longValue()));}
 
     private void syncQuartz(long fileId){
-        ProdConfig p=prodConfig(fileId); JobKey jk=new JobKey("dev_file_"+fileId,"datasphere-development");TriggerKey tk=new TriggerKey("dev_schedule_"+fileId,"datasphere-development");
+        ProdConfig p=prodConfig(fileId); JobKey jk=jobKey(fileId);TriggerKey tk=new TriggerKey("dev_schedule_"+fileId,"datasphere-development");
         try{if(p==null||!p.enabled()){if(quartz.checkExists(tk))quartz.unscheduleJob(tk);if(quartz.checkExists(jk))quartz.deleteJob(jk);return;} JobDetail job=JobBuilder.newJob(DevelopmentScheduleQuartzJob.class).withIdentity(jk).usingJobData("fileId",String.valueOf(fileId)).storeDurably(true).build();if(quartz.checkExists(jk))quartz.addJob(job,true);else quartz.addJob(job,false);CronTrigger trigger=TriggerBuilder.newTrigger().withIdentity(tk).forJob(jk).withSchedule(CronScheduleBuilder.cronSchedule(p.cronExpression()).inTimeZone(TimeZone.getTimeZone(p.timezone())).withMisfireHandlingInstructionDoNothing()).build();if(quartz.checkExists(tk))quartz.rescheduleJob(tk,trigger);else quartz.scheduleJob(trigger);quartz.resumeTrigger(tk);}catch(SchedulerException ex){throw new BadRequestException("同步开发任务调度失败："+ex.getMessage());}
     }
 
     private ProdConfig prodConfig(long fileId){
         List<Map<String,Object>> rows=jdbc.queryForList("SELECT s.published_version,b.release_no,b.sql_version FROM dev_file_schedule s LEFT JOIN dev_file_release_bundle b ON b.file_id=s.file_id AND b.current_flag=TRUE WHERE s.file_id=? AND s.published_version>0",fileId);if(rows.isEmpty())return null;int ver=((Number)rows.getFirst().get("published_version")).intValue();int rel=rows.getFirst().get("release_no")==null?0:((Number)rows.getFirst().get("release_no")).intValue();int sql=rows.getFirst().get("sql_version")==null?publishedSqlVersion(fileId):((Number)rows.getFirst().get("sql_version")).intValue();
-        String json=jdbc.queryForObject("SELECT config_json FROM dev_file_schedule_version WHERE file_id=? AND version_no=?",String.class,fileId,ver);try{ScheduleView s=mapper.readValue(json,ScheduleView.class);return new ProdConfig(ver,rel,sql,s.enabled(),s.cronExpression(),s.timezone(),s.dataSourceId(),s.databaseName(),s.bizDateParam());}catch(Exception ex){throw new BadRequestException("读取生产调度配置失败："+ex.getMessage());}
+        String json=jdbc.queryForObject("SELECT config_json FROM dev_file_schedule_version WHERE file_id=? AND version_no=?",String.class,fileId,ver);try{ScheduleView s=mapper.readValue(json,ScheduleView.class);return new ProdConfig(ver,rel,sql,s.enabled(),s.cronExpression(),s.timezone(),s.dataSourceId(),s.databaseName(),s.bizDateParam(),s.dependencies().stream().map(DependencyView::fileId).toList());}catch(Exception ex){throw new BadRequestException("读取生产调度配置失败："+ex.getMessage());}
     }
-    private long insertExecution(long fileId,ProdConfig p,String status,String executionId,String error){jdbc.update("INSERT INTO dev_file_schedule_execution(file_id,release_no,sql_version,schedule_version,execution_id,status,error_message) VALUES(?,?,?,?,?,?,?)",fileId,p.releaseNo(),p.sqlVersion(),p.scheduleVersion(),executionId,status,error);return jdbc.queryForObject("SELECT LAST_INSERT_ID()",Long.class);}
+    private long insertExecution(long fileId,ProdConfig p,String biz,String status,String executionId,String error){jdbc.update("INSERT INTO dev_file_schedule_execution(file_id,release_no,sql_version,schedule_version,business_date,execution_id,status,error_message) VALUES(?,?,?,?,?,?,?,?)",fileId,p.releaseNo(),p.sqlVersion(),p.scheduleVersion(),java.sql.Date.valueOf(biz),executionId,status,error);return jdbc.queryForObject("SELECT LAST_INSERT_ID()",Long.class);}
+    private boolean dependenciesReady(ProdConfig p,String biz){for(Long upstream:p.upstreamFileIds()){Integer ok=jdbc.queryForObject("SELECT COUNT(*) FROM dev_file_schedule_execution WHERE file_id=? AND business_date=? AND status='SUCCESS'",Integer.class,upstream,java.sql.Date.valueOf(biz));if(ok==null||ok==0)return false;}return true;}
+    private void triggerReadyDownstream(long upstream,String biz){for(Map<String,Object> row:jdbc.queryForList("SELECT file_id FROM dev_file_schedule WHERE published_version>0")){long candidate=((Number)row.get("file_id")).longValue();ProdConfig p=prodConfig(candidate);if(p==null||!p.enabled()||!p.upstreamFileIds().contains(upstream)||!dependenciesReady(p,biz))continue;try{JobKey key=jobKey(candidate);if(quartz.checkExists(key))quartz.triggerJob(key);}catch(SchedulerException ex){throw new BadRequestException("触发下游开发任务失败："+ex.getMessage());}}}
+    private JobKey jobKey(long fileId){return new JobKey("dev_file_"+fileId,"datasphere-development");}
     private String publishedSql(long fileId,int version){return jdbc.query("SELECT content FROM dev_file_version WHERE file_id=? AND version_no=?",(rs,n)->rs.getString(1),fileId,version).stream().findFirst().orElseThrow(()->new BadRequestException("生产 SQL V"+version+" 不存在"));}
     private int publishedSqlVersion(long fileId){Integer v=jdbc.query("SELECT version_no FROM dev_file_version WHERE file_id=? AND publish_flag=TRUE ORDER BY version_no DESC LIMIT 1",(rs,n)->rs.getInt(1),fileId).stream().findFirst().orElse(0);return v==null?0:v;}
     private int currentReleaseNo(long fileId){Integer v=jdbc.query("SELECT release_no FROM dev_file_release_bundle WHERE file_id=? AND current_flag=TRUE LIMIT 1",(rs,n)->rs.getInt(1),fileId).stream().findFirst().orElse(0);return v==null?0:v;}
@@ -117,5 +124,5 @@ public class DevelopmentScheduleService {
     public record ScheduleView(long fileId,int currentVersion,int publishedVersion,boolean enabled,String cycleType,String executionTime,String cronExpression,String timezone,Long dataSourceId,String databaseName,String bizDateParam,int retryTimes,int retryIntervalMinutes,int timeoutMinutes,List<DependencyView> dependencies,List<DependencyView> downstream,int publishedSqlVersion,int currentReleaseNo){}
     public record BundleView(long fileId,int sqlVersion,int publishedSqlVersion,int scheduleVersion,int publishedScheduleVersion,int releaseNo,boolean sqlDirty,boolean scheduleDirty){}
     public record ReleaseView(int releaseNo,int sqlVersion,int scheduleVersion,boolean current,String operatorName,String remark,java.time.LocalDateTime releasedAt){}
-    private record ProdConfig(int scheduleVersion,int releaseNo,int sqlVersion,boolean enabled,String cronExpression,String timezone,Long dataSourceId,String databaseName,String bizDateParam){}
+    private record ProdConfig(int scheduleVersion,int releaseNo,int sqlVersion,boolean enabled,String cronExpression,String timezone,Long dataSourceId,String databaseName,String bizDateParam,List<Long> upstreamFileIds){}
 }
