@@ -20,7 +20,7 @@ export const metadataApi = {
 
 export interface DevProject { id:number; name:string; description?:string; status:string; ownerName?:string }
 export interface DevFolder { id:number; projectId:number; parentId?:number; name:string; createdAt?:string }
-export interface DevFile { id:number; projectId:number; folderId?:number; name:string; fileType:string; content:string; description?:string; status:string; currentVersion:number; updatedAt?:string; lifecycleStatus:string; everOnline:boolean }
+export interface DevFile { id:number; projectId:number; folderId?:number; name:string; fileType:string; content:string; description?:string; status:string; currentVersion:number; updatedAt?:string; lifecycleStatus:string; everOnline:boolean; ownerName:string }
 export interface RecycledDevFile { id:number; projectId:number; folderId?:number; folderName?:string; name:string; fileType:string; description?:string; status:string; currentVersion:number; recycledAt?:string; recycledBy?:string }
 export interface FileVersion { id:number; fileId:number; versionNo:number; content:string; checksum?:string; publishFlag:boolean }
 export interface QueryResult { executionId:string; status:string; columns:string[]; rows:Array<Record<string,unknown>>; rowCount:number; elapsedMs:number; errorMessage?:string; columnComments?:Record<string,string> }
@@ -39,6 +39,7 @@ export const developmentApi = {
   updateFolder: (id:number,payload:{name:string;parentId?:number;moveToRoot?:boolean}) => api.put<DevFolder>(`/development/folders/${id}`,payload),
   deleteFolder: (id:number) => api.delete<void>(`/development/folders/${id}`),
   files: (projectId:number) => api.get<DevFile[]>('/development/files', { params:{ projectId } }),
+  recentFileIds: (projectId:number) => api.get<number[]>('/development/files/recent', { params:{ projectId } }),
   getFile: (id:number) => api.get<DevFile>(`/development/files/${id}`),
   createFile: (payload:{projectId:number;folderId?:number;name:string;fileType:string;content:string;description?:string}) => api.post<DevFile>('/development/files',payload),
   saveFile: (id:number,payload:{content:string;name?:string;description?:string;folderId?:number;moveToRoot?:boolean}) => api.put<DevFile>(`/development/files/${id}`,payload),

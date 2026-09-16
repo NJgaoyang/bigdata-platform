@@ -24,9 +24,9 @@ public class DevelopmentController {
     }
 
     @GetMapping("/projects")
-    public Result<List<DevProjectView>> projects(@RequestParam(defaultValue = "mine") String scope,
+    public Result<List<DevProjectView>> projects(@RequestParam(defaultValue = "all") String scope,
                                                   HttpServletRequest servletRequest) {
-        String normalizedScope = scope == null ? "mine" : scope.trim().toLowerCase(Locale.ROOT);
+        String normalizedScope = scope == null ? "all" : scope.trim().toLowerCase(Locale.ROOT);
         String operator = operator(servletRequest);
         List<DevProjectView> projects;
         if ("favorites".equals(normalizedScope)) {
@@ -36,7 +36,7 @@ public class DevelopmentController {
             projects = service.projects(operator, false).stream().filter(this::isFavoritesWorkspace).toList();
         } else {
             projects = service.projects(operator, "all".equals(normalizedScope)).stream()
-                    .filter(project -> !isFavoritesWorkspace(project))
+                    .filter(project -> !isFavoritesWorkspace(project) && !isLegacyPersonalWorkspace(project))
                     .toList();
         }
         return Result.ok(projects);
@@ -94,6 +94,11 @@ public class DevelopmentController {
     @GetMapping("/files")
     public Result<List<DevFileView>> files(@RequestParam long projectId, HttpServletRequest servletRequest) {
         return Result.ok(service.files(projectId, operator(servletRequest)));
+    }
+
+    @GetMapping("/files/recent")
+    public Result<List<Long>> recentFiles(@RequestParam long projectId, HttpServletRequest servletRequest) {
+        return Result.ok(service.recentFileIds(projectId, operator(servletRequest)));
     }
 
     @PostMapping("/files")
@@ -236,6 +241,13 @@ public class DevelopmentController {
 
     private boolean isFavoritesWorkspace(DevProjectView project) {
         return project != null && FAVORITES_PROJECT_NAME.equalsIgnoreCase(project.name() == null ? "" : project.name().trim());
+    }
+
+    private boolean isLegacyPersonalWorkspace(DevProjectView project) {
+        if (project == null) return false;
+        String name = project.name() == null ? "" : project.name().trim();
+        String description = project.description() == null ? "" : project.description().trim();
+        return "我的开发".equals(name) || "默认开发空间".equals(name) || "个人工作区".equals(description);
     }
 
     private String operator(HttpServletRequest request) {

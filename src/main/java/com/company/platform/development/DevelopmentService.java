@@ -27,10 +27,12 @@ public class DevelopmentService {
     private final PlatformStore store;
     private PlatformProperties properties;
     private JdbcTemplate jdbc;
+    private AccessService accessService;
 
     public DevelopmentService(PlatformStore store) { this.store = store; }
     @Autowired public void setProperties(PlatformProperties properties) { this.properties = properties; }
     @Autowired(required = false) public void setJdbcTemplate(JdbcTemplate jdbc) { this.jdbc = jdbc; }
+    @Autowired public void setAccessService(AccessService accessService) { this.accessService = accessService; }
 
     public List<DevProjectView> projects() { return store.projects.values().stream().toList(); }
     public List<DevProjectView> projects(String operator, boolean includeAll) {
@@ -153,14 +155,19 @@ public class DevelopmentService {
     }
     public List<DevFileView> files(long projectId, String operator) { requireProjectView(projectId, operator); return files(projectId); }
 
-    public DevFileView createFile(DevelopmentRequests.FileRequest request) {
+    public DevFileView createFile(DevelopmentRequests.FileRequest request) { return createFileInternal(request, "admin"); }
+    @Transactional
+    public DevFileView createFile(DevelopmentRequests.FileRequest request, String operator) {
+        requireProjectEdit(request.projectId(), operator);
+        return createFileInternal(request, normalizeOperator(operator));
+    }
+    private DevFileView createFileInternal(DevelopmentRequests.FileRequest request, String owner) {
         requireProject(request.projectId());
         validateParentFolder(request.projectId(), request.folderId(), null);
         long id = store.nextId();
         DevFileView view = new DevFileView(id, request.projectId(), request.folderId(), request.name(), request.fileType().toUpperCase(),
                 request.content() == null ? "" : request.content(), request.description() == null ? "" : request.description().trim(), "DRAFT", 1,
-                LocalDateTime.now());
-        // File must exist before version because dev_file_version has an FK to dev_file.
+                LocalDateTime.now(), "OFFLINE", false, owner);
         store.persistFile(view);
         FileVersionView version = newVersion(view);
         store.persistVersion(version);
@@ -168,14 +175,24 @@ public class DevelopmentService {
         store.versions.put(version.id(), version);
         return view;
     }
-    @Transactional
-    public DevFileView createFile(DevelopmentRequests.FileRequest request, String operator) { requireProjectEdit(request.projectId(), operator); return createFile(request); }
 
     public DevFileView getFile(long id) { return requireFile(id); }
     public DevFileView getFile(long id, String operator) {
         DevFileView file = requireFile(id);
         requireProjectView(file.projectId(), operator);
+        touchRecent(file.id(), operator);
         return file;
+    }
+    public List<Long> recentFileIds(long projectId, String operator) {
+        requireProjectView(projectId, operator);
+        if (jdbc == null) return List.of();
+        return jdbc.query("SELECT r.file_id FROM dev_file_recent r JOIN dev_file f ON f.id=r.file_id WHERE r.user_name=? AND f.project_id=? AND f.recycled=FALSE ORDER BY r.last_opened_at DESC LIMIT 50",
+                (rs,n) -> rs.getLong(1), normalizeOperator(operator), projectId);
+    }
+    private void touchRecent(long fileId, String operator) {
+        if (jdbc == null) return;
+        jdbc.update("INSERT INTO dev_file_recent(user_name,file_id,last_opened_at) VALUES(?,?,CURRENT_TIMESTAMP) ON DUPLICATE KEY UPDATE last_opened_at=CURRENT_TIMESTAMP",
+                normalizeOperator(operator), fileId);
     }
     public void requireFileEdit(long id, String operator) { requireProjectEdit(requireFile(id).projectId(), operator); }
 
@@ -219,7 +236,7 @@ public class DevelopmentService {
     @Transactional
     public DevFileView restoreFile(long id, String operator) {
         if (jdbc == null) throw new BadRequestException("当前环境不支持回收箱恢复");
-        Map<String,Object> row = jdbc.queryForMap("SELECT id,project_id,folder_id,name,file_type,content,description,status,current_version,updated_at,lifecycle_status,ever_online FROM dev_file WHERE id=? AND recycled=TRUE", id);
+        Map<String,Object> row = jdbc.queryForMap("SELECT id,project_id,folder_id,name,file_type,content,description,status,current_version,updated_at,lifecycle_status,ever_online,owner_name FROM dev_file WHERE id=? AND recycled=TRUE", id);
         long projectId = ((Number) row.get("project_id")).longValue();
         requireProjectEdit(projectId, operator);
         jdbc.update("UPDATE dev_file SET recycled=FALSE,recycled_at=NULL,recycled_by=NULL,updated_at=CURRENT_TIMESTAMP WHERE id=?", id);
@@ -228,7 +245,8 @@ public class DevelopmentService {
         DevFileView restored = new DevFileView(id, projectId, folderId, String.valueOf(row.get("name")), String.valueOf(row.get("file_type")),
                 String.valueOf(row.get("content")), row.get("description") == null ? "" : String.valueOf(row.get("description")),
                 String.valueOf(row.get("status")), ((Number) row.get("current_version")).intValue(), updatedAt,
-                String.valueOf(row.get("lifecycle_status")), Boolean.TRUE.equals(row.get("ever_online")) || (row.get("ever_online") instanceof Number n && n.intValue()!=0));
+                String.valueOf(row.get("lifecycle_status")), Boolean.TRUE.equals(row.get("ever_online")) || (row.get("ever_online") instanceof Number n && n.intValue()!=0),
+                row.get("owner_name") == null ? "admin" : String.valueOf(row.get("owner_name")));
         store.files.put(id, restored);
         return restored;
     }
@@ -256,6 +274,7 @@ public class DevelopmentService {
 
     public DevFileView saveFile(long id, DevelopmentRequests.SaveFileRequest request) {
         DevFileView current = requireFile(id);
+        requireOfflineForEdit(current);
         String name = request.name() == null || request.name().isBlank() ? current.name() : request.name().trim();
         Long folderId = Boolean.TRUE.equals(request.moveToRoot()) ? null : request.folderId() == null ? current.folderId() : request.folderId();
         validateParentFolder(current.projectId(), folderId, null);
@@ -265,7 +284,7 @@ public class DevelopmentService {
         String nextStatus = contentChanged ? "DRAFT" : current.status();
         DevFileView updated = new DevFileView(current.id(), current.projectId(), folderId, name, current.fileType(), content,
                 request.description() == null ? current.description() : request.description().trim(), nextStatus, nextVersion,
-                LocalDateTime.now(), current.lifecycleStatus(), current.everOnline());
+                LocalDateTime.now(), current.lifecycleStatus(), current.everOnline(), current.ownerName());
         if (contentChanged) {
             FileVersionView version = newVersion(updated);
             store.persistVersion(version);
@@ -287,8 +306,9 @@ public class DevelopmentService {
 
     public FileVersionView createVersion(long fileId, DevelopmentRequests.VersionRequest request) {
         DevFileView current = requireFile(fileId);
+        requireOfflineForEdit(current);
         DevFileView updated = new DevFileView(current.id(), current.projectId(), current.folderId(), current.name(), current.fileType(), request.content(),
-                current.description(), "DRAFT", current.currentVersion() + 1, LocalDateTime.now(), current.lifecycleStatus(), current.everOnline());
+                current.description(), "DRAFT", current.currentVersion() + 1, LocalDateTime.now(), current.lifecycleStatus(), current.everOnline(), current.ownerName());
         FileVersionView version = newVersion(updated);
         store.persistVersion(version);
         store.persistFile(updated);
@@ -315,7 +335,7 @@ public class DevelopmentService {
         }
         updates.forEach(store::persistVersion);
         DevFileView published = new DevFileView(current.id(), current.projectId(), current.folderId(), current.name(), current.fileType(), current.content(),
-                current.description(), "PUBLISHED", current.currentVersion(), LocalDateTime.now(), current.lifecycleStatus(), current.everOnline());
+                current.description(), "PUBLISHED", current.currentVersion(), LocalDateTime.now(), current.lifecycleStatus(), current.everOnline(), current.ownerName());
         store.persistFile(published);
         updates.forEach(version -> store.versions.put(version.id(), version));
         store.files.put(fileId, published);
@@ -328,7 +348,7 @@ public class DevelopmentService {
         requireProjectEdit(current.projectId(), operator);
         if ("ONLINE".equalsIgnoreCase(current.lifecycleStatus())) return current;
         DevFileView updated = new DevFileView(current.id(), current.projectId(), current.folderId(), current.name(), current.fileType(),
-                current.content(), current.description(), current.status(), current.currentVersion(), LocalDateTime.now(), "ONLINE", true);
+                current.content(), current.description(), current.status(), current.currentVersion(), LocalDateTime.now(), "ONLINE", true, current.ownerName());
         store.persistFile(updated); store.files.put(id, updated); return updated;
     }
 
@@ -338,7 +358,7 @@ public class DevelopmentService {
         requireProjectEdit(current.projectId(), operator);
         if ("OFFLINE".equalsIgnoreCase(current.lifecycleStatus())) return current;
         DevFileView updated = new DevFileView(current.id(), current.projectId(), current.folderId(), current.name(), current.fileType(),
-                current.content(), current.description(), current.status(), current.currentVersion(), LocalDateTime.now(), "OFFLINE", current.everOnline());
+                current.content(), current.description(), current.status(), current.currentVersion(), LocalDateTime.now(), "OFFLINE", current.everOnline(), current.ownerName());
         store.persistFile(updated); store.files.put(id, updated); return updated;
     }
 
@@ -375,27 +395,38 @@ public class DevelopmentService {
 
     private void requireProjectView(long projectId, String operator) {
         requireProject(projectId);
-        if (!canProjectView(projectId, normalizeOperator(operator))) throw new BadRequestException("当前用户没有该项目的查看权限");
+        if (!canProjectView(projectId, normalizeOperator(operator))) throw new BadRequestException("当前用户没有数据开发查看权限");
     }
     private boolean canProjectView(long projectId, String operator) {
-        DevProjectView project = store.projects.get(projectId);
-        if (project == null) return false;
+        if (!store.projects.containsKey(projectId)) return false;
         String username = normalizeOperator(operator);
-        if (isAdministrator(username) || username.equalsIgnoreCase(project.ownerName())) return true;
+        if (isAdministrator(username)) return true;
         Long userId = userId(username);
         if (userId == null) return false;
-        if (AccessService.effectivePermissions(store.userPermissions.getOrDefault(userId, Set.of())).contains(AccessService.DATA_DEVELOPMENT_PROJECT_ALL)) return true;
-        return hasProjectPermission(projectId, userId, "VIEW") || hasProjectPermission(projectId, userId, "EDIT");
+        Set<String> permissions = accessService == null
+                ? AccessService.effectivePermissions(store.userPermissions.getOrDefault(userId, Set.of()))
+                : accessService.effectivePermissions(userId);
+        return permissions.contains("DATA_DEVELOPMENT_VIEW")
+                || permissions.contains("DATA_DEVELOPMENT_EDIT")
+                || permissions.contains(AccessService.DATA_DEVELOPMENT_PROJECT_ALL);
     }
     private void requireProjectEdit(long projectId, String operator) {
-        DevProjectView project = store.projects.get(projectId);
-        if (project == null) throw new NotFoundException("项目不存在：" + projectId);
+        requireProject(projectId);
         String username = normalizeOperator(operator);
-        if (isAdministrator(username) || username.equalsIgnoreCase(project.ownerName())) return;
+        if (isAdministrator(username)) return;
         Long userId = userId(username);
-        if (userId != null && (hasProjectPermission(projectId, userId, "EDIT")
-                || AccessService.effectivePermissions(store.userPermissions.getOrDefault(userId, Set.of())).contains(AccessService.DATA_DEVELOPMENT_PROJECT_ALL))) return;
-        throw new BadRequestException("当前用户仅有查看权限，无法编辑该项目");
+        if (userId != null) {
+            Set<String> permissions = accessService == null
+                    ? AccessService.effectivePermissions(store.userPermissions.getOrDefault(userId, Set.of()))
+                    : accessService.effectivePermissions(userId);
+            if (permissions.contains("DATA_DEVELOPMENT_EDIT") || permissions.contains(AccessService.DATA_DEVELOPMENT_PROJECT_ALL)) return;
+        }
+        throw new BadRequestException("当前用户仅有数据开发查看权限，无法编辑任务");
+    }
+    private void requireOfflineForEdit(DevFileView file) {
+        if (file != null && "ONLINE".equalsIgnoreCase(file.lifecycleStatus())) {
+            throw new BadRequestException("任务已上线，请先下线后再修改");
+        }
     }
     private boolean isAdministrator(String username) {
         if ("admin".equalsIgnoreCase(username)) return true;
@@ -406,9 +437,6 @@ public class DevelopmentService {
     }
     private Long userId(String username) {
         return store.users.values().stream().filter(user -> username.equalsIgnoreCase(user.username())).map(user -> user.id()).findFirst().orElse(null);
-    }
-    private boolean hasProjectPermission(long projectId, long userId, String permission) {
-        return store.projectPermissions.containsKey(projectId + ":" + userId + ":" + permission);
     }
     private DevFileView requireFile(long id) {
         DevFileView file = store.files.get(id);

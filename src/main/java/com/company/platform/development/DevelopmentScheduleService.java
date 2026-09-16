@@ -45,7 +45,9 @@ public class DevelopmentScheduleService {
 
     @Transactional
     public ScheduleView save(long fileId, ScheduleRequest r, String operator) {
-        requireFile(fileId); validate(r,fileId);
+        requireFile(fileId);
+        requireOfflineForEdit(fileId);
+        validate(r,fileId);
         int next=get(fileId).currentVersion()+1;
         jdbc.update("INSERT INTO dev_file_schedule(file_id,current_version,published_version,enabled,cycle_type,execution_time,cron_expression,timezone,data_source_id,database_name,biz_date_param,retry_times,retry_interval_minutes,timeout_minutes,updated_by) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE current_version=VALUES(current_version),enabled=VALUES(enabled),cycle_type=VALUES(cycle_type),execution_time=VALUES(execution_time),cron_expression=VALUES(cron_expression),timezone=VALUES(timezone),data_source_id=VALUES(data_source_id),database_name=VALUES(database_name),biz_date_param=VALUES(biz_date_param),retry_times=VALUES(retry_times),retry_interval_minutes=VALUES(retry_interval_minutes),timeout_minutes=VALUES(timeout_minutes),updated_by=VALUES(updated_by)",
                 fileId,next,0,r.enabled(),norm(r.cycleType(),"DAILY"),norm(r.executionTime(),"02:00"),r.cronExpression().trim(),norm(r.timezone(),"Asia/Shanghai"),r.dataSourceId(),blank(r.databaseName()),norm(r.bizDateParam(),"${system.biz.date-1}"),Math.max(0,r.retryTimes()),Math.max(1,r.retryIntervalMinutes()),Math.max(1,r.timeoutMinutes()),operator(operator));
@@ -83,6 +85,11 @@ public class DevelopmentScheduleService {
     }
 
     private LocalDateTime time(java.sql.Timestamp value){return value==null?null:value.toLocalDateTime();}
+
+    private void requireOfflineForEdit(long fileId) {
+        String lifecycle = jdbc.queryForObject("SELECT lifecycle_status FROM dev_file WHERE id=?", String.class, fileId);
+        if ("ONLINE".equalsIgnoreCase(lifecycle)) throw new BadRequestException("任务已上线，请先下线后再修改调度配置");
+    }
 
     public ScheduleView version(long fileId, int versionNo) {
         requireFile(fileId);

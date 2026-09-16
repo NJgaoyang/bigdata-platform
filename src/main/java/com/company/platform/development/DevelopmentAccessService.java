@@ -7,6 +7,7 @@ import com.company.platform.common.PlatformStore;
 import com.company.platform.config.PlatformProperties;
 import com.company.platform.system.AccessService;
 import com.company.platform.system.UserView;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -18,19 +19,21 @@ public class DevelopmentAccessService {
     private final PlatformStore store;
     private final DevelopmentService development;
     private final PlatformProperties properties;
+    private AccessService accessService;
 
     public DevelopmentAccessService(PlatformStore store, DevelopmentService development, PlatformProperties properties) {
         this.store = store;
         this.development = development;
         this.properties = properties;
     }
+    @Autowired public void setAccessService(AccessService accessService) { this.accessService = accessService; }
 
     public ModuleAccess moduleAccess(String operator) {
         String username = normalize(operator);
         if (isAdministrator(username)) return new ModuleAccess(true, true, true);
         Long userId = userId(username);
         if (userId == null) return new ModuleAccess(false, false, false);
-        Set<String> permissions = AccessService.effectivePermissions(store.userPermissions.getOrDefault(userId, Set.of()));
+        Set<String> permissions = accessService == null ? AccessService.effectivePermissions(store.userPermissions.getOrDefault(userId, Set.of())) : accessService.effectivePermissions(userId);
         boolean projectAll = permissions.contains(AccessService.DATA_DEVELOPMENT_PROJECT_ALL);
         return new ModuleAccess(
                 permissions.contains("DATA_DEVELOPMENT_VIEW") || permissions.contains("DATA_DEVELOPMENT_EDIT") || projectAll,
@@ -45,14 +48,10 @@ public class DevelopmentAccessService {
         ModuleAccess module = moduleAccess(username);
         boolean admin = isAdministrator(username);
         boolean owner = project.ownerName() != null && username.equalsIgnoreCase(project.ownerName());
-        Long userId = userId(username);
-        boolean projectAll = module.projectAll();
-        boolean memberView = userId != null && (hasProjectPermission(projectId, userId, "VIEW") || hasProjectPermission(projectId, userId, "EDIT"));
-        boolean memberEdit = userId != null && hasProjectPermission(projectId, userId, "EDIT");
-        boolean view = module.view() && (admin || owner || projectAll || memberView);
-        boolean edit = module.edit() && (admin || owner || projectAll || memberEdit);
-        if (!view) throw new ForbiddenException("当前用户没有该项目的查看权限");
-        return new ProjectAccess(projectId, true, edit, owner, projectAll);
+        boolean view = admin || module.view();
+        boolean edit = admin || module.edit();
+        if (!view) throw new ForbiddenException("当前用户没有数据开发查看权限");
+        return new ProjectAccess(projectId, true, edit, owner, module.projectAll());
     }
 
     @Transactional
