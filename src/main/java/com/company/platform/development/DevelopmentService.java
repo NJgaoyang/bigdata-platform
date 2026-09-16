@@ -196,13 +196,19 @@ public class DevelopmentService {
         String name = request.name() == null || request.name().isBlank() ? current.name() : request.name().trim();
         Long folderId = Boolean.TRUE.equals(request.moveToRoot()) ? null : request.folderId() == null ? current.folderId() : request.folderId();
         validateParentFolder(current.projectId(), folderId, null);
-        DevFileView updated = new DevFileView(current.id(), current.projectId(), folderId, name, current.fileType(), request.content(),
-                request.description() == null ? current.description() : request.description().trim(), "DRAFT", current.currentVersion() + 1,
+        String content = request.content() == null ? current.content() : request.content();
+        boolean contentChanged = !java.util.Objects.equals(content, current.content());
+        int nextVersion = contentChanged ? current.currentVersion() + 1 : current.currentVersion();
+        String nextStatus = contentChanged ? "DRAFT" : current.status();
+        DevFileView updated = new DevFileView(current.id(), current.projectId(), folderId, name, current.fileType(), content,
+                request.description() == null ? current.description() : request.description().trim(), nextStatus, nextVersion,
                 LocalDateTime.now());
-        FileVersionView version = newVersion(updated);
-        store.persistVersion(version);
+        if (contentChanged) {
+            FileVersionView version = newVersion(updated);
+            store.persistVersion(version);
+            store.versions.put(version.id(), version);
+        }
         store.persistFile(updated);
-        store.versions.put(version.id(), version);
         store.files.put(id, updated);
         return updated;
     }
