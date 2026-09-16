@@ -68,6 +68,7 @@
                                 <exec executable="npm" dir="${project.basedir}/frontend-v2" failonerror="true">
                                     <arg value="run"/><arg value="build"/>
                                 </exec>
+                                <delete dir="${project.build.outputDirectory}/static" quiet="true"/>
                                 <copy todir="${project.build.outputDirectory}/static" overwrite="true">
                                     <fileset dir="${project.basedir}/frontend-v2/dist"/>
                                 </copy>
