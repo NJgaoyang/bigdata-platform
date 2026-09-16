@@ -21,6 +21,7 @@ export const metadataApi = {
 export interface DevProject { id:number; name:string; description?:string; status:string; ownerName?:string }
 export interface DevFolder { id:number; projectId:number; parentId?:number; name:string; createdAt?:string }
 export interface DevFile { id:number; projectId:number; folderId?:number; name:string; fileType:string; content:string; description?:string; status:string; currentVersion:number; updatedAt?:string }
+export interface RecycledDevFile { id:number; projectId:number; folderId?:number; folderName?:string; name:string; fileType:string; description?:string; status:string; currentVersion:number; recycledAt?:string; recycledBy?:string }
 export interface FileVersion { id:number; fileId:number; versionNo:number; content:string; checksum?:string; publishFlag:boolean }
 export interface QueryResult { executionId:string; status:string; columns:string[]; rows:Array<Record<string,unknown>>; rowCount:number; elapsedMs:number; errorMessage?:string; columnComments?:Record<string,string> }
 export interface QueryHistory { queryId:string; datasourceId?:number; databaseName?:string; sql:string; status:string; username:string; startedAt?:string; elapsedMs:number; errorMessage?:string }
@@ -41,6 +42,9 @@ export const developmentApi = {
   createFile: (payload:{projectId:number;folderId?:number;name:string;fileType:string;content:string;description?:string}) => api.post<DevFile>('/development/files',payload),
   saveFile: (id:number,payload:{content:string;name?:string;description?:string;folderId?:number;moveToRoot?:boolean}) => api.put<DevFile>(`/development/files/${id}`,payload),
   deleteFile: (id:number) => api.delete<void>(`/development/files/${id}`),
+  recycleBin: (projectId:number) => api.get<RecycledDevFile[]>('/development/files/recycle', { params:{ projectId } }),
+  restoreFile: (id:number) => api.post<DevFile>(`/development/files/${id}/restore`),
+  permanentlyDeleteFile: (id:number) => api.delete<void>(`/development/files/${id}/permanent`),
   versions: (id:number) => api.get<FileVersion[]>(`/development/files/${id}/versions`),
   createVersion: (id:number,content:string) => api.post<FileVersion>(`/development/files/${id}/versions`,{content}),
   publish: (id:number) => api.post<DevFile>(`/development/files/${id}/publish`),

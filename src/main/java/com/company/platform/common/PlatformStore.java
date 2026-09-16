@@ -114,7 +114,7 @@ public class PlatformStore {
                         createdAt == null ? LocalDateTime.now() : createdAt.toLocalDateTime()));
                 advanceId(id);
             });
-            jdbc.query("SELECT id,project_id,folder_id,name,file_type,content,description,status,current_version,updated_at FROM dev_file", rs -> {
+            jdbc.query("SELECT id,project_id,folder_id,name,file_type,content,description,status,current_version,updated_at FROM dev_file WHERE recycled=FALSE", rs -> {
                 long id = rs.getLong("id");
                 Long folder = rs.getObject("folder_id", Long.class);
                 var updatedAt = rs.getTimestamp("updated_at");

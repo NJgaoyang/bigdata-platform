@@ -123,6 +123,22 @@ public class DevelopmentController {
         return Result.ok(null);
     }
 
+    @GetMapping("/files/recycle")
+    public Result<List<RecycledFileView>> recycledFiles(@RequestParam long projectId, HttpServletRequest servletRequest) {
+        return Result.ok(service.recycledFiles(projectId, operator(servletRequest)));
+    }
+
+    @PostMapping("/files/{id}/restore")
+    public Result<DevFileView> restoreFile(@PathVariable long id, HttpServletRequest servletRequest) {
+        return Result.ok(service.restoreFile(id, operator(servletRequest)), "文件已恢复");
+    }
+
+    @DeleteMapping("/files/{id}/permanent")
+    public Result<Void> permanentlyDeleteFile(@PathVariable long id, HttpServletRequest servletRequest) {
+        service.permanentlyDeleteFile(id, operator(servletRequest));
+        return Result.ok(null);
+    }
+
     @GetMapping("/files/{id}/versions")
     public Result<List<FileVersionView>> versions(@PathVariable long id, HttpServletRequest servletRequest) {
         return Result.ok(service.versions(id, operator(servletRequest)));

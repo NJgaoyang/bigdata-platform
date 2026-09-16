@@ -7,6 +7,7 @@ import com.company.platform.config.PlatformProperties;
 import com.company.platform.system.AccessService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.nio.charset.StandardCharsets;
@@ -25,9 +26,11 @@ import java.util.stream.Collectors;
 public class DevelopmentService {
     private final PlatformStore store;
     private PlatformProperties properties;
+    private JdbcTemplate jdbc;
 
     public DevelopmentService(PlatformStore store) { this.store = store; }
     @Autowired public void setProperties(PlatformProperties properties) { this.properties = properties; }
+    @Autowired(required = false) public void setJdbcTemplate(JdbcTemplate jdbc) { this.jdbc = jdbc; }
 
     public List<DevProjectView> projects() { return store.projects.values().stream().toList(); }
     public List<DevProjectView> projects(String operator, boolean includeAll) {
@@ -176,20 +179,79 @@ public class DevelopmentService {
     }
     public void requireFileEdit(long id, String operator) { requireProjectEdit(requireFile(id).projectId(), operator); }
 
-    public void deleteFile(long id) {
+    public void deleteFile(long id) { recycleFile(id, "admin"); }
+
+    @Transactional
+    public void deleteFile(long id, String operator) {
+        requireProjectEdit(requireFile(id).projectId(), operator);
+        recycleFile(id, operator);
+    }
+
+    private void recycleFile(long id, String operator) {
         DevFileView current = requireFile(id);
+        if (hasPublishedVersion(id)) {
+            throw new BadRequestException("已发布开发任务不能删除。该任务存在生产发布版本，请保留生产任务或先完成正式下线流程");
+        }
         List<Long> versionIds = store.versions.values().stream().filter(version -> version.fileId() == id).map(FileVersionView::id).toList();
         List<String> usages = store.workflows.values().stream()
                 .filter(workflow -> workflow.nodes().stream().anyMatch(node -> node.fileVersionId() != null && versionIds.contains(node.fileVersionId())))
                 .map(workflow -> workflow.name() + (workflow.status() == null || workflow.status().isBlank() ? "" : "（" + workflow.status() + "）"))
                 .sorted(String.CASE_INSENSITIVE_ORDER).collect(Collectors.toList());
         if (!usages.isEmpty()) throw new BadRequestException("文件“" + current.name() + "”正在被调度任务使用：" + String.join("、", usages) + "，不能删除");
+        if (jdbc != null) {
+            jdbc.update("UPDATE dev_file SET recycled=TRUE,recycled_at=CURRENT_TIMESTAMP,recycled_by=?,updated_at=CURRENT_TIMESTAMP WHERE id=?",
+                    normalizeOperator(operator), id);
+        }
+        store.files.remove(id);
+    }
+
+    public List<RecycledFileView> recycledFiles(long projectId, String operator) {
+        requireProjectView(projectId, operator);
+        if (jdbc == null) return List.of();
+        return jdbc.query("SELECT f.id,f.project_id,f.folder_id,d.name AS folder_name,f.name,f.file_type,f.description,f.status,f.current_version,f.recycled_at,f.recycled_by " +
+                        "FROM dev_file f LEFT JOIN dev_folder d ON d.id=f.folder_id WHERE f.project_id=? AND f.recycled=TRUE ORDER BY f.recycled_at DESC",
+                (rs,n) -> new RecycledFileView(rs.getLong("id"), rs.getLong("project_id"), rs.getObject("folder_id", Long.class),
+                        rs.getString("folder_name"), rs.getString("name"), rs.getString("file_type"), rs.getString("description"),
+                        rs.getString("status"), rs.getInt("current_version"),
+                        rs.getTimestamp("recycled_at") == null ? null : rs.getTimestamp("recycled_at").toLocalDateTime(), rs.getString("recycled_by")), projectId);
+    }
+
+    @Transactional
+    public DevFileView restoreFile(long id, String operator) {
+        if (jdbc == null) throw new BadRequestException("当前环境不支持回收箱恢复");
+        Map<String,Object> row = jdbc.queryForMap("SELECT id,project_id,folder_id,name,file_type,content,description,status,current_version,updated_at FROM dev_file WHERE id=? AND recycled=TRUE", id);
+        long projectId = ((Number) row.get("project_id")).longValue();
+        requireProjectEdit(projectId, operator);
+        jdbc.update("UPDATE dev_file SET recycled=FALSE,recycled_at=NULL,recycled_by=NULL,updated_at=CURRENT_TIMESTAMP WHERE id=?", id);
+        Long folderId = row.get("folder_id") == null ? null : ((Number) row.get("folder_id")).longValue();
+        LocalDateTime updatedAt = row.get("updated_at") instanceof java.sql.Timestamp ts ? ts.toLocalDateTime() : LocalDateTime.now();
+        DevFileView restored = new DevFileView(id, projectId, folderId, String.valueOf(row.get("name")), String.valueOf(row.get("file_type")),
+                String.valueOf(row.get("content")), row.get("description") == null ? "" : String.valueOf(row.get("description")),
+                String.valueOf(row.get("status")), ((Number) row.get("current_version")).intValue(), updatedAt);
+        store.files.put(id, restored);
+        return restored;
+    }
+
+    @Transactional
+    public void permanentlyDeleteFile(long id, String operator) {
+        if (jdbc == null) throw new BadRequestException("当前环境不支持彻底删除");
+        List<Long> projectIds = jdbc.query("SELECT project_id FROM dev_file WHERE id=? AND recycled=TRUE", (rs,n)->rs.getLong(1), id);
+        if (projectIds.isEmpty()) throw new NotFoundException("回收箱文件不存在：" + id);
+        requireProjectEdit(projectIds.getFirst(), operator);
         store.deleteFileData(id);
         store.files.remove(id);
         store.versions.values().removeIf(version -> version.fileId() == id);
     }
-    @Transactional
-    public void deleteFile(long id, String operator) { requireProjectEdit(requireFile(id).projectId(), operator); deleteFile(id); }
+
+    private boolean hasPublishedVersion(long id) {
+        if (jdbc != null) {
+            Integer count = jdbc.queryForObject("SELECT (SELECT COUNT(*) FROM dev_file_release_bundle WHERE file_id=?) + (SELECT COUNT(*) FROM dev_file_version WHERE file_id=? AND publish_flag=TRUE)", Integer.class, id, id);
+            return count != null && count > 0;
+        }
+        DevFileView file = store.files.get(id);
+        return file != null && "PUBLISHED".equalsIgnoreCase(file.status())
+                || store.versions.values().stream().anyMatch(v -> v.fileId() == id && v.publishFlag());
+    }
 
     public DevFileView saveFile(long id, DevelopmentRequests.SaveFileRequest request) {
         DevFileView current = requireFile(id);
