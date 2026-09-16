@@ -24,6 +24,11 @@ export interface DevFile { id:number; projectId:number; folderId?:number; name:s
 export interface FileVersion { id:number; fileId:number; versionNo:number; content:string; checksum?:string; publishFlag:boolean }
 export interface QueryResult { executionId:string; status:string; columns:string[]; rows:Array<Record<string,unknown>>; rowCount:number; elapsedMs:number; errorMessage?:string; columnComments?:Record<string,string> }
 export interface QueryHistory { queryId:string; datasourceId?:number; databaseName?:string; sql:string; status:string; username:string; startedAt?:string; elapsedMs:number; errorMessage?:string }
+export interface DevelopmentScheduleDependency { fileId:number; name:string }
+export interface DevelopmentSchedule { fileId:number; currentVersion:number; publishedVersion:number; enabled:boolean; cycleType:string; executionTime:string; cronExpression:string; timezone:string; dataSourceId?:number; databaseName?:string; bizDateParam:string; retryTimes:number; retryIntervalMinutes:number; timeoutMinutes:number; dependencies:DevelopmentScheduleDependency[]; downstream:DevelopmentScheduleDependency[]; publishedSqlVersion:number; currentReleaseNo:number }
+export interface DevelopmentBundle { fileId:number; sqlVersion:number; publishedSqlVersion:number; scheduleVersion:number; publishedScheduleVersion:number; releaseNo:number; sqlDirty:boolean; scheduleDirty:boolean }
+export interface DevelopmentBundleRelease { releaseNo:number; sqlVersion:number; scheduleVersion:number; current:boolean; operatorName:string; remark?:string; releasedAt?:string }
+export interface DevelopmentSchedulePayload { enabled:boolean; cycleType:string; executionTime:string; cronExpression:string; timezone:string; dataSourceId:number; databaseName:string; bizDateParam:string; retryTimes:number; retryIntervalMinutes:number; timeoutMinutes:number; upstreamFileIds:number[] }
 
 export const developmentApi = {
   projects: () => api.get<DevProject[]>('/development/projects'),
@@ -36,7 +41,12 @@ export const developmentApi = {
   createVersion: (id:number,content:string) => api.post<FileVersion>(`/development/files/${id}/versions`,{content}),
   publish: (id:number) => api.post<DevFile>(`/development/files/${id}/publish`),
   query: (sql:string,dataSourceId:number,databaseName?:string) => api.post<QueryResult>('/query/execute',{sql,selected:false,dataSourceId,databaseName}),
-  history: () => api.get<QueryHistory[]>('/query/history')
+  history: () => api.get<QueryHistory[]>('/query/history'),
+  schedule: (id:number) => api.get<DevelopmentSchedule>(`/development/files/${id}/schedule`),
+  saveSchedule: (id:number,payload:DevelopmentSchedulePayload) => api.put<DevelopmentSchedule>(`/development/files/${id}/schedule`,payload),
+  bundle: (id:number) => api.get<DevelopmentBundle>(`/development/files/${id}/bundle`),
+  bundleReleases: (id:number) => api.get<DevelopmentBundleRelease[]>(`/development/files/${id}/bundle/releases`),
+  rollbackBundle: (id:number,releaseNo:number) => api.post<DevelopmentBundle>(`/development/files/${id}/bundle/releases/${releaseNo}/rollback`)
 }
 
 export interface IntegrationTable { id:number; taskId:number; sourceDatabase:string; sourceTable:string; targetDatabase:string; targetTable:string; partitionColumn?:string }
@@ -183,7 +193,7 @@ export const releaseApi = {
   policy: () => api.get<ReleasePolicy>('/release/policy'),
   updatePolicy: (approvalRequired:boolean) => api.put<ReleasePolicy>('/release/policy',{approvalRequired}),
   requests: (status?:string) => api.get<ReleaseRequestView[]>('/release/requests',{params:status?{status}:undefined}),
-  request: (payload:{resourceType:string;resourceId:number;resourceName?:string;requestedVersion?:number}) => api.post<ReleaseRequestView>('/release/requests',payload),
+  request: (payload:{resourceType:string;resourceId:number;resourceName?:string;requestedVersion?:number;payload?:Record<string,unknown>}) => api.post<ReleaseRequestView>('/release/requests',payload),
   approve: (id:number,comment='') => api.post<ReleaseRequestView>(`/release/requests/${id}/approve`,{comment}),
   reject: (id:number,comment='') => api.post<ReleaseRequestView>(`/release/requests/${id}/reject`,{comment}),
   records: () => api.get<ReleaseRecord[]>('/release/records')

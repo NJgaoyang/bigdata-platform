@@ -15,10 +15,12 @@ public class DevelopmentController {
     private static final String FAVORITES_PROJECT_NAME = "我的收藏";
     private final DevelopmentService service;
     private final DevelopmentVersionFlowService versionFlow;
+    private final DevelopmentScheduleService schedules;
 
-    public DevelopmentController(DevelopmentService service, DevelopmentVersionFlowService versionFlow) {
+    public DevelopmentController(DevelopmentService service, DevelopmentVersionFlowService versionFlow, DevelopmentScheduleService schedules) {
         this.service = service;
         this.versionFlow = versionFlow;
+        this.schedules = schedules;
     }
 
     @GetMapping("/projects")
@@ -142,6 +144,35 @@ public class DevelopmentController {
             return Result.ok(versionFlow.publish(id, operator(servletRequest)), "项目版本已发布上线");
         }
         return Result.ok(service.publishFile(id, operator(servletRequest)), "文件已发布上线");
+    }
+
+    @GetMapping("/files/{id}/schedule")
+    public Result<DevelopmentScheduleService.ScheduleView> schedule(@PathVariable long id, HttpServletRequest servletRequest) {
+        service.getFile(id, operator(servletRequest));
+        return Result.ok(schedules.get(id));
+    }
+
+    @PutMapping("/files/{id}/schedule")
+    public Result<DevelopmentScheduleService.ScheduleView> saveSchedule(@PathVariable long id,
+            @RequestBody DevelopmentScheduleService.ScheduleRequest request, HttpServletRequest servletRequest) {
+        service.requireFileEdit(id, operator(servletRequest));
+        return Result.ok(schedules.save(id, request, operator(servletRequest)), "调度配置已保存");
+    }
+
+    @GetMapping("/files/{id}/bundle")
+    public Result<DevelopmentScheduleService.BundleView> bundle(@PathVariable long id) {
+        return Result.ok(schedules.bundle(id));
+    }
+
+    @GetMapping("/files/{id}/bundle/releases")
+    public Result<List<DevelopmentScheduleService.ReleaseView>> bundleReleases(@PathVariable long id) {
+        return Result.ok(schedules.releases(id));
+    }
+
+    @PostMapping("/files/{id}/bundle/releases/{releaseNo}/rollback")
+    public Result<DevelopmentScheduleService.BundleView> rollbackBundle(@PathVariable long id,@PathVariable int releaseNo,HttpServletRequest servletRequest) {
+        service.requireFileEdit(id, operator(servletRequest));
+        return Result.ok(schedules.rollback(id, releaseNo, operator(servletRequest)), "已回滚到 P" + releaseNo);
     }
 
     private DevelopmentRequests.ProjectRequest normalizeProjectRequest(DevelopmentRequests.ProjectRequest request) {

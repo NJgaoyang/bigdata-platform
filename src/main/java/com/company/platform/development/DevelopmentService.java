@@ -174,6 +174,7 @@ public class DevelopmentService {
         requireProjectView(file.projectId(), operator);
         return file;
     }
+    public void requireFileEdit(long id, String operator) { requireProjectEdit(requireFile(id).projectId(), operator); }
 
     public void deleteFile(long id) {
         DevFileView current = requireFile(id);

@@ -3,6 +3,7 @@ package com.company.platform.release;
 import com.company.platform.common.BadRequestException;
 import com.company.platform.common.NotFoundException;
 import com.company.platform.development.DevelopmentService;
+import com.company.platform.development.DevelopmentScheduleService;
 import com.company.platform.realtime.RealtimeSyncService;
 import com.company.platform.workflow.WorkflowPublishService;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -20,8 +21,9 @@ public class ReleaseService {
     private final WorkflowPublishService workflows;
     private final RealtimeSyncService realtime;
     private final DevelopmentService development;
+    private final DevelopmentScheduleService developmentSchedules;
     private final ObjectMapper mapper;
-    public ReleaseService(JdbcTemplate jdbc,WorkflowPublishService workflows,RealtimeSyncService realtime,DevelopmentService development,ObjectMapper mapper){this.jdbc=jdbc;this.workflows=workflows;this.realtime=realtime;this.development=development;this.mapper=mapper;}
+    public ReleaseService(JdbcTemplate jdbc,WorkflowPublishService workflows,RealtimeSyncService realtime,DevelopmentService development,DevelopmentScheduleService developmentSchedules,ObjectMapper mapper){this.jdbc=jdbc;this.workflows=workflows;this.realtime=realtime;this.development=development;this.developmentSchedules=developmentSchedules;this.mapper=mapper;}
 
     public Policy policy(){return jdbc.query("SELECT id,policy_key,approval_required,updated_by,updated_at FROM release_policy WHERE policy_key='production'",(rs,n)->new Policy(rs.getLong(1),rs.getString(2),rs.getBoolean(3),rs.getString(4),rs.getTimestamp(5).toLocalDateTime())).stream().findFirst().orElse(new Policy(0,"production",false,"system",LocalDateTime.now()));}
     @Transactional public Policy updatePolicy(boolean required,String operator){jdbc.update("INSERT INTO release_policy(policy_key,approval_required,updated_by) VALUES('production',?,?) ON DUPLICATE KEY UPDATE approval_required=VALUES(approval_required),updated_by=VALUES(updated_by)",required,operator(operator));return policy();}
@@ -44,12 +46,13 @@ public class ReleaseService {
         try{switch(request.resourceType()){
             case "WORKFLOW" -> {var r=workflows.publish(request.resourceId());releasedVersion=r.version();detail=r.message();}
             case "REALTIME" -> {var r=realtime.publish(request.resourceId(),operator);releasedVersion=r.publishedVersion()==null?r.definitionVersion():r.publishedVersion();detail="实时同步版本已发布";}
-            case "DEVELOPMENT" -> {var r=development.publishFile(request.resourceId(),operator);releasedVersion=r.currentVersion();detail="开发文件已发布";}
+            case "DEVELOPMENT" -> {var r=development.publishFile(request.resourceId(),operator);releasedVersion=r.currentVersion();String remark=developmentRemark(requestId);var bundle=developmentSchedules.publish(request.resourceId(),releasedVersion,operator,remark);detail="开发任务统一发布 P"+bundle.releaseNo()+" · SQL V"+bundle.publishedSqlVersion()+" + 调度 S"+bundle.publishedScheduleVersion();}
             default -> throw new BadRequestException("不支持的发布资源类型："+request.resourceType());
         }}catch(RuntimeException ex){result="FAILED";detail=ex.getMessage()==null?ex.getClass().getSimpleName():ex.getMessage();jdbc.update("UPDATE release_request SET status='FAILED',review_comment=? WHERE id=?",detail,requestId);insertRecord(request,releasedVersion,result,detail,operator);throw ex;}
         jdbc.update("UPDATE release_request SET status='RELEASED' WHERE id=?",requestId);insertRecord(request,releasedVersion,result,detail,operator);
     }
     private void insertRecord(RequestView r,int version,String result,String detail,String operator){jdbc.update("INSERT INTO release_record(request_id,resource_type,resource_id,resource_name,released_version,result_status,detail,operator_name) VALUES(?,?,?,?,?,?,?,?)",r.id(),r.resourceType(),r.resourceId(),r.resourceName(),version,result,detail,operator);}
+    private String developmentRemark(long requestId){try{String raw=jdbc.queryForObject("SELECT payload_json FROM release_request WHERE id=?",String.class,requestId);if(raw==null||raw.isBlank())return "统一发布";var node=mapper.readTree(raw);return node.hasNonNull("remark")?node.get("remark").asText("统一发布"):"统一发布";}catch(Exception ex){return "统一发布";}}
     private String normalizeType(String type){String v=type==null?"":type.trim().toUpperCase(Locale.ROOT);if(!List.of("WORKFLOW","REALTIME","DEVELOPMENT").contains(v))throw new BadRequestException("resourceType 仅支持 WORKFLOW / REALTIME / DEVELOPMENT");return v;}
     private String json(Object value){try{return value==null?"{}":mapper.writeValueAsString(value);}catch(Exception ex){return "{}";}}
     private String operator(String v){return v==null||v.isBlank()?"admin":v.trim();}
