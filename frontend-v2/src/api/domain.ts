@@ -52,6 +52,7 @@ export const developmentApi = {
   history: () => api.get<QueryHistory[]>('/query/history'),
   schedule: (id:number) => api.get<DevelopmentSchedule>(`/development/files/${id}/schedule`),
   saveSchedule: (id:number,payload:DevelopmentSchedulePayload) => api.put<DevelopmentSchedule>(`/development/files/${id}/schedule`,payload),
+  scheduleVersion: (id:number,versionNo:number) => api.get<DevelopmentSchedule>(`/development/files/${id}/schedule/versions/${versionNo}`),
   bundle: (id:number) => api.get<DevelopmentBundle>(`/development/files/${id}/bundle`),
   bundleReleases: (id:number) => api.get<DevelopmentBundleRelease[]>(`/development/files/${id}/bundle/releases`),
   rollbackBundle: (id:number,releaseNo:number) => api.post<DevelopmentBundle>(`/development/files/${id}/bundle/releases/${releaseNo}/rollback`)

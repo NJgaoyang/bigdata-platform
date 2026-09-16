@@ -175,6 +175,13 @@ public class DevelopmentController {
         return Result.ok(schedules.save(id, request, operator(servletRequest)), "调度配置已保存");
     }
 
+    @GetMapping("/files/{id}/schedule/versions/{versionNo}")
+    public Result<DevelopmentScheduleService.ScheduleView> scheduleVersion(@PathVariable long id,
+            @PathVariable int versionNo, HttpServletRequest servletRequest) {
+        service.getFile(id, operator(servletRequest));
+        return Result.ok(schedules.version(id, versionNo));
+    }
+
     @GetMapping("/files/{id}/bundle")
     public Result<DevelopmentScheduleService.BundleView> bundle(@PathVariable long id) {
         return Result.ok(schedules.bundle(id));

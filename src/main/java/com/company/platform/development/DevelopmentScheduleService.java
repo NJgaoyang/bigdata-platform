@@ -70,6 +70,21 @@ public class DevelopmentScheduleService {
 
     public List<ReleaseView> releases(long fileId){requireFile(fileId);return jdbc.query("SELECT release_no,sql_version,schedule_version,current_flag,operator_name,remark,released_at FROM dev_file_release_bundle WHERE file_id=? ORDER BY release_no DESC",(rs,n)->new ReleaseView(rs.getInt(1),rs.getInt(2),rs.getInt(3),rs.getBoolean(4),rs.getString(5),rs.getString(6),rs.getTimestamp(7).toLocalDateTime()),fileId);}
 
+    public ScheduleView version(long fileId, int versionNo) {
+        requireFile(fileId);
+        if (versionNo <= 0) {
+            throw new BadRequestException("调度版本不存在：S" + versionNo);
+        }
+        String json = jdbc.query("SELECT config_json FROM dev_file_schedule_version WHERE file_id=? AND version_no=?",
+                (rs,n) -> rs.getString(1), fileId, versionNo).stream().findFirst()
+                .orElseThrow(() -> new NotFoundException("调度版本不存在：S" + versionNo));
+        try {
+            return mapper.readValue(json, ScheduleView.class);
+        } catch (Exception ex) {
+            throw new BadRequestException("读取调度版本失败：" + ex.getMessage());
+        }
+    }
+
     @Transactional
     public BundleView rollback(long fileId,int releaseNo,String operator){
         ReleaseView target=releases(fileId).stream().filter(x->x.releaseNo()==releaseNo).findFirst().orElseThrow(()->new NotFoundException("发布版本不存在：P"+releaseNo));
