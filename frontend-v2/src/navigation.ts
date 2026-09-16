@@ -30,9 +30,12 @@ export const productNavigation: ProductNavItem[] = [
     { label: '维度管理', path: '/metrics/dimensions' },
     { label: '指标血缘', path: '/metrics/lineage' }
   ]},
-  { key: 'assets', label: '数据资产', path: '/assets/catalog', side: [
+  { key: 'assets', label: '数据资产', path: '/assets/overview', side: [
+    { label: '资产首页', path: '/assets/overview' },
     { label: '资产目录', path: '/assets/catalog' },
-    { label: '我的收藏', path: '/assets/favorites' }
+    { label: '数据地图', path: '/assets/map' },
+    { label: '我的收藏', path: '/assets/favorites' },
+    { label: '资产治理', path: '/assets/governance' }
   ]}
 ]
 
