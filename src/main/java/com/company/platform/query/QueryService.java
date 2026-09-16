@@ -213,10 +213,10 @@ public class QueryService {
     }
 
     private Map<String, String> loadColumnComments(Connection connection, String databaseName, String sql, List<String> columns) {
-        String table = extractTableName(sql);
-        if (table == null || columns.isEmpty()) return Map.of();
+        TableRef ref = extractTableRef(sql, databaseName);
+        if (ref == null || columns.isEmpty()) return Map.of();
         Map<String, String> comments = new LinkedHashMap<>();
-        try (ResultSet metadata = connection.getMetaData().getColumns(databaseName, null, table, "%")) {
+        try (ResultSet metadata = connection.getMetaData().getColumns(ref.database(), null, ref.table(), "%")) {
             while (metadata.next()) {
                 String name = metadata.getString("COLUMN_NAME"); String remarks = metadata.getString("REMARKS");
                 if (name != null && remarks != null && !remarks.isBlank()) comments.put(name, remarks);
@@ -225,13 +225,15 @@ public class QueryService {
         return comments;
     }
 
-    private String extractTableName(String sql) {
+    private TableRef extractTableRef(String sql, String defaultDatabase) {
         Matcher matcher = Pattern.compile("(?i)\\bfrom\\s+([a-zA-Z0-9_$.`]+)").matcher(sql == null ? "" : sql);
         if (!matcher.find()) return null;
         String raw = matcher.group(1).replace("`", "");
         int dot = raw.lastIndexOf('.');
-        return dot >= 0 ? raw.substring(dot + 1) : raw;
+        return dot >= 0 ? new TableRef(raw.substring(0, dot), raw.substring(dot + 1)) : new TableRef(defaultDatabase, raw);
     }
+
+    private record TableRef(String database, String table) { }
     private String normalizeOperator(String operator) { return operator == null || operator.isBlank() ? "admin" : operator.trim(); }
 
     @PreDestroy public void shutdown() { queryExecutor.shutdownNow(); }
