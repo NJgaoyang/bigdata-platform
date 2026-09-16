@@ -4,15 +4,21 @@ import jakarta.validation.constraints.NotBlank;
 
 public final class AccessRequests {
     private AccessRequests() { }
-    public record UserRequest(@NotBlank String username, @NotBlank String displayName, String password,
+    public record UserRequest(@NotBlank String username, @NotBlank String displayName, String phone, String password,
                               String roleCode, String status) {
-        public UserRequest(String username, String displayName) { this(username, displayName, null, "USER", "ACTIVE"); }
-        public UserRequest(String username, String displayName, String password) { this(username, displayName, password, "USER", "ACTIVE"); }
+        public UserRequest(String username, String displayName) { this(username, displayName, "", null, "USER", "ACTIVE"); }
+        public UserRequest(String username, String displayName, String password) { this(username, displayName, "", password, "USER", "ACTIVE"); }
+        public UserRequest(String username, String displayName, String password, String roleCode, String status) {
+            this(username, displayName, "", password, roleCode, status);
+        }
     }
-    public record UserUpdateRequest(@NotBlank String username, @NotBlank String displayName, String password,
+    public record UserUpdateRequest(@NotBlank String username, @NotBlank String displayName, String phone, String password,
                                     String roleCode, @NotBlank String status) {
         public UserUpdateRequest(String username, String displayName, String password, String status) {
-            this(username, displayName, password, "USER", status);
+            this(username, displayName, "", password, "USER", status);
+        }
+        public UserUpdateRequest(String username, String displayName, String password, String roleCode, String status) {
+            this(username, displayName, "", password, roleCode, status);
         }
     }
     public record RoleRequest(@NotBlank String roleCode, @NotBlank String roleName) { }

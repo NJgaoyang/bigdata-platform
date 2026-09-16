@@ -38,7 +38,7 @@ public class AccessService {
     @Transactional
     public UserView createUser(AccessRequests.UserRequest request) {
         if (store.users.values().stream().anyMatch(user -> user.username().equalsIgnoreCase(request.username()))) throw new BadRequestException("用户名已存在");
-        UserView user = new UserView(store.nextId(), request.username(), request.displayName(), normalizeRole(request.roleCode()),
+        UserView user = new UserView(store.nextId(), request.username(), request.displayName(), normalizePhone(request.phone()), normalizeRole(request.roleCode()),
                 normalizeStatus(request.status()), LocalDateTime.now(), PasswordHasher.hash(request.password()));
         store.persistUser(user);
         store.users.put(user.id(), user);
@@ -58,7 +58,7 @@ public class AccessService {
         if (duplicate) throw new BadRequestException("用户名已存在");
         String passwordHash = request.password() == null || request.password().isBlank() ? current.passwordHash() : PasswordHasher.hash(request.password());
         String roleCode = request.roleCode() == null || request.roleCode().isBlank() ? current.roleCode() : normalizeRole(request.roleCode());
-        UserView updated = new UserView(id, request.username(), request.displayName(), roleCode, normalizeStatus(request.status()), current.createdAt(), passwordHash);
+        UserView updated = new UserView(id, request.username(), request.displayName(), normalizePhone(request.phone()), roleCode, normalizeStatus(request.status()), current.createdAt(), passwordHash);
         store.persistUser(updated);
         store.users.put(id, updated);
         if (auth != null && (!updated.username().equalsIgnoreCase(current.username()) || passwordHash != current.passwordHash()
@@ -86,7 +86,7 @@ public class AccessService {
         UserView current = store.users.get(id);
         if (current == null) throw new NotFoundException("用户不存在：" + id);
         if (isBuiltInAdmin(current) && "DISABLED".equalsIgnoreCase(status)) throw new BadRequestException("内置 admin 账号不能禁用");
-        UserView updated = new UserView(id, current.username(), current.displayName(), current.roleCode(), normalizeStatus(status), current.createdAt(), current.passwordHash());
+        UserView updated = new UserView(id, current.username(), current.displayName(), current.phone(), current.roleCode(), normalizeStatus(status), current.createdAt(), current.passwordHash());
         store.persistUser(updated);
         store.users.put(id, updated);
         if (auth != null && !updated.status().equalsIgnoreCase(current.status())) auth.invalidateUser(updated.username());
@@ -168,6 +168,11 @@ public class AccessService {
     }
 
     private String normalizeStatus(String status) { return "DISABLED".equalsIgnoreCase(status) ? "DISABLED" : "ACTIVE"; }
+    private String normalizePhone(String phone) {
+        String value = phone == null ? "" : phone.trim();
+        if (!value.isBlank() && !value.matches("^\\+?[0-9 -]{6,20}$")) throw new BadRequestException("手机号格式不正确");
+        return value;
+    }
     private String normalizeRole(String roleCode) {
         String value = roleCode == null || roleCode.isBlank() ? "USER" : roleCode.trim().toUpperCase();
         if (Set.of("ADMIN", "DEVELOPER", "RELEASE_MANAGER", "VIEWER", "USER").contains(value)) return value;

@@ -41,7 +41,7 @@ public class AuthService {
             throw new BadRequestException("用户名或密码错误");
         }
         if (storedUser && PasswordHasher.needsUpgrade(user.passwordHash())) {
-            UserView upgraded = new UserView(user.id(), user.username(), user.displayName(), user.roleCode(), user.status(), user.createdAt(), PasswordHasher.hash(request.password()));
+            UserView upgraded = new UserView(user.id(), user.username(), user.displayName(), user.phone(), user.roleCode(), user.status(), user.createdAt(), PasswordHasher.hash(request.password()));
             store.persistUser(upgraded); store.users.put(upgraded.id(), upgraded); user = upgraded;
         }
         String token = randomToken();
@@ -68,8 +68,8 @@ public class AuthService {
         if (existingHash == null && enabled() && !isConfiguredAdmin(username)) throw new BadRequestException("当前账号尚未设置可验证的密码");
         String nextHash = PasswordHasher.hash(newPassword);
         UserView updated = user == null
-                ? new UserView(store.nextId(), username.trim(), "平台管理员", "ADMIN", "ACTIVE", java.time.LocalDateTime.now(), nextHash)
-                : new UserView(user.id(), user.username(), user.displayName(), isConfiguredAdmin(username) ? "ADMIN" : user.roleCode(), user.status(), user.createdAt(), nextHash);
+                ? new UserView(store.nextId(), username.trim(), "平台管理员", "", "ADMIN", "ACTIVE", java.time.LocalDateTime.now(), nextHash)
+                : new UserView(user.id(), user.username(), user.displayName(), user.phone(), isConfiguredAdmin(username) ? "ADMIN" : user.roleCode(), user.status(), user.createdAt(), nextHash);
         store.persistUser(updated); store.users.put(updated.id(), updated); invalidateUser(updated.username());
         if (audit != null) audit.record("CHANGE_PASSWORD", "AUTH", updated.id(), updated.username(), updated.username());
     }

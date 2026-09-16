@@ -177,10 +177,10 @@ public class PlatformStore {
                         loadedEdges.getOrDefault(id, List.of()), rs.getString("ds_process_code")));
                 advanceId(id);
             });
-            jdbc.query("SELECT id,username,display_name,role_code,status,created_at,password_hash FROM platform_user", rs -> {
+            jdbc.query("SELECT id,username,display_name,phone,role_code,status,created_at,password_hash FROM platform_user", rs -> {
                 long id = rs.getLong("id");
                 var createdAt = rs.getTimestamp("created_at");
-                users.put(id, new UserView(id, rs.getString("username"), rs.getString("display_name"),
+                users.put(id, new UserView(id, rs.getString("username"), rs.getString("display_name"), rs.getString("phone"),
                         rs.getString("role_code"), rs.getString("status"),
                         createdAt == null ? LocalDateTime.now() : createdAt.toLocalDateTime(), rs.getString("password_hash")));
                 advanceId(id);
@@ -352,10 +352,10 @@ public class PlatformStore {
     }
     public void persistUser(UserView user) {
         if (jdbc == null) return;
-        int updated = jdbc.update("UPDATE platform_user SET username=?,display_name=?,role_code=?,status=?,password_hash=? WHERE id=?",
-                user.username(), user.displayName(), user.roleCode(), user.status(), user.passwordHash(), user.id());
-        if (updated == 0) jdbc.update("INSERT INTO platform_user (id,username,display_name,role_code,status,created_at,password_hash) VALUES (?,?,?,?,?,?,?)",
-                user.id(), user.username(), user.displayName(), user.roleCode(), user.status(), user.createdAt(), user.passwordHash());
+        int updated = jdbc.update("UPDATE platform_user SET username=?,display_name=?,phone=?,role_code=?,status=?,password_hash=? WHERE id=?",
+                user.username(), user.displayName(), user.phone(), user.roleCode(), user.status(), user.passwordHash(), user.id());
+        if (updated == 0) jdbc.update("INSERT INTO platform_user (id,username,display_name,phone,role_code,status,created_at,password_hash) VALUES (?,?,?,?,?,?,?,?)",
+                user.id(), user.username(), user.displayName(), user.phone(), user.roleCode(), user.status(), user.createdAt(), user.passwordHash());
     }
     public void deleteUser(long userId) {
         userPermissions.remove(userId);
@@ -489,6 +489,6 @@ public class PlatformStore {
         long versionId = nextId();
         versions.put(versionId, new FileVersionView(versionId, fileId, 1, content, "seed", false));
         long adminId = nextId();
-        users.put(adminId, new UserView(adminId, "admin", "平台管理员", "ADMIN", "ACTIVE", LocalDateTime.now(), null));
+        users.put(adminId, new UserView(adminId, "admin", "平台管理员", "", "ADMIN", "ACTIVE", LocalDateTime.now(), null));
     }
 }

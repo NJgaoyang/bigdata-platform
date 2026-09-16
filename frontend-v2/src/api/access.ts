@@ -1,6 +1,6 @@
 import { api } from './http'
 
-export interface PlatformUser { id:number; username:string; displayName:string; roleCode:string; status:string; createdAt:string }
+export interface PlatformUser { id:number; username:string; displayName:string; phone:string; roleCode:string; status:string; createdAt:string }
 export interface PlatformRole { id:number; roleCode:string; roleName:string; permissions:string[] }
 export interface DataSourcePermission { dataSourceId:number; dataSourceName:string; userId:number; username:string; displayName:string; permissionCode:'VIEW'|'QUERY'|'EDIT' }
 export interface AuditLog { id:number; action:string; resourceType:string; resourceId?:number; detail?:string; operatorName:string; createdAt:string }
