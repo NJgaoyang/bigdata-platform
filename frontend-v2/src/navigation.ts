@@ -18,6 +18,7 @@ export const productNavigation: ProductNavItem[] = [
   ]},
   { key: 'operations', label: '运维中心', path: '/operations/overview', side: [
     { label: '运维总览', path: '/operations/overview' },
+    { label: '任务运维', path: '/operations/tasks' },
     { label: '运行实例', path: '/operations/instances' },
     { label: '失败任务', path: '/operations/failures' },
     { label: '告警中心', path: '/operations/alerts' }

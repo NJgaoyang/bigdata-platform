@@ -31,7 +31,7 @@ public class WebConfig implements WebMvcConfigurer {
                 "/system/data-sources",
                 "/development/workspace", "/development/versions",
                 "/workflow/definitions",
-                "/operations/overview", "/operations/instances", "/operations/failures", "/operations/alerts",
+                "/operations/overview", "/operations/tasks", "/operations/instances", "/operations/failures", "/operations/alerts",
                 "/metadata/catalog",
                 "/metrics/overview", "/metrics/manage", "/metrics/dimensions", "/metrics/lineage",
                 "/assets/catalog", "/assets/favorites",

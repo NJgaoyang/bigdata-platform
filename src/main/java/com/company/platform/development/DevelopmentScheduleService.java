@@ -3,6 +3,7 @@ package com.company.platform.development;
 import com.company.platform.common.BadRequestException;
 import com.company.platform.common.NotFoundException;
 import com.company.platform.query.QueryService;
+import com.company.platform.system.AlertSettingService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.quartz.*;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
@@ -15,6 +16,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
 
 @Service
 public class DevelopmentScheduleService {
@@ -22,9 +24,10 @@ public class DevelopmentScheduleService {
     private final Scheduler quartz;
     private final QueryService queryService;
     private final ObjectMapper mapper;
+    private final AlertSettingService alerts;
 
-    public DevelopmentScheduleService(JdbcTemplate jdbc, Scheduler quartz, QueryService queryService, ObjectMapper mapper) {
-        this.jdbc=jdbc; this.quartz=quartz; this.queryService=queryService; this.mapper=mapper;
+    public DevelopmentScheduleService(JdbcTemplate jdbc, Scheduler quartz, QueryService queryService, ObjectMapper mapper, AlertSettingService alerts) {
+        this.jdbc=jdbc; this.quartz=quartz; this.queryService=queryService; this.mapper=mapper; this.alerts=alerts;
     }
 
     public ScheduleView get(long fileId) {
@@ -109,14 +112,77 @@ public class DevelopmentScheduleService {
         if(!lifecycleOnline(fileId)) return;
         ProdConfig p=prodConfig(fileId); if(p==null||!p.enabled())return;
         String biz=resolveBizDate(p.bizDateParam(),p.timezone());
-        Integer existing=jdbc.queryForObject("SELECT COUNT(*) FROM dev_file_schedule_execution WHERE file_id=? AND business_date=? AND release_no=? AND status IN ('RUNNING','SUCCESS')",Integer.class,fileId,java.sql.Date.valueOf(biz),p.releaseNo());
+        Integer existing=jdbc.queryForObject("SELECT COUNT(*) FROM dev_file_schedule_execution WHERE file_id=? AND business_date=? AND release_no=? AND status='RUNNING'",Integer.class,fileId,java.sql.Date.valueOf(biz),p.releaseNo());
         if(existing!=null&&existing>0)return;
         if(!dependenciesReady(p,biz)){insertExecution(fileId,p,biz,"WAITING_DEPENDENCY",plannedAt,null,null);return;}
-        String sql=publishedSql(fileId,p.sqlVersion());
-        sql=sql.replace("${biz_date}",biz).replace("${system.biz.date-1}",LocalDate.now(ZoneId.of(p.timezone())).minusDays(1).toString()).replace("${system.biz.date}",LocalDate.now(ZoneId.of(p.timezone())).toString()).replace("${system.date}",LocalDate.now(ZoneId.of(p.timezone())).toString());
-        long executionId=insertExecution(fileId,p,biz,"RUNNING",plannedAt,null,null);
-        try { var result=queryService.execute(sql,false,p.dataSourceId(),p.databaseName(),"scheduler"); jdbc.update("UPDATE dev_file_schedule_execution SET execution_id=?,status=?,finished_at=CURRENT_TIMESTAMP WHERE id=?",result.executionId(),result.status(),executionId); if("SUCCESS".equals(result.status()))triggerReadyDownstream(fileId,biz); }
-        catch(RuntimeException ex){jdbc.update("UPDATE dev_file_schedule_execution SET status='FAILED',finished_at=CURRENT_TIMESTAMP,error_message=? WHERE id=?",ex.getMessage(),executionId);throw ex;}
+        submitExecution(fileId,p,biz,plannedAt,"scheduler");
+    }
+
+    public ScheduleRuntimeView runNow(long fileId,String operator){
+        if(!lifecycleOnline(fileId)) throw new BadRequestException("开发任务已下线，不能启动生产任务");
+        ProdConfig p=prodConfig(fileId);
+        if(p==null) throw new BadRequestException("开发任务还没有已发布的生产版本，请先发布");
+        Integer active=jdbc.queryForObject("SELECT COUNT(*) FROM dev_file_schedule_execution WHERE file_id=? AND status='RUNNING'",Integer.class,fileId);
+        if(active!=null&&active>0) throw new BadRequestException("开发任务当前正在运行，不能重复启动");
+        String biz=resolveBizDate(p.bizDateParam(),p.timezone());
+        submitExecution(fileId,p,biz,new java.util.Date(),operator(operator));
+        return runtime(fileId);
+    }
+
+    public ScheduleRuntimeView rerunNow(long fileId,String operator){ return runNow(fileId,operator); }
+
+    public void killNow(long fileId,String operator){
+        requireFile(fileId);
+        Map<String,Object> row=jdbc.query("SELECT id,execution_id FROM dev_file_schedule_execution WHERE file_id=? AND status='RUNNING' ORDER BY id DESC LIMIT 1",
+                rs->rs.next()?Map.of("id",rs.getLong("id"),"executionId",Objects.toString(rs.getString("execution_id"),"")):null,fileId);
+        if(row==null||String.valueOf(row.get("executionId")).isBlank()) throw new BadRequestException("当前没有可杀死的运行实例");
+        String executionId=String.valueOf(row.get("executionId"));
+        queryService.cancel(executionId,operator(operator),true);
+        jdbc.update("UPDATE dev_file_schedule_execution SET status='CANCELED',finished_at=CURRENT_TIMESTAMP,error_message='由运维中心人工终止' WHERE id=?",row.get("id"));
+    }
+
+    private void submitExecution(long fileId,ProdConfig p,String biz,java.util.Date plannedAt,String operator){
+        String sql=renderSql(fileId,p,biz);
+        try{
+            QueryService.QueryHandle handle=queryService.submit(sql,false,p.dataSourceId(),p.databaseName(),operator);
+            long rowId=insertExecution(fileId,p,biz,"RUNNING",plannedAt,handle.executionId(),null);
+            monitorExecution(fileId,rowId,p,biz,handle.executionId());
+        }catch(RuntimeException ex){
+            insertExecution(fileId,p,biz,"FAILED",plannedAt,null,ex.getMessage());
+            alerts.notifyTask(taskName(fileId),"FAILED",ex.getMessage(),null,null,null);
+            throw ex;
+        }
+    }
+
+    private void monitorExecution(long fileId,long rowId,ProdConfig p,String biz,String executionId){
+        CompletableFuture.runAsync(()->{
+            try{
+                while(true){
+                    QueryService.QueryResult result=queryService.status(executionId,"operations",true);
+                    if("RUNNING".equalsIgnoreCase(result.status())){Thread.sleep(500L);continue;}
+                    jdbc.update("UPDATE dev_file_schedule_execution SET status=?,finished_at=CURRENT_TIMESTAMP,error_message=? WHERE id=?",
+                            result.status(),result.errorMessage(),rowId);
+                    alerts.notifyTask(taskName(fileId),result.status(),result.errorMessage()==null?"开发任务执行完成":result.errorMessage(),result.elapsedMs(),(long)result.rowCount(),null);
+                    if("SUCCESS".equalsIgnoreCase(result.status())) triggerReadyDownstream(fileId,biz);
+                    return;
+                }
+            }catch(InterruptedException ex){Thread.currentThread().interrupt();}
+            catch(RuntimeException ex){
+                jdbc.update("UPDATE dev_file_schedule_execution SET status='FAILED',finished_at=CURRENT_TIMESTAMP,error_message=? WHERE id=?",ex.getMessage(),rowId);
+                alerts.notifyTask(taskName(fileId),"FAILED",ex.getMessage(),null,null,null);
+            }
+        });
+    }
+
+    private String renderSql(long fileId,ProdConfig p,String biz){
+        return publishedSql(fileId,p.sqlVersion()).replace("${biz_date}",biz)
+                .replace("${system.biz.date-1}",LocalDate.now(ZoneId.of(p.timezone())).minusDays(1).toString())
+                .replace("${system.biz.date}",LocalDate.now(ZoneId.of(p.timezone())).toString())
+                .replace("${system.date}",LocalDate.now(ZoneId.of(p.timezone())).toString());
+    }
+
+    private String taskName(long fileId){
+        return jdbc.query("SELECT name FROM dev_file WHERE id=?",(rs,n)->rs.getString(1),fileId).stream().findFirst().orElse("开发任务 "+fileId);
     }
 
     @EventListener(ApplicationReadyEvent.class)

@@ -87,7 +87,15 @@ public class AlertSettingService {
         Row current = row(id);
         if (!current.enabled()) throw new BadRequestException("告警配置已关闭，请先启用后再测试");
         Config config = parse(current.configJson());
-        send(config, current.name(), "TEST", "这是一条来自大数据平台的钉钉告警测试消息", 0L, 0L, 0D);
+        try {
+            send(config, current.name(), "TEST", "这是一条来自大数据平台的钉钉告警测试消息", 0L, 0L, 0D);
+            recordDelivery(current.id(), current.name(), current.channelType(), current.name(), "TEST",
+                    "这是一条来自大数据平台的钉钉告警测试消息", "SUCCESS", "发送成功");
+        } catch (RuntimeException ex) {
+            recordDelivery(current.id(), current.name(), current.channelType(), current.name(), "TEST",
+                    "这是一条来自大数据平台的钉钉告警测试消息", "FAILED", safeMessage(ex));
+            throw ex;
+        }
         audit.record("TEST_ALERT_SETTING", "ALERT_CHANNEL", id, current.name(), "admin");
         return "测试消息已发送";
     }
@@ -101,14 +109,31 @@ public class AlertSettingService {
     }
 
     private void sendIfStillEnabled(long channelId, String taskName, String status, String message, Long durationMs, Long rows, Double qps) {
+        Row current = null;
         try {
-            Row current = jdbc.query("SELECT id,name,channel_type,config_json,enabled FROM alert_channel WHERE id=? AND enabled=TRUE",
+            current = jdbc.query("SELECT id,name,channel_type,config_json,enabled FROM alert_channel WHERE id=? AND enabled=TRUE",
                     rs -> rs.next() ? new Row(rs.getLong("id"), rs.getString("name"), rs.getString("channel_type"), rs.getString("config_json"), true) : null, channelId);
             if (current == null || !"DINGTALK".equalsIgnoreCase(current.channelType())) return;
             Config config = parse(current.configJson());
             if (!matches(config.triggerEvent(), status)) return;
             send(config, taskName, status, message, durationMs, rows, qps);
+            recordDelivery(current.id(), current.name(), current.channelType(), taskName, status, message, "SUCCESS", "发送成功");
+        } catch (RuntimeException ex) {
+            if (current != null) recordDelivery(current.id(), current.name(), current.channelType(), taskName, status, message, "FAILED", safeMessage(ex));
+        }
+    }
+
+    private void recordDelivery(long channelId, String channelName, String channelType, String taskName, String status,
+                                String message, String deliveryStatus, String responseMessage) {
+        try {
+            jdbc.update("INSERT INTO alert_delivery_history(channel_id,channel_name,channel_type,task_name,task_status,message,delivery_status,response_message) VALUES(?,?,?,?,?,?,?,?)",
+                    channelId, nullToEmpty(channelName), nullToEmpty(channelType), nullToEmpty(taskName),
+                    nullToEmpty(status), nullToEmpty(message), deliveryStatus, nullToEmpty(responseMessage));
         } catch (RuntimeException ignored) { }
+    }
+
+    private String safeMessage(Throwable ex) {
+        return ex == null || ex.getMessage() == null || ex.getMessage().isBlank() ? "发送失败" : ex.getMessage();
     }
 
     private AlertSettingView get(long id) {

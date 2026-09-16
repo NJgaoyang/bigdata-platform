@@ -16,6 +16,7 @@ const routes:RouteRecordRaw[]=[{path:'/login',name:'login',component:LoginView,m
 {path:'development/versions',component:()=>import('../views/development/DevelopmentVersions.vue'),meta:{module:'development'}},
 {path:'workflow/definitions',component:()=>import('../views/workflow/WorkflowDefinitions.vue'),meta:{module:'workflow'}},
 {path:'operations/overview',component:()=>import('../views/operations/OperationsCenter.vue'),meta:{module:'operations'}},
+{path:'operations/tasks',component:()=>import('../views/operations/OperationsCenter.vue'),meta:{module:'operations'}},
 {path:'operations/instances',component:()=>import('../views/operations/OperationsCenter.vue'),meta:{module:'operations'}},
 {path:'operations/failures',component:()=>import('../views/operations/OperationsCenter.vue'),meta:{module:'operations'}},
 {path:'operations/alerts',component:()=>import('../views/operations/OperationsCenter.vue'),meta:{module:'operations'}},
