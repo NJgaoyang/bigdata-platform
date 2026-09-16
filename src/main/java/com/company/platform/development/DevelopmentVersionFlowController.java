@@ -1,5 +1,6 @@
 package com.company.platform.development;
 
+import com.company.platform.common.BadRequestException;
 import com.company.platform.common.Result;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
@@ -22,22 +23,22 @@ public class DevelopmentVersionFlowController {
     @PostMapping("/files/push-to-project")
     public Result<DevFileView> pushToProject(@Valid @RequestBody DevelopmentVersionFlowRequests.PushToProjectRequest request,
                                              HttpServletRequest servletRequest) {
-        return Result.ok(service.pushToProject(request, operator(servletRequest)), "版本已推送到项目，线上版本未受影响");
+        throw new BadRequestException("系统已启用单项目共享开发模式，请直接在数据开发中按“下线 → 修改 → 上线 → 发布”流程操作");
     }
 
     @PostMapping("/files/{id}/publish-pushed")
     public Result<DevFileView> publish(@PathVariable long id, HttpServletRequest servletRequest) {
-        return Result.ok(service.publish(id, operator(servletRequest)), "项目版本已发布上线");
+        throw new BadRequestException("系统已启用单项目共享开发模式，请直接在数据开发中按“下线 → 修改 → 上线 → 发布”流程操作");
     }
 
     @PostMapping("/files/{id}/unpublish")
     public Result<DevFileView> unpublish(@PathVariable long id, HttpServletRequest servletRequest) {
-        return Result.ok(service.unpublish(id, operator(servletRequest)), "线上版本已下线");
+        throw new BadRequestException("系统已启用单项目共享开发模式，请直接在数据开发中按“下线 → 修改 → 上线 → 发布”流程操作");
     }
 
     @PostMapping("/files/{id}/create-development-version")
     public Result<DevFileView> createDevelopmentVersion(@PathVariable long id, HttpServletRequest servletRequest) {
-        return Result.ok(service.createDevelopmentVersion(id, operator(servletRequest)), "已在我的开发中准备开发版本");
+        throw new BadRequestException("系统已启用单项目共享开发模式，请直接在数据开发中按“下线 → 修改 → 上线 → 发布”流程操作");
     }
 
     @GetMapping("/files/{id}/version-flow")

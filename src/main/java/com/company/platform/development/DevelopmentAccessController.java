@@ -1,5 +1,6 @@
 package com.company.platform.development;
 
+import com.company.platform.common.BadRequestException;
 import com.company.platform.common.Result;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
@@ -32,7 +33,7 @@ public class DevelopmentAccessController {
     @PostMapping("/files/save-to-project")
     public Result<DevFileView> saveToProject(@Valid @RequestBody DevelopmentAccessRequests.SaveToProjectRequest request,
                                              HttpServletRequest servletRequest) {
-        return Result.ok(service.saveToProject(request, operator(servletRequest)), "已保存到项目空间");
+        throw new BadRequestException("系统已启用单项目共享开发模式，无需再执行“保存到项目”操作");
     }
 
     private String operator(HttpServletRequest request) {
