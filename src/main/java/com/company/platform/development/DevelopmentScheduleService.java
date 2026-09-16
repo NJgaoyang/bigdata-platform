@@ -106,6 +106,7 @@ public class DevelopmentScheduleService {
     }
 
     public void executeScheduled(long fileId, java.util.Date plannedAt){
+        if(!lifecycleOnline(fileId)) return;
         ProdConfig p=prodConfig(fileId); if(p==null||!p.enabled())return;
         String biz=resolveBizDate(p.bizDateParam(),p.timezone());
         Integer existing=jdbc.queryForObject("SELECT COUNT(*) FROM dev_file_schedule_execution WHERE file_id=? AND business_date=? AND release_no=? AND status IN ('RUNNING','SUCCESS')",Integer.class,fileId,java.sql.Date.valueOf(biz),p.releaseNo());
@@ -121,11 +122,17 @@ public class DevelopmentScheduleService {
     @EventListener(ApplicationReadyEvent.class)
     public void restore(){jdbc.queryForList("SELECT file_id FROM dev_file_schedule WHERE published_version>0").forEach(r->syncQuartz(((Number)r.get("file_id")).longValue()));}
 
+    public void refreshLifecycle(long fileId){ syncQuartz(fileId); }
+
     private void syncQuartz(long fileId){
-        ProdConfig p=prodConfig(fileId); JobKey jk=jobKey(fileId);TriggerKey tk=new TriggerKey("dev_schedule_"+fileId,"datasphere-development");
+        ProdConfig p=lifecycleOnline(fileId)?prodConfig(fileId):null; JobKey jk=jobKey(fileId);TriggerKey tk=new TriggerKey("dev_schedule_"+fileId,"datasphere-development");
         try{if(p==null||!p.enabled()){if(quartz.checkExists(tk))quartz.unscheduleJob(tk);if(quartz.checkExists(jk))quartz.deleteJob(jk);return;} JobDetail job=JobBuilder.newJob(DevelopmentScheduleQuartzJob.class).withIdentity(jk).usingJobData("fileId",String.valueOf(fileId)).storeDurably(true).build();if(quartz.checkExists(jk))quartz.addJob(job,true);else quartz.addJob(job,false);CronTrigger trigger=TriggerBuilder.newTrigger().withIdentity(tk).forJob(jk).withSchedule(CronScheduleBuilder.cronSchedule(p.cronExpression()).inTimeZone(TimeZone.getTimeZone(p.timezone())).withMisfireHandlingInstructionDoNothing()).build();if(quartz.checkExists(tk))quartz.rescheduleJob(tk,trigger);else quartz.scheduleJob(trigger);quartz.resumeTrigger(tk);}catch(SchedulerException ex){throw new BadRequestException("同步开发任务调度失败："+ex.getMessage());}
     }
 
+    private boolean lifecycleOnline(long fileId){
+        String v=jdbc.queryForObject("SELECT lifecycle_status FROM dev_file WHERE id=?",String.class,fileId);
+        return "ONLINE".equalsIgnoreCase(v);
+    }
     private ProdConfig prodConfig(long fileId){
         List<Map<String,Object>> rows=jdbc.queryForList("SELECT s.published_version,b.release_no,b.sql_version FROM dev_file_schedule s LEFT JOIN dev_file_release_bundle b ON b.file_id=s.file_id AND b.current_flag=TRUE WHERE s.file_id=? AND s.published_version>0",fileId);if(rows.isEmpty())return null;int ver=((Number)rows.getFirst().get("published_version")).intValue();int rel=rows.getFirst().get("release_no")==null?0:((Number)rows.getFirst().get("release_no")).intValue();int sql=rows.getFirst().get("sql_version")==null?publishedSqlVersion(fileId):((Number)rows.getFirst().get("sql_version")).intValue();
         String json=jdbc.queryForObject("SELECT config_json FROM dev_file_schedule_version WHERE file_id=? AND version_no=?",String.class,fileId,ver);try{ScheduleView s=mapper.readValue(json,ScheduleView.class);return new ProdConfig(ver,rel,sql,s.enabled(),s.cronExpression(),s.timezone(),s.dataSourceId(),s.databaseName(),s.bizDateParam(),s.dependencies().stream().map(DependencyView::fileId).toList());}catch(Exception ex){throw new BadRequestException("读取生产调度配置失败："+ex.getMessage());}

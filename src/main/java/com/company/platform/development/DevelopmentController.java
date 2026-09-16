@@ -117,6 +117,24 @@ public class DevelopmentController {
         return Result.ok(service.saveFile(id, request, operator(servletRequest)), "文件已保存");
     }
 
+    @PostMapping("/files/{id}/online")
+    public Result<DevFileView> onlineFile(@PathVariable long id, HttpServletRequest servletRequest) {
+        String operator = operator(servletRequest);
+        DevFileView updated = service.onlineFile(id, operator);
+        try { schedules.refreshLifecycle(id); }
+        catch (RuntimeException ex) { service.offlineFile(id, operator); try { schedules.refreshLifecycle(id); } catch (RuntimeException ignored) {} throw ex; }
+        return Result.ok(updated, "任务已上线");
+    }
+
+    @PostMapping("/files/{id}/offline")
+    public Result<DevFileView> offlineFile(@PathVariable long id, HttpServletRequest servletRequest) {
+        String operator = operator(servletRequest);
+        DevFileView updated = service.offlineFile(id, operator);
+        try { schedules.refreshLifecycle(id); }
+        catch (RuntimeException ex) { service.onlineFile(id, operator); try { schedules.refreshLifecycle(id); } catch (RuntimeException ignored) {} throw ex; }
+        return Result.ok(updated, "任务已下线");
+    }
+
     @DeleteMapping("/files/{id}")
     public Result<Void> deleteFile(@PathVariable long id, HttpServletRequest servletRequest) {
         service.deleteFile(id, operator(servletRequest));

@@ -189,8 +189,8 @@ public class DevelopmentService {
 
     private void recycleFile(long id, String operator) {
         DevFileView current = requireFile(id);
-        if (hasPublishedVersion(id)) {
-            throw new BadRequestException("已发布开发任务不能删除。该任务存在生产发布版本，请保留生产任务或先完成正式下线流程");
+        if (!"OFFLINE".equalsIgnoreCase(current.lifecycleStatus())) {
+            throw new BadRequestException("开发任务必须先下线后才能删除");
         }
         List<Long> versionIds = store.versions.values().stream().filter(version -> version.fileId() == id).map(FileVersionView::id).toList();
         List<String> usages = store.workflows.values().stream()
@@ -219,7 +219,7 @@ public class DevelopmentService {
     @Transactional
     public DevFileView restoreFile(long id, String operator) {
         if (jdbc == null) throw new BadRequestException("当前环境不支持回收箱恢复");
-        Map<String,Object> row = jdbc.queryForMap("SELECT id,project_id,folder_id,name,file_type,content,description,status,current_version,updated_at FROM dev_file WHERE id=? AND recycled=TRUE", id);
+        Map<String,Object> row = jdbc.queryForMap("SELECT id,project_id,folder_id,name,file_type,content,description,status,current_version,updated_at,lifecycle_status,ever_online FROM dev_file WHERE id=? AND recycled=TRUE", id);
         long projectId = ((Number) row.get("project_id")).longValue();
         requireProjectEdit(projectId, operator);
         jdbc.update("UPDATE dev_file SET recycled=FALSE,recycled_at=NULL,recycled_by=NULL,updated_at=CURRENT_TIMESTAMP WHERE id=?", id);
@@ -227,7 +227,8 @@ public class DevelopmentService {
         LocalDateTime updatedAt = row.get("updated_at") instanceof java.sql.Timestamp ts ? ts.toLocalDateTime() : LocalDateTime.now();
         DevFileView restored = new DevFileView(id, projectId, folderId, String.valueOf(row.get("name")), String.valueOf(row.get("file_type")),
                 String.valueOf(row.get("content")), row.get("description") == null ? "" : String.valueOf(row.get("description")),
-                String.valueOf(row.get("status")), ((Number) row.get("current_version")).intValue(), updatedAt);
+                String.valueOf(row.get("status")), ((Number) row.get("current_version")).intValue(), updatedAt,
+                String.valueOf(row.get("lifecycle_status")), Boolean.TRUE.equals(row.get("ever_online")) || (row.get("ever_online") instanceof Number n && n.intValue()!=0));
         store.files.put(id, restored);
         return restored;
     }
@@ -264,7 +265,7 @@ public class DevelopmentService {
         String nextStatus = contentChanged ? "DRAFT" : current.status();
         DevFileView updated = new DevFileView(current.id(), current.projectId(), folderId, name, current.fileType(), content,
                 request.description() == null ? current.description() : request.description().trim(), nextStatus, nextVersion,
-                LocalDateTime.now());
+                LocalDateTime.now(), current.lifecycleStatus(), current.everOnline());
         if (contentChanged) {
             FileVersionView version = newVersion(updated);
             store.persistVersion(version);
@@ -287,7 +288,7 @@ public class DevelopmentService {
     public FileVersionView createVersion(long fileId, DevelopmentRequests.VersionRequest request) {
         DevFileView current = requireFile(fileId);
         DevFileView updated = new DevFileView(current.id(), current.projectId(), current.folderId(), current.name(), current.fileType(), request.content(),
-                current.description(), "DRAFT", current.currentVersion() + 1, LocalDateTime.now());
+                current.description(), "DRAFT", current.currentVersion() + 1, LocalDateTime.now(), current.lifecycleStatus(), current.everOnline());
         FileVersionView version = newVersion(updated);
         store.persistVersion(version);
         store.persistFile(updated);
@@ -302,6 +303,7 @@ public class DevelopmentService {
     public DevFileView publishFile(long fileId, String operator) {
         DevFileView current = requireFile(fileId);
         requireProjectEdit(current.projectId(), operator);
+        if (!"ONLINE".equalsIgnoreCase(current.lifecycleStatus())) throw new BadRequestException("开发任务当前已下线，请先上线后再发布");
         List<FileVersionView> fileVersions = store.versions.values().stream().filter(version -> version.fileId() == fileId)
                 .sorted(Comparator.comparingInt(FileVersionView::versionNo).reversed()).toList();
         FileVersionView target = fileVersions.stream().filter(version -> version.versionNo() == current.currentVersion()).findFirst()
@@ -313,11 +315,31 @@ public class DevelopmentService {
         }
         updates.forEach(store::persistVersion);
         DevFileView published = new DevFileView(current.id(), current.projectId(), current.folderId(), current.name(), current.fileType(), current.content(),
-                current.description(), "PUBLISHED", current.currentVersion(), LocalDateTime.now());
+                current.description(), "PUBLISHED", current.currentVersion(), LocalDateTime.now(), current.lifecycleStatus(), current.everOnline());
         store.persistFile(published);
         updates.forEach(version -> store.versions.put(version.id(), version));
         store.files.put(fileId, published);
         return published;
+    }
+
+    @Transactional
+    public DevFileView onlineFile(long id, String operator) {
+        DevFileView current = requireFile(id);
+        requireProjectEdit(current.projectId(), operator);
+        if ("ONLINE".equalsIgnoreCase(current.lifecycleStatus())) return current;
+        DevFileView updated = new DevFileView(current.id(), current.projectId(), current.folderId(), current.name(), current.fileType(),
+                current.content(), current.description(), current.status(), current.currentVersion(), LocalDateTime.now(), "ONLINE", true);
+        store.persistFile(updated); store.files.put(id, updated); return updated;
+    }
+
+    @Transactional
+    public DevFileView offlineFile(long id, String operator) {
+        DevFileView current = requireFile(id);
+        requireProjectEdit(current.projectId(), operator);
+        if ("OFFLINE".equalsIgnoreCase(current.lifecycleStatus())) return current;
+        DevFileView updated = new DevFileView(current.id(), current.projectId(), current.folderId(), current.name(), current.fileType(),
+                current.content(), current.description(), current.status(), current.currentVersion(), LocalDateTime.now(), "OFFLINE", current.everOnline());
+        store.persistFile(updated); store.files.put(id, updated); return updated;
     }
 
     public Map<String, Object> tree(long projectId) { requireProject(projectId); return Map.of("projectId", projectId, "folders", folders(projectId), "files", files(projectId)); }
