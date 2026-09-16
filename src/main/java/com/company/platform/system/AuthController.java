@@ -35,6 +35,7 @@ public class AuthController {
         String current = token(authorization);
         return Result.ok(Map.of(
                 "username", service.currentUsername(current),
+                "displayName", service.displayNameForToken(current),
                 "authenticated", service.authenticate(current),
                 "permissions", service.permissionsForToken(current),
                 "roleCode", service.roleForToken(current),

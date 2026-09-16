@@ -7,7 +7,7 @@ import { ArrowDown } from '@element-plus/icons-vue'
 import { moduleViewPermission, hasPermission } from '../auth/permissions'
 
 const route = useRoute()
-const username=ref('admin'), roleCode=ref('ADMIN'), me=ref<CurrentUser|null>(null)
+const username=ref('admin'), displayName=ref('用户'), roleCode=ref('ADMIN'), me=ref<CurrentUser|null>(null)
 const router = useRouter()
 const moduleKey = computed(() => String(route.meta.module || 'workbench'))
 const visibleProducts=computed(()=>productNavigation.filter(item=>hasPermission(me.value,moduleViewPermission[item.key])))
@@ -28,7 +28,7 @@ const sideItems = computed(() => {
 
 function go(path: string) { void router.push(path) }
 function roleName(value:string){return ({ADMIN:'平台管理员',DEVELOPER:'开发者',RELEASE_MANAGER:'发布审核人',VIEWER:'只读用户',USER:'普通用户'} as Record<string,string>)[value]||value}
-async function loadMe(){try{const current=await authApi.me();me.value=current;username.value=current.username||'admin';roleCode.value=current.roleCode||'USER'}catch{}}
+async function loadMe(){try{const current=await authApi.me();me.value=current;username.value=current.username||'admin';displayName.value=current.displayName||current.username||'用户';roleCode.value=current.roleCode||'USER'}catch{}}
 async function logout(){try{await authApi.logout()}catch{}localStorage.removeItem('platform_auth_token');await router.replace('/login')}
 onMounted(loadMe)
 </script>
@@ -49,8 +49,8 @@ onMounted(loadMe)
       <div class="topbar__right">
         <el-button v-if="canRelease" plain @click="go('/release/history')">发布中心</el-button>
         <el-dropdown trigger="click">
-          <button type="button" class="user-entry" :title="`${username} · ${roleName(roleCode)}`">
-            <span class="user-entry__avatar">{{ (username||'U').slice(0,1).toUpperCase() }}</span>
+          <button type="button" class="user-entry" :title="`${displayName}（${username}） · ${roleName(roleCode)}`">
+            <span class="user-entry__avatar">{{ (displayName||username||'用户').slice(0,1) }}</span>
             <el-icon class="user-entry__arrow"><ArrowDown /></el-icon>
           </button>
           <template #dropdown>

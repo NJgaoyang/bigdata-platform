@@ -164,6 +164,16 @@ public class AuthService {
         if (session.expiresAt().isBefore(Instant.now())) { sessions.remove(token); return ""; }
         return session.username();
     }
+    public String displayNameForToken(String token) {
+        String username = currentUsername(token);
+        if (username.isBlank()) return "";
+        return store.users.values().stream()
+                .filter(item -> item.username().equalsIgnoreCase(username))
+                .map(UserView::displayName)
+                .filter(name -> name != null && !name.isBlank())
+                .findFirst()
+                .orElseGet(() -> isConfiguredAdmin(username) ? "平台管理员" : username);
+    }
     public String roleForToken(String token) {
         String username = currentUsername(token);
         if (username.isBlank()) return "USER";

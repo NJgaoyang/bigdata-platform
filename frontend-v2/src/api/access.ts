@@ -12,6 +12,7 @@ export const accessApi = {
   roles: () => api.get<PlatformRole[]>('/system/roles'),
   auditLogs: () => api.get<AuditLog[]>('/system/audit-logs'),
   createUser: (payload:unknown) => api.post<PlatformUser>('/system/users', payload),
+  updateUser: (id:number,payload:unknown) => api.put<PlatformUser>(`/system/users/${id}`, payload),
   createRole: (payload:{roleCode:string;roleName:string}) => api.post<PlatformRole>('/system/roles', payload),
   removeUser: (id:number) => api.delete<void>(`/system/users/${id}`),
   setUserStatus: (id:number, enabled:boolean) => api.post<PlatformUser>(`/system/users/${id}/${enabled?'enable':'disable'}`),
