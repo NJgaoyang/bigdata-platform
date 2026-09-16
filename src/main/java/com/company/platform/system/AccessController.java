@@ -20,6 +20,8 @@ public class AccessController {
     @DeleteMapping("/users/{id}") public Result<Void> deleteUser(@PathVariable long id) { service.deleteUser(id); return Result.ok(null, "用户已删除"); }
     @PostMapping("/users/{id}/disable") public Result<UserView> disableUser(@PathVariable long id) { return Result.ok(service.setUserStatus(id, "DISABLED"), "用户已禁用"); }
     @PostMapping("/users/{id}/enable") public Result<UserView> enableUser(@PathVariable long id) { return Result.ok(service.setUserStatus(id, "ACTIVE"), "用户已启用"); }
+    @PostMapping("/users/{id}/reset-password") public Result<Void> resetPassword(@PathVariable long id, @Valid @RequestBody AccessRequests.ResetPasswordRequest request) { service.resetPassword(id, request); return Result.ok(null, "密码已重置"); }
+    @PostMapping("/users/{id}/force-logout") public Result<Void> forceLogout(@PathVariable long id) { service.forceLogout(id); return Result.ok(null, "用户已强制下线"); }
     @GetMapping("/users/{id}/permissions") public Result<Set<String>> permissions(@PathVariable long id) { return Result.ok(service.permissions(id)); }
     @PutMapping("/users/{id}/permissions") public Result<Set<String>> setPermissions(@PathVariable long id, @RequestBody Map<String, Set<String>> request) { return Result.ok(service.setPermissions(id, request.getOrDefault("permissions", Set.of())), "用户权限已更新"); }
     @GetMapping("/roles") public Result<List<RoleView>> roles() { return Result.ok(service.roles()); }

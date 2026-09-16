@@ -21,6 +21,7 @@ public final class AccessRequests {
             this(username, displayName, "", password, roleCode, status);
         }
     }
+    public record ResetPasswordRequest(@NotBlank String newPassword) { }
     public record RoleRequest(@NotBlank String roleCode, @NotBlank String roleName) { }
     public record PermissionRequest(@NotBlank String permissionCode) { }
     public record PermissionBindingRequest(long userId, @NotBlank String permissionCode) { }

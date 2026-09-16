@@ -94,6 +94,27 @@ public class AccessService {
         return updated;
     }
 
+    @Transactional
+    public void resetPassword(long id, AccessRequests.ResetPasswordRequest request) {
+        UserView current = store.users.get(id);
+        if (current == null) throw new NotFoundException("用户不存在：" + id);
+        String password = request.newPassword() == null ? "" : request.newPassword();
+        if (password.length() < 6) throw new BadRequestException("新密码至少需要 6 位");
+        UserView updated = new UserView(id, current.username(), current.displayName(), current.phone(), current.roleCode(),
+                current.status(), current.createdAt(), PasswordHasher.hash(password));
+        store.persistUser(updated);
+        store.users.put(id, updated);
+        if (auth != null) auth.invalidateUser(updated.username());
+        audit.record("RESET_USER_PASSWORD", "USER", id, updated.username(), "admin");
+    }
+
+    public void forceLogout(long id) {
+        UserView current = store.users.get(id);
+        if (current == null) throw new NotFoundException("用户不存在：" + id);
+        if (auth != null) auth.invalidateUser(current.username());
+        audit.record("FORCE_LOGOUT_USER", "USER", id, current.username(), "admin");
+    }
+
     public Set<String> permissions(long userId) {
         if (!store.users.containsKey(userId)) throw new NotFoundException("用户不存在：" + userId);
         return effectivePermissions(userId);
