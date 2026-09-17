@@ -71,7 +71,7 @@ onBeforeUnmount(() => { stopLogPolling(); window.removeEventListener('keydown', 
 <template>
   <div class="ds-page ds-integration-page">
     <PageHeader title="运行实例" subtitle="统一查看 SeaTunnel 离线实例与 Flink CDC 实时实例。" />
-    <div class="ds-card">
+    <div class="ds-card integration-list-surface instances-card">
       <div class="ds-toolbar">
         <el-segmented v-model="type" :options="[{label:'全部',value:'ALL'},{label:'离线',value:'OFFLINE'},{label:'实时',value:'REALTIME'}]" />
         <div class="ds-spacer" />
@@ -106,5 +106,17 @@ onBeforeUnmount(() => { stopLogPolling(); window.removeEventListener('keydown', 
 </template>
 
 <style scoped>
+.ds-integration-page{padding-top:28px;padding-bottom:36px;background:linear-gradient(180deg,#fbfdff 0%,#f8fbff 100%)}.integration-list-surface{overflow:hidden;border:1px solid #e4ebf5!important;border-radius:16px!important;background:rgba(255,255,255,.97)!important;box-shadow:0 10px 30px rgba(42,83,163,.04)!important}.integration-list-surface .ds-toolbar{min-height:58px;padding:10px 14px!important;border-bottom:1px solid #edf2f7;background:#fbfdff}.integration-list-surface :deep(.el-input__wrapper){box-shadow:0 0 0 1px #dfe8f3 inset!important;border-radius:9px!important}.integration-list-surface :deep(.el-segmented){border-radius:9px;background:#f1f5fa}.integration-list-surface :deep(.el-table){--el-table-header-bg-color:#fbfcfe;--el-table-row-hover-bg-color:#f8fbff;--el-table-border-color:#eef2f7}.integration-list-surface :deep(.el-table th.el-table__cell){height:44px;background:#fbfcfe!important;color:#78889f;font-size:11px;font-weight:650}.integration-list-surface :deep(.el-table td.el-table__cell){height:52px;border-bottom-color:#f0f3f7}.integration-list-surface :deep(.el-table__inner-wrapper:before){display:none}.instance-log-panel{border-color:#e4ebf5!important;border-radius:12px;overflow:hidden}.instance-log-toolbar{background:#fbfdff;border-bottom-color:#e7edf5!important}
+
 .instance-log-panel{height:calc(100vh - 125px);display:flex;flex-direction:column;border:1px solid var(--ds-border);background:#fff}.instance-log-toolbar{min-height:52px;padding:8px 12px;border-bottom:1px solid var(--ds-border);display:flex;align-items:center;justify-content:space-between;gap:16px}.instance-log-toolbar span{font-size:12px;color:var(--ds-text-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.instance-log-toolbar em{font-style:normal;color:var(--ds-success);margin-left:12px}.instance-log-viewer{flex:1;min-height:0;overflow:auto;background:#111827;padding:14px 16px}.instance-log-viewer pre{margin:0;color:#d1d5db;white-space:pre-wrap;word-break:break-word;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;line-height:1.65}.instance-log-panel.maximized{position:fixed;z-index:4000;inset:18px;height:auto;box-shadow:0 16px 48px rgba(0,0,0,.24)}
+
+/* login/workbench visual alignment */
+.ds-integration-page{position:relative;min-height:calc(100vh - 72px);background:linear-gradient(180deg,#fbfdff 0%,#f7faff 100%)}
+.ds-integration-page :deep(.ds-page-header){margin-bottom:22px}.ds-integration-page :deep(.ds-page-header__title){color:#0b2142;font-size:26px;font-weight:760;letter-spacing:-.5px}.ds-integration-page :deep(.ds-page-header__subtitle){margin-top:7px;color:#7b8ca5;font-size:12px}
+.instances-card{border-color:#e7edf6!important;border-radius:18px!important;background:rgba(255,255,255,.94)!important;box-shadow:0 12px 32px rgba(32,76,145,.04)!important}
+.instances-card .ds-toolbar{min-height:62px!important;padding:11px 16px!important;background:linear-gradient(180deg,#fff 0%,#fbfdff 100%)!important;border-bottom-color:#edf2f7!important}
+.instances-card :deep(.el-segmented){padding:3px;border-radius:11px;background:#f1f5fa}.instances-card :deep(.el-segmented__item){min-height:30px;border-radius:8px}.instances-card :deep(.el-input__wrapper){min-height:36px;border-radius:10px!important;background:#fff}
+.instances-card :deep(.el-table){--el-table-header-bg-color:#f8fbff;--el-table-row-hover-bg-color:#f5f9ff;--el-table-border-color:#eef3f8}.instances-card :deep(.el-table th.el-table__cell){height:46px!important;background:#f8fbff!important;color:#788aa3!important;font-size:11px!important;font-weight:650!important}.instances-card :deep(.el-table td.el-table__cell){height:56px;border-bottom-color:#f0f4f8!important;background:#fff}.instances-card :deep(.el-table__body tr:hover>td.el-table__cell){background:#f7faff!important}
+:deep(.el-drawer__header){background:#fbfdff;border-bottom:1px solid #e8eef6!important}:deep(.el-drawer__body){background:#f8fbff}.instance-log-panel{border-color:#e4ebf5!important;border-radius:12px!important;box-shadow:0 8px 22px rgba(32,76,145,.035)}
+
 </style>
