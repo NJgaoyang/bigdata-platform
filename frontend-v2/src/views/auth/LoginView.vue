@@ -52,88 +52,108 @@ function forgotPassword(){
 </script>
 
 <template>
-  <main class="modern-login-page">
-    <div class="top-brand" aria-label="DataSphere 数据开发平台">
-      <svg class="brand-mark" viewBox="0 0 40 40" fill="none" aria-hidden="true">
-        <path d="M20 3 34 11v18L20 37 6 29V11L20 3Z" fill="#126ff1"/>
-        <path d="m20 8 9 5-9 5-9-5 9-5Z" fill="#65afff"/>
-        <path d="m11 16 9 5v11l-9-5V16Z" fill="#0a54c4"/>
-        <path d="m29 16-9 5v11l9-5V16Z" fill="#2589f7"/>
-      </svg>
-      <div class="brand-copy"><strong>DataSphere</strong><span>数据开发平台</span></div>
-    </div>
+  <div class="login-page">
+    <main class="shell">
+      <section class="left" aria-label="DataSphere 平台介绍">
+        <div class="brand-lockup">
+          <svg class="brand-mark" viewBox="0 0 42 42" fill="none" aria-hidden="true">
+            <path d="M21 3 36 12v18L21 39 6 30V12L21 3Z" fill="#3778F6"/>
+            <path d="m21 8 10 6-10 6-10-6 10-6Z" fill="#75B9FF"/>
+            <path d="m11 17 10 6v11l-10-6V17Z" fill="#285DCE"/>
+            <path d="m31 17-10 6v11l10-6V17Z" fill="#3E96FF"/>
+          </svg>
+          <div class="brand-copy"><strong>DataSphere</strong><span>数据开发平台</span></div>
+        </div>
 
-    <section class="intro-pane" aria-label="产品介绍">
-      <div class="hero-copy">
-        <h1>Data<span>Sphere</span></h1>
-        <h2>统一数据开发与治理平台</h2>
-        <p class="tagline">构建、编排并治理数据，<br />让团队高效协作与交付。</p>
-        <div class="short-rule"></div>
-        <p class="subline">从数据到价值，打造现代化数据工作方式。</p>
-      </div>
-      <div class="decor-shape" aria-hidden="true"><i></i><i></i><i></i></div>
-    </section>
+        <h1 class="headline">统一数据开发与治理平台</h1>
+        <p class="sub">轻质感、克制而清晰的数据工作台体验<br>统一数据接入、开发、调度与治理</p>
 
-    <section class="login-pane" aria-label="登录区域">
-      <div class="login-card">
+        <div class="illustration-wrap" aria-hidden="true">
+          <div class="platform-shadow"></div>
+          <div class="platform-base base-back"></div>
+          <div class="platform-base base-mid"></div>
+          <div class="platform-base base-front"></div>
+
+          <div class="scene-node node-source">
+            <span class="node-icon">DB</span><b>数据接入</b><small>MySQL · StarRocks</small>
+          </div>
+          <div class="scene-node node-dev">
+            <span class="node-icon">SQL</span><b>数据开发</b><small>SQL · 版本 · 发布</small>
+          </div>
+          <div class="scene-node node-schedule">
+            <span class="node-icon">JOB</span><b>任务调度</b><small>周期 · 依赖 · 运维</small>
+          </div>
+          <div class="scene-node node-govern">
+            <span class="node-icon">META</span><b>数据治理</b><small>元数据 · 血缘 · 审计</small>
+          </div>
+
+          <div class="core-stack">
+            <div class="core-top"></div>
+            <div class="core-body"><strong>DataSphere</strong><span>统一数据生产工作台</span></div>
+          </div>
+          <i class="line l1"></i><i class="line l2"></i><i class="line l3"></i><i class="line l4"></i>
+        </div>
+
+        <div class="left-foot">DATA DEVELOPMENT PLATFORM</div>
+      </section>
+
+      <section class="card" aria-label="登录表单">
         <div v-if="checkingSession" class="session-check">
           <span class="spinner"></span>
           <strong>正在验证登录状态</strong>
           <small>请稍候...</small>
         </div>
+
         <template v-else>
-          <div class="card-title">
-            <h2>登录</h2>
-            <p>欢迎回来，使用 DataSphere</p>
-          </div>
-          <form class="login-form" @submit.prevent="submit">
+          <h2>登录</h2>
+          <div class="welcome">欢迎回来，使用 DataSphere</div>
+          <form @submit.prevent="submit" novalidate>
             <div class="field">
-              <label for="login-username">账号</label>
-              <div class="input-wrap">
-                <input id="login-username" v-model="form.username" autocomplete="username" placeholder="请输入账号" :disabled="loading" />
-              </div>
+              <label class="label" for="account">账号</label>
+              <input id="account" v-model="form.username" class="input" autocomplete="username" placeholder="请输入账号" :disabled="loading" />
             </div>
             <div class="field">
-              <label for="login-password">密码</label>
-              <div class="input-wrap">
-                <input id="login-password" v-model="form.password" :type="passwordVisible?'text':'password'" autocomplete="current-password" placeholder="请输入密码" :disabled="loading" />
-                <button class="password-toggle" type="button" :aria-label="passwordVisible?'隐藏密码':'显示密码'" @click="passwordVisible=!passwordVisible">
-                  <svg v-if="!passwordVisible" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M2.5 12s3.2-5 9.5-5 9.5 5 9.5 5-3.2 5-9.5 5-9.5-5-9.5-5Z"/><circle cx="12" cy="12" r="2.5"/></svg>
-                  <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m3 3 18 18M10.6 7.2A10.8 10.8 0 0 1 12 7c6.3 0 9.5 5 9.5 5a14 14 0 0 1-2.4 2.8M6.2 6.2C3.8 7.8 2.5 12 2.5 12s3.2 5 9.5 5c1 0 1.9-.1 2.7-.4"/></svg>
-                </button>
+              <label class="label" for="password">密码</label>
+              <div class="password-wrap">
+                <input id="password" v-model="form.password" class="input" :type="passwordVisible?'text':'password'" autocomplete="current-password" placeholder="请输入密码" :disabled="loading" />
+                <button class="toggle" type="button" @click="passwordVisible=!passwordVisible">{{passwordVisible?'隐藏':'显示'}}</button>
               </div>
             </div>
-            <div class="form-meta">
-              <label class="remember"><input v-model="rememberUsername" type="checkbox" /><span>记住账号</span></label>
-              <button class="forgot" type="button" @click="forgotPassword">忘记密码？</button>
+            <div class="row">
+              <label class="remember"><input v-model="rememberUsername" type="checkbox" />记住账号</label>
+              <button class="link" type="button" @click="forgotPassword">忘记密码？</button>
             </div>
-            <button class="login-button" type="submit" :disabled="loading">
+            <button class="login" type="submit" :disabled="loading">
               <span v-if="loading" class="spinner small"></span>
-              <span>{{loading?'登录中…':'登录'}}</span>
+              <span>{{loading?'登录中...':'登录'}}</span>
             </button>
           </form>
         </template>
-      </div>
-    </section>
-
-    <footer>© {{year}} DataSphere 数据开发平台</footer>
-  </main>
+      </section>
+    </main>
+    <div class="copyright">© {{year}} DataSphere · 用数据创造更大的价值</div>
+  </div>
 </template>
 
 <style scoped>
-.modern-login-page{min-height:100dvh;position:relative;display:grid;grid-template-columns:56% 44%;overflow:hidden;background:#fbfdff;color:#071b3b;font-family:Inter,"SF Pro Display","SF Pro Text",-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",Arial,sans-serif}
-.top-brand{position:absolute;top:22px;left:72px;z-index:5;height:58px;display:flex;align-items:center;gap:12px}.brand-mark{width:40px;height:40px;flex:none;filter:drop-shadow(0 6px 16px rgba(18,111,241,.15))}.brand-copy{display:flex;align-items:baseline;gap:10px}.brand-copy strong{font-size:25px;font-weight:760;letter-spacing:-.5px;color:#071b3b}.brand-copy span{font-size:14px;color:#71819b}
-.intro-pane{position:relative;min-height:100dvh;display:flex;align-items:center;padding:120px 7vw 130px 12.3vw}.hero-copy{width:min(650px,100%);transform:translateY(18px);position:relative;z-index:2}.hero-copy h1{margin:0 0 24px;font-size:clamp(58px,4.9vw,83px);line-height:.98;letter-spacing:-3.6px;font-weight:750;color:#071b3b}.hero-copy h1 span{color:#0d6df2}.hero-copy h2{margin:0 0 26px;font-size:clamp(31px,2.45vw,43px);line-height:1.22;letter-spacing:-.7px;font-weight:710;color:#071b3b}.tagline{margin:0;font-size:clamp(23px,1.7vw,30px);line-height:1.45;font-weight:430;color:#62728f}.short-rule{width:49px;height:4px;margin:30px 0 24px;border-radius:2px;background:#126ff1}.subline{margin:0;font-size:clamp(18px,1.25vw,23px);line-height:1.6;color:#7f8faa;font-weight:420}
-.decor-shape{position:absolute;left:-55px;bottom:-72px;width:410px;height:300px;transform:rotate(-8deg);pointer-events:none;opacity:.92}.decor-shape:before,.decor-shape:after,.decor-shape i{content:"";position:absolute;border-radius:50% 50% 44% 56%;border:1px solid rgba(13,109,242,.11)}.decor-shape:before{inset:0;background:linear-gradient(145deg,rgba(13,109,242,.08),rgba(13,109,242,.015));box-shadow:inset -35px 10px 80px rgba(13,109,242,.05)}.decor-shape:after{left:50px;top:45px;width:280px;height:205px}.decor-shape i:nth-child(1){left:100px;top:83px;width:180px;height:132px}.decor-shape i:nth-child(2){left:137px;top:110px;width:105px;height:75px;background:rgba(13,109,242,.05)}.decor-shape i:nth-child(3){left:18px;top:128px;width:345px;height:1px;border:0;border-top:1px solid rgba(13,109,242,.1);border-radius:0}
-.login-pane{min-height:100dvh;display:flex;align-items:center;justify-content:center;padding:110px 7.5vw 110px 4vw}.login-card{width:min(548px,100%);padding:48px 44px 54px;background:#fff;border:1px solid #e6ecf5;border-radius:14px;box-shadow:0 20px 60px rgba(34,67,122,.08)}.card-title h2{margin:0 0 8px;font-size:37px;line-height:1.2;font-weight:750;letter-spacing:-.8px;color:#071b3b}.card-title p{margin:0 0 32px;color:#6c7b97;font-size:19px}.field{margin-bottom:24px}.field label{display:block;margin-bottom:9px;color:#142645;font-size:16px;font-weight:560}.input-wrap{position:relative}.input-wrap input{width:100%;height:54px;border:1px solid #cdd9eb;border-radius:7px;background:#fff;color:#203150;font-size:17px;padding:0 50px 0 18px;outline:none;transition:border-color .18s ease,box-shadow .18s ease}.input-wrap input::placeholder{color:#9aa8bf}.input-wrap input:focus{border-color:#2a78ed;box-shadow:0 0 0 3px rgba(42,120,237,.09)}.input-wrap input:disabled{background:#f6f8fb;cursor:not-allowed}.password-toggle{position:absolute;right:12px;top:50%;width:30px;height:30px;padding:5px;border:0;background:transparent;color:#7184a5;transform:translateY(-50%);cursor:pointer}.password-toggle svg{width:100%;height:100%}.password-toggle:hover{color:#126ff1}
-.form-meta{display:flex;align-items:center;justify-content:space-between;gap:18px;margin:-2px 0 26px}.remember{display:inline-flex;align-items:center;gap:9px;color:#1b2d4b;font-size:16px;cursor:pointer;user-select:none}.remember input{width:20px;height:20px;margin:0;accent-color:#1373ef;cursor:pointer}.forgot{border:0;background:transparent;color:#086ff1;padding:4px 0;font-size:16px;cursor:pointer}.forgot:hover{text-decoration:underline}.login-button{width:100%;height:58px;display:flex;align-items:center;justify-content:center;gap:8px;border:0;border-radius:7px;background:#1c72ed;color:#fff;font-size:18px;font-weight:650;letter-spacing:.2px;cursor:pointer;transition:transform .12s ease,background .18s ease}.login-button:hover:not(:disabled){background:#0e66df}.login-button:active:not(:disabled){transform:translateY(1px)}.login-button:disabled{opacity:.72;cursor:default}.session-check{min-height:340px;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#536783}.session-check strong{margin-top:15px;font-size:16px}.session-check small{margin-top:5px;color:#8a99af}.spinner{width:28px;height:28px;border:3px solid rgba(28,114,237,.17);border-top-color:#1c72ed;border-radius:50%;animation:spin .75s linear infinite}.spinner.small{width:18px;height:18px;border-width:2px;border-color:rgba(255,255,255,.35);border-top-color:#fff}@keyframes spin{to{transform:rotate(360deg)}}
-.modern-login-page footer{position:absolute;left:50%;bottom:34px;z-index:4;transform:translateX(-50%);font-size:14px;color:#7788a3;white-space:nowrap}
-@media(min-width:1051px){.login-card{transform:translate(-38px,-30px)}}
-@media(max-width:1500px){.top-brand{left:54px}.intro-pane{padding-left:10vw;padding-right:6vw}.login-pane{padding-right:5.5vw}.login-card{width:min(500px,100%);padding:44px 40px 48px}.hero-copy h1{font-size:clamp(54px,4.7vw,72px)}.hero-copy h2{font-size:clamp(29px,2.35vw,38px)}}
-@media(max-height:820px) and (min-width:1051px){.top-brand{top:16px}.intro-pane{padding-top:92px;padding-bottom:92px}.hero-copy{transform:translateY(8px)}.hero-copy h1{margin-bottom:18px;font-size:clamp(48px,4.3vw,66px)}.hero-copy h2{margin-bottom:18px;font-size:clamp(27px,2.2vw,35px)}.tagline{font-size:clamp(20px,1.55vw,25px)}.short-rule{margin:22px 0 18px}.subline{font-size:clamp(16px,1.12vw,20px)}.login-pane{padding-top:78px;padding-bottom:78px}.login-card{padding:38px 38px 42px;transform:translate(-28px,-10px)}.card-title h2{font-size:33px}.card-title p{margin-bottom:26px;font-size:17px}.field{margin-bottom:18px}.input-wrap input{height:50px;font-size:16px}.form-meta{margin-bottom:22px}.login-button{height:54px}.modern-login-page footer{bottom:18px;font-size:12px}}
-@media(max-height:680px) and (min-width:1051px){.intro-pane{padding-top:78px;padding-bottom:70px}.hero-copy h1{font-size:50px}.hero-copy h2{font-size:28px}.tagline{font-size:20px}.short-rule{margin:17px 0 14px}.subline{font-size:16px}.login-pane{padding-top:64px;padding-bottom:64px}.login-card{padding:30px 34px 34px}.card-title h2{font-size:30px}.card-title p{margin-bottom:20px}.field{margin-bottom:14px}.field label{margin-bottom:6px;font-size:14px}.input-wrap input{height:46px;font-size:15px}.form-meta{margin-bottom:17px}.remember,.forgot{font-size:14px}.login-button{height:49px;font-size:16px}.modern-login-page footer{bottom:10px;font-size:11px}}
-@media(max-width:1050px){.modern-login-page{grid-template-columns:1fr;overflow:auto}.top-brand{left:34px;top:18px}.intro-pane{min-height:auto;padding:125px 7vw 48px;justify-content:center}.hero-copy{width:min(640px,100%);transform:none}.hero-copy h1{font-size:clamp(50px,10vw,74px)}.login-pane{min-height:auto;padding:16px 7vw 120px}.login-card{width:min(640px,100%);transform:none}.decor-shape{opacity:.48;width:280px;height:210px}.modern-login-page footer{bottom:30px}}
-@media(max-width:600px){.top-brand{left:22px;top:14px;height:50px}.brand-mark{width:34px;height:34px}.brand-copy strong{font-size:22px}.brand-copy span{display:none}.intro-pane{padding:105px 24px 34px}.hero-copy h1{font-size:clamp(46px,14vw,62px)}.hero-copy h2{font-size:30px}.tagline{font-size:20px}.subline{font-size:17px}.login-pane{padding:10px 18px 100px}.login-card{padding:34px 24px 38px;border-radius:12px}.card-title h2{font-size:31px}.card-title p{font-size:17px;margin-bottom:28px}.form-meta{align-items:flex-start}.modern-login-page footer{font-size:12px;bottom:26px}}
-@media(max-width:420px){.intro-pane{padding-left:18px;padding-right:18px}.hero-copy h1{font-size:46px;letter-spacing:-2.4px}.hero-copy h2{font-size:27px}.tagline{font-size:18px}.subline{font-size:15px}.login-pane{padding-left:14px;padding-right:14px}.login-card{padding:30px 20px 34px}.card-title h2{font-size:29px}.field label,.remember,.forgot{font-size:14px}.input-wrap input{height:50px;font-size:15px}.login-button{height:54px;font-size:17px}}
-:global(html:has(.modern-login-page)),:global(body:has(.modern-login-page)),:global(#app:has(.modern-login-page)){min-width:0;width:100%;min-height:100%;overflow-x:hidden}
+.login-page{--blue:#2f6ff7;--ink:#0c234a;--muted:#7487a8;--shadow:0 24px 70px rgba(63,104,173,.12);position:relative;min-height:100vh;overflow:hidden;color:var(--ink);background:linear-gradient(180deg,#fbfdff 0%,#f5f9ff 100%)}
+.login-page:before{content:"";position:absolute;inset:0;background:radial-gradient(circle at 88% 8%,rgba(85,139,244,.13),transparent 28%),radial-gradient(circle at 15% 80%,rgba(76,133,255,.1),transparent 26%);pointer-events:none}
+.shell{position:relative;z-index:1;width:min(1450px,calc(100vw - 72px));height:100vh;margin:0 auto;display:grid;grid-template-columns:minmax(0,1.45fr) minmax(440px,.85fr);gap:70px;align-items:center}
+.left{position:relative;align-self:stretch;padding:94px 0 56px;display:flex;flex-direction:column;min-width:0}
+.brand-lockup{display:flex;align-items:center;gap:15px;margin-bottom:28px}.brand-mark{width:46px;height:46px;filter:drop-shadow(0 8px 18px rgba(47,111,247,.18))}.brand-copy{display:flex;align-items:baseline;gap:14px}.brand-copy strong{font-size:34px;line-height:1;font-weight:820;letter-spacing:-1px;color:#12315f}.brand-copy span{font-size:18px;color:#7d90ae}
+.headline{font-size:44px;line-height:1.2;font-weight:760;letter-spacing:-1.5px;margin:0 0 18px}.sub{font-size:22px;line-height:1.65;color:#778aa9;margin:0;max-width:680px}
+.illustration-wrap{position:relative;flex:1;min-height:390px;margin-top:10px}.platform-shadow{position:absolute;left:4%;bottom:1%;width:78%;height:90px;border-radius:50%;background:radial-gradient(ellipse,rgba(83,128,210,.16),transparent 68%);filter:blur(10px)}.platform-base{position:absolute;left:11%;width:65%;height:88px;border:1px solid rgba(98,151,235,.28);border-radius:22px;transform:skewX(-18deg);background:linear-gradient(145deg,rgba(255,255,255,.96),rgba(222,236,255,.72));box-shadow:0 18px 38px rgba(66,112,191,.08)}.base-back{bottom:134px;opacity:.5}.base-mid{bottom:86px;left:7%;opacity:.72}.base-front{bottom:35px;left:3%}
+.scene-node{position:absolute;width:175px;padding:13px 14px;border-radius:14px;background:rgba(255,255,255,.86);border:1px solid rgba(178,204,241,.82);box-shadow:0 14px 34px rgba(65,108,178,.09);backdrop-filter:blur(8px)}.scene-node b,.scene-node small{display:block}.scene-node b{margin:8px 0 4px;font-size:14px;color:#183967}.scene-node small{font-size:10px;color:#8296b6}.node-icon{display:grid;place-items:center;width:34px;height:34px;border-radius:10px;background:#edf5ff;color:#3778f6;font-size:9px;font-weight:800;letter-spacing:.4px}.node-source{left:0;bottom:102px}.node-dev{left:27%;bottom:205px}.node-schedule{right:13%;bottom:178px}.node-govern{right:0;bottom:66px}
+.core-stack{position:absolute;left:42%;bottom:60px;width:210px;height:150px}.core-top{position:absolute;left:50%;top:0;width:86px;height:50px;transform:translateX(-50%) skewX(-22deg);border-radius:12px;background:linear-gradient(135deg,#90c8ff,#4f8cf8);box-shadow:0 16px 28px rgba(71,133,233,.2)}.core-body{position:absolute;left:0;right:0;bottom:0;height:105px;display:flex;flex-direction:column;align-items:center;justify-content:center;border-radius:18px;background:linear-gradient(180deg,rgba(248,252,255,.96),rgba(222,237,255,.92));border:1px solid rgba(132,174,235,.45);box-shadow:0 18px 40px rgba(65,110,186,.12)}.core-body strong{font-size:18px;color:#24508e}.core-body span{margin-top:7px;font-size:11px;color:#8294af}
+.line{position:absolute;height:1px;background:linear-gradient(90deg,rgba(68,139,240,.08),rgba(68,139,240,.7),rgba(68,139,240,.08));transform-origin:left center}.l1{left:18%;bottom:160px;width:190px;transform:rotate(-8deg)}.l2{left:40%;bottom:235px;width:155px;transform:rotate(20deg)}.l3{left:56%;bottom:195px;width:180px;transform:rotate(-7deg)}.l4{left:58%;bottom:112px;width:210px;transform:rotate(8deg)}
+.left-foot{font-size:14px;letter-spacing:8px;color:#9fb0cb;margin-left:4px;margin-top:auto}
+.card{width:100%;max-width:580px;justify-self:end;background:rgba(255,255,255,.96);border:1px solid rgba(221,230,243,.92);border-radius:24px;box-shadow:var(--shadow);padding:54px 60px 60px;backdrop-filter:blur(10px)}.card h2{font-size:40px;line-height:1.15;margin:0 0 12px;font-weight:800}.welcome{font-size:21px;color:#7487a8;margin-bottom:36px}.field{margin-bottom:22px}.label{display:block;font-size:18px;margin-bottom:10px;color:#223d68}.input{width:100%;height:64px;border:1px solid #cfd9eb;border-radius:8px;background:#fff;padding:0 18px;font-size:18px;color:#20375f;outline:none;transition:.2s}.input:focus{border-color:#6d9cff;box-shadow:0 0 0 4px rgba(47,111,247,.1)}.input:disabled{background:#f6f8fb}.password-wrap{position:relative}.password-wrap .input{padding-right:64px}.toggle{position:absolute;right:13px;top:50%;transform:translateY(-50%);border:0;background:transparent;color:#6f83a7;font-size:14px;cursor:pointer;padding:8px 6px}.row{display:flex;align-items:center;justify-content:space-between;margin:6px 0 30px;gap:20px}.remember{display:flex;align-items:center;gap:10px;font-size:17px;color:#31496f;cursor:pointer}.remember input{width:20px;height:20px;accent-color:var(--blue)}.link{border:0;background:none;color:#1e6df4;font-size:17px;cursor:pointer;padding:0}.login{width:100%;height:64px;display:flex;align-items:center;justify-content:center;gap:10px;border:0;border-radius:8px;background:#2f70f3;color:#fff;font-weight:700;font-size:20px;letter-spacing:8px;cursor:pointer;box-shadow:0 10px 24px rgba(47,112,243,.18);transition:.2s}.login:hover:not(:disabled){transform:translateY(-1px);background:#2767e6}.login:disabled{opacity:.72;cursor:not-allowed}.session-check{min-height:360px;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#607695}.session-check strong{margin-top:18px;font-size:17px}.session-check small{margin-top:6px;color:#96a6be}.spinner{width:30px;height:30px;border:3px solid rgba(47,111,247,.18);border-top-color:#2f6ff7;border-radius:50%;animation:spin .75s linear infinite}.spinner.small{width:18px;height:18px;border-width:2px;border-color:rgba(255,255,255,.35);border-top-color:#fff}@keyframes spin{to{transform:rotate(360deg)}}
+.copyright{position:absolute;left:50%;bottom:26px;transform:translateX(-50%);font-size:13px;color:#97a8c2;white-space:nowrap}
+@media(max-width:1500px){.shell{width:min(1320px,calc(100vw - 56px));gap:48px;grid-template-columns:minmax(0,1.35fr) minmax(420px,.82fr)}.left{padding-top:76px}.headline{font-size:40px}.sub{font-size:19px}.illustration-wrap{min-height:340px}.card{max-width:530px;padding:46px 50px 50px}.card h2{font-size:36px}.welcome{font-size:18px;margin-bottom:30px}.input,.login{height:58px}}
+@media(max-height:820px) and (min-width:1101px){.shell{gap:44px}.left{padding-top:44px;padding-bottom:38px}.brand-lockup{margin-bottom:20px}.brand-mark{width:40px;height:40px}.brand-copy strong{font-size:29px}.brand-copy span{font-size:15px}.headline{font-size:34px;margin-bottom:12px}.sub{font-size:17px;line-height:1.5}.illustration-wrap{min-height:280px;margin-top:2px}.scene-node{transform:scale(.85);transform-origin:center}.node-source{bottom:72px}.node-dev{bottom:160px}.node-schedule{bottom:142px}.node-govern{bottom:45px}.core-stack{transform:scale(.82);transform-origin:center bottom;bottom:40px}.platform-base{transform:skewX(-18deg) scale(.9);transform-origin:left bottom}.left-foot{font-size:11px;letter-spacing:6px}.card{max-width:500px;padding:36px 44px 40px}.card h2{font-size:32px}.welcome{font-size:17px;margin-bottom:24px}.field{margin-bottom:16px}.label{font-size:15px;margin-bottom:7px}.input,.login{height:52px;font-size:16px}.row{margin:2px 0 20px}.remember,.link{font-size:14px}}
+@media(max-height:680px) and (min-width:1101px){.left{padding-top:28px}.brand-lockup{margin-bottom:14px}.headline{font-size:30px}.sub{font-size:15px}.illustration-wrap{min-height:210px}.scene-node{transform:scale(.72)}.node-source{bottom:40px}.node-dev{bottom:115px}.node-schedule{bottom:102px}.node-govern{bottom:28px}.core-stack{transform:scale(.68);bottom:22px}.platform-base{transform:skewX(-18deg) scale(.78)}.left-foot{display:none}.card{padding:28px 40px 30px}.card h2{font-size:28px}.welcome{margin-bottom:18px}.field{margin-bottom:12px}.input,.login{height:48px}.row{margin:0 0 16px}.copyright{bottom:10px;font-size:11px}}
+@media(max-width:1100px){.login-page{overflow:auto}.shell{height:auto;min-height:100vh;grid-template-columns:1fr;width:min(760px,calc(100vw - 40px));gap:24px;padding:52px 0 90px}.left{padding:0;align-self:auto}.brand-lockup{margin-bottom:22px}.headline{font-size:36px}.sub{font-size:18px}.illustration-wrap{min-height:290px}.scene-node{transform:scale(.86)}.node-source{left:1%;bottom:70px}.node-dev{left:25%;bottom:170px}.node-schedule{right:12%;bottom:154px}.node-govern{right:0;bottom:54px}.core-stack{transform:scale(.82);bottom:38px}.left-foot{display:none}.card{justify-self:center;max-width:620px}.copyright{position:absolute;bottom:18px}}
+@media(max-width:640px){.shell{width:calc(100vw - 28px);padding-top:32px}.brand-lockup{gap:10px;margin-bottom:18px}.brand-mark{width:36px;height:36px}.brand-copy{gap:8px}.brand-copy strong{font-size:25px}.brand-copy span{font-size:13px}.headline{font-size:30px}.sub{font-size:16px}.illustration-wrap{min-height:210px}.scene-node{display:none}.core-stack{left:50%;transform:translateX(-50%) scale(.8);bottom:26px}.platform-base{left:12%;width:76%;transform:skewX(-18deg) scale(.8)}.card{padding:34px 24px;border-radius:18px}.card h2{font-size:34px}.welcome{font-size:17px;margin-bottom:28px}.input,.login{height:56px}.row{align-items:flex-start}.remember,.link{font-size:15px}.copyright{font-size:11px}}
+@media(max-width:420px){.shell{width:calc(100vw - 20px);padding-top:24px}.left{padding:0 4px}.brand-copy span{display:none}.headline{font-size:27px}.sub{font-size:14px}.illustration-wrap{min-height:180px}.card{padding:28px 18px 30px}.card h2{font-size:30px}.welcome{font-size:15px;margin-bottom:22px}.field{margin-bottom:16px}.label{font-size:15px}.input{font-size:15px}.row{margin-bottom:22px}.copyright{bottom:10px;font-size:10px}}
+:global(html:has(.login-page)),:global(body:has(.login-page)),:global(#app:has(.login-page)){min-width:0;width:100%;min-height:100%;overflow-x:hidden}
 </style>
