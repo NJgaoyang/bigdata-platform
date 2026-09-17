@@ -3,8 +3,6 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { authApi } from '../../api/auth'
-import brandImg from '../../assets/login-brand.webp'
-import platformImg from '../../assets/login-platform.webp'
 
 const router=useRouter()
 const route=useRoute()
@@ -23,9 +21,7 @@ onMounted(async()=>{
   try{
     const me=await authApi.me()
     if(me.authenticated){await router.replace(redirectTarget.value);return}
-  }catch{
-    localStorage.removeItem('platform_auth_token')
-  }
+  }catch{ localStorage.removeItem('platform_auth_token') }
   checkingSession.value=false
 })
 
@@ -41,11 +37,8 @@ async function submit(){
     if(rememberUsername.value)localStorage.setItem('datasphere_remember_username',username)
     else localStorage.removeItem('datasphere_remember_username')
     await router.replace(redirectTarget.value)
-  }catch(e){
-    ElMessage.error(e instanceof Error?e.message:'登录失败，请检查账号或密码')
-  }finally{
-    loading.value=false
-  }
+  }catch(e){ ElMessage.error(e instanceof Error?e.message:'登录失败，请检查账号或密码') }
+  finally{ loading.value=false }
 }
 
 function forgotPassword(){
@@ -55,114 +48,81 @@ function forgotPassword(){
 
 <template>
   <div class="login-page">
-    <div class="decor-orbit orbit-a"></div>
-    <div class="decor-orbit orbit-b"></div>
-    <div class="top-note"><i></i><span>DATA</span><span>CONNECTS</span><span>A BRIGHTER</span><span>TOMORROW</span></div>
-
+    <div class="bg-orbit orbit-one"></div><div class="bg-orbit orbit-two"></div>
+    <div class="corner-copy"><i></i><span>DATA</span><span>CONNECTS</span><span>A BRIGHTER</span><span>TOMORROW</span></div>
     <main class="shell">
-      <section class="hero" aria-label="DataSphere 平台介绍">
-        <div class="brand">
-          <div class="brand-mark" aria-hidden="true">
-            <span class="mark-top"></span><span class="mark-mid"></span><span class="mark-bottom"></span>
-          </div>
+      <section class="left" aria-label="DataSphere 平台介绍">
+        <div class="brand" aria-label="DataSphere">
+          <svg class="brand-logo" viewBox="0 0 106 86" aria-hidden="true">
+            <defs><linearGradient id="lg1" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#1f68ff"/><stop offset="1" stop-color="#78a8ff"/></linearGradient><linearGradient id="lg2" x1="0" y1="1" x2="1" y2="0"><stop stop-color="#6fa4ff"/><stop offset="1" stop-color="#2d72f3"/></linearGradient></defs>
+            <path fill="url(#lg1)" d="M10 8h44c25 0 43 17 43 35S79 78 54 78H10V55h39c12 0 20-5 20-12s-8-12-20-12H10V8Z"/>
+            <path fill="url(#lg2)" d="M10 31h39c12 0 20 5 20 12L45 66H10V55l23-24H10Z" opacity=".9"/>
+            <path fill="#f8fbff" d="M10 31h28L19 55H10V31Z"/>
+          </svg>
           <div class="brand-word"><strong>Data</strong><b>Sphere</b></div>
         </div>
-
         <h1>统一数据开发与治理平台</h1>
-        <p class="hero-sub">轻质感、克制而清晰的数据工作台体验<br>统一数据接入、开发、调度与治理</p>
-
-        <div class="scene" aria-hidden="true">
-          <div class="scene-ground"></div>
-          <div class="scene-grid"></div>
-          <div class="scene-base base-1"></div>
-          <div class="scene-base base-2"></div>
-          <div class="scene-base base-3"></div>
-
-          <div class="core-platform">
-            <div class="core-ring ring-a"></div><div class="core-ring ring-b"></div>
-            <div class="core-cubes">
-              <i class="cube c1"></i><i class="cube c2"></i><i class="cube c3"></i><i class="cube c4"></i><i class="cube c5"></i><i class="cube c6"></i>
-            </div>
-            <div class="core-label">DataSphere</div>
-          </div>
-
-          <div class="terminal terminal-ingest">
-            <div class="terminal-screen"><span class="bars"><i></i><i></i><i></i></span></div><b>数据接入</b>
-          </div>
-          <div class="terminal terminal-dev">
-            <div class="terminal-screen code"><span>&lt;/&gt;</span></div><b>数据开发</b>
-          </div>
-          <div class="terminal terminal-schedule">
-            <div class="terminal-screen nodes"><i></i><i></i><i></i></div><b>任务调度</b>
-          </div>
-          <div class="terminal terminal-govern">
-            <div class="terminal-screen shield">✓</div><b>数据治理</b>
-          </div>
-
-          <div class="cylinder cyl-a"><i></i><i></i><i></i></div>
-          <div class="cylinder cyl-b small"><i></i><i></i></div>
-          <div class="tree t1"></div><div class="tree t2"></div><div class="tree t3"></div>
-          <div class="wire w1"></div><div class="wire w2"></div><div class="wire w3"></div><div class="wire w4"></div>
+        <p class="sub">轻质感、克制而清晰的数据工作台体验<br>统一数据接入、开发、调度与治理</p>
+        <div class="illustration-wrap" aria-hidden="true">
+          <svg class="illustration" viewBox="0 0 950 430" role="presentation">
+            <defs>
+              <linearGradient id="base" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#ffffff" stop-opacity=".98"/><stop offset="1" stop-color="#dceaff" stop-opacity=".96"/></linearGradient>
+              <linearGradient id="blue" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#91c1ff"/><stop offset="1" stop-color="#3978f3"/></linearGradient>
+              <linearGradient id="cube" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#eef6ff"/><stop offset="1" stop-color="#72a8ff"/></linearGradient>
+              <radialGradient id="glow"><stop stop-color="#8db9ff" stop-opacity=".24"/><stop offset="1" stop-color="#8db9ff" stop-opacity="0"/></radialGradient>
+              <filter id="shadow"><feDropShadow dx="0" dy="18" stdDeviation="18" flood-color="#5f88c8" flood-opacity=".12"/></filter>
+            </defs>
+            <ellipse cx="430" cy="354" rx="430" ry="76" fill="url(#glow)"/>
+            <g opacity=".45" stroke="#cfe0f7" fill="none"><path d="M26 357 412 184 914 318 532 423Z"/><path d="M94 383 475 213 845 311 478 414Z"/><path d="M155 400 521 239 783 309 430 410Z"/></g>
+            <g filter="url(#shadow)">
+              <path d="M242 300 438 215 677 281 487 377 242 334Z" fill="url(#base)" stroke="#d4e4fa"/>
+              <path d="M289 263 448 196 625 244 467 324 289 296Z" fill="url(#base)" stroke="#d5e5fa"/>
+              <path d="M342 231 455 183 573 217 461 273 342 254Z" fill="url(#base)" stroke="#d4e4fa"/>
+            </g>
+            <g stroke="#84adf3" stroke-width="2" fill="none" opacity=".75"><ellipse cx="458" cy="226" rx="148" ry="49"/><ellipse cx="458" cy="226" rx="95" ry="31" opacity=".55"/></g>
+            <g transform="translate(388 146)" filter="url(#shadow)">
+              <g fill="url(#cube)" stroke="#fff" stroke-opacity=".8"><path d="M62 0 111 22 62 46 14 22Z"/><path d="M14 22 62 46 62 101 14 77Z"/><path d="M111 22 62 46 62 101 111 76Z"/><path d="M8 54 48 72 8 92-31 73Z" opacity=".7"/><path d="M118 51 153 67 118 84 83 67Z" opacity=".55"/></g>
+              <path d="M14 77 62 101 62 145 14 121Z" fill="#79aaf7" opacity=".46"/><path d="M111 76 62 101 62 145 111 120Z" fill="#3d7bed" opacity=".48"/>
+            </g>
+            <text x="429" y="348" font-size="12" fill="#8ba2c2">DataSphere</text>
+            <g transform="translate(120 215)" filter="url(#shadow)"><rect width="92" height="104" rx="16" fill="#fff" fill-opacity=".82" stroke="#d4e3f8"/><rect x="20" y="15" width="52" height="49" rx="10" fill="#edf5ff"/><g fill="#5791f6"><rect x="30" y="42" width="7" height="15" rx="3"/><rect x="43" y="31" width="7" height="26" rx="3"/><rect x="56" y="22" width="7" height="35" rx="3"/></g><text x="24" y="82" font-size="13" font-weight="700" fill="#416b9f">数据接入</text></g>
+            <g transform="translate(614 133)" filter="url(#shadow)"><rect width="92" height="104" rx="16" fill="#fff" fill-opacity=".82" stroke="#d4e3f8"/><rect x="20" y="15" width="52" height="49" rx="10" fill="#edf5ff"/><text x="31" y="49" font-size="22" font-weight="800" fill="#4d86f5">&lt;/&gt;</text><text x="24" y="82" font-size="13" font-weight="700" fill="#416b9f">数据开发</text></g>
+            <g transform="translate(746 235)" filter="url(#shadow)"><rect width="92" height="104" rx="16" fill="#fff" fill-opacity=".82" stroke="#d4e3f8"/><circle cx="34" cy="39" r="7" fill="#4f89f5"/><circle cx="57" cy="28" r="7" fill="#4f89f5"/><circle cx="59" cy="52" r="7" fill="#4f89f5"/><path d="M40 36 51 31M40 42 52 49" stroke="#7ca9ef" stroke-width="3"/><text x="24" y="82" font-size="13" font-weight="700" fill="#416b9f">任务调度</text></g>
+            <g transform="translate(598 304)" filter="url(#shadow)"><rect width="92" height="104" rx="16" fill="#fff" fill-opacity=".82" stroke="#d4e3f8"/><path d="M46 17 65 24v16c0 14-9 23-19 28-10-5-19-14-19-28V24l19-7Z" fill="url(#blue)"/><path d="m38 41 6 6 11-14" fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round"/><text x="24" y="82" font-size="13" font-weight="700" fill="#416b9f">数据治理</text></g>
+            <g transform="translate(160 333)"><ellipse cx="52" cy="0" rx="50" ry="18" fill="#eef6ff" stroke="#d3e3f8"/><path d="M2 0v48c0 10 22 18 50 18s50-8 50-18V0" fill="#e7f1ff" stroke="#d3e3f8"/><ellipse cx="52" cy="24" rx="50" ry="18" fill="none" stroke="#d3e3f8"/><ellipse cx="52" cy="48" rx="50" ry="18" fill="none" stroke="#d3e3f8"/></g>
+            <g fill="#e8f2ff" stroke="#d1e1f6"><circle cx="70" cy="320" r="19"/><path d="M70 337v39"/><circle cx="875" cy="323" r="18"/><path d="M875 340v37"/><circle cx="805" cy="199" r="14"/><path d="M805 213v30"/></g>
+            <g stroke="#82aef4" stroke-width="2" opacity=".65"><path d="M205 255 350 228"/><path d="M563 219 615 187"/><path d="M591 268 748 276"/><path d="M548 316 599 343"/></g>
+          </svg>
         </div>
-        <div class="slogan"><span>数 据 让 业 务 更 有 可 能</span><i></i></div>
+        <div class="left-foot"><span>数 据 让 业 务 更 有 可 能</span><i></i></div>
       </section>
-
-      <section class="login-card" aria-label="登录表单">
-        <div v-if="checkingSession" class="session-check">
-          <span class="spinner"></span><strong>正在验证登录状态</strong><small>请稍候...</small>
-        </div>
+      <section class="card" aria-label="登录表单">
+        <div v-if="checkingSession" class="session-check"><span class="spinner"></span><strong>正在验证登录状态</strong><small>请稍候...</small></div>
         <template v-else>
-          <h2>登录</h2>
-          <div class="welcome">欢迎回来，使用 DataSphere</div>
+          <h2>登录</h2><div class="welcome">欢迎回来，使用 DataSphere</div>
           <form @submit.prevent="submit" novalidate>
-            <div class="field">
-              <label>账号</label>
-              <div class="input-wrap">
-                <span class="input-icon user-icon"><i></i></span>
-                <input v-model="form.username" autocomplete="username" placeholder="请输入账号" :disabled="loading" />
-              </div>
-            </div>
-            <div class="field">
-              <label>密码</label>
-              <div class="input-wrap">
-                <span class="input-icon lock-icon"><i></i></span>
-                <input v-model="form.password" :type="passwordVisible?'text':'password'" autocomplete="current-password" placeholder="请输入密码" :disabled="loading" />
-                <button class="eye" type="button" :aria-label="passwordVisible?'隐藏密码':'显示密码'" @click="passwordVisible=!passwordVisible"><span :class="{off:!passwordVisible}"></span></button>
-              </div>
-            </div>
-            <div class="options">
-              <label class="remember"><input v-model="rememberUsername" type="checkbox" /><span>记住我</span></label>
-              <button class="forgot" type="button" @click="forgotPassword">忘记密码？</button>
-            </div>
-            <button class="login-btn" type="submit" :disabled="loading"><span v-if="loading" class="spinner small"></span><span>{{loading?'登录中...':'登 录'}}</span></button>
+            <div class="field"><label for="account">账号</label><div class="input-box"><span class="user-icon"></span><input id="account" v-model="form.username" autocomplete="username" placeholder="请输入账号" :disabled="loading" /></div></div>
+            <div class="field"><label for="password">密码</label><div class="input-box"><span class="lock-icon"></span><input id="password" v-model="form.password" :type="passwordVisible?'text':'password'" autocomplete="current-password" placeholder="请输入密码" :disabled="loading" /><button class="eye" type="button" @click="passwordVisible=!passwordVisible"><span :class="{off:!passwordVisible}"></span></button></div></div>
+            <div class="row"><label class="remember"><input v-model="rememberUsername" type="checkbox" />记住我</label><button class="link" type="button" @click="forgotPassword">忘记密码？</button></div>
+            <button class="login" type="submit" :disabled="loading"><span v-if="loading" class="spinner small"></span><span>{{loading?'登录中...':'登 录'}}</span></button>
           </form>
         </template>
       </section>
     </main>
-
-    <footer><i></i><span>© {{year}} DataSphere · 用数据创造更大的价值</span><i></i></footer>
+    <div class="copyright"><i></i><span>© {{year}} DataSphere · 用数据创造更大的价值</span><i></i></div>
   </div>
 </template>
 
 <style scoped>
-.login-page{--blue:#3479f7;--deep:#0b2d62;--muted:#758caf;position:relative;min-height:100vh;overflow:hidden;color:var(--deep);background:radial-gradient(circle at 72% 20%,rgba(86,146,255,.16),transparent 28%),radial-gradient(circle at 24% 78%,rgba(89,154,255,.12),transparent 34%),linear-gradient(180deg,#fbfdff 0%,#f4f9ff 100%)}
-.login-page:before{content:"";position:absolute;inset:0;background:linear-gradient(115deg,rgba(255,255,255,.65),transparent 42%,rgba(230,241,255,.28));pointer-events:none}.decor-orbit{position:absolute;border:2px solid rgba(84,139,222,.08);border-radius:50%;pointer-events:none}.orbit-a{width:980px;height:980px;right:-190px;top:-610px}.orbit-b{width:760px;height:760px;right:-240px;top:-425px}.top-note{position:absolute;right:5.3vw;top:5.1vh;z-index:2;display:flex;flex-direction:column;gap:7px;color:#9db0cd;font-size:10px;letter-spacing:2.3px;line-height:1}.top-note i{width:25px;height:1px;margin-bottom:5px;background:#9fb4d2}
-.shell{position:relative;z-index:2;width:min(1580px,calc(100vw - 120px));height:100vh;margin:0 auto;display:grid;grid-template-columns:minmax(0,1.18fr) minmax(520px,.82fr);gap:72px;align-items:center}
-.hero{align-self:stretch;padding:15.5vh 0 8vh;display:flex;flex-direction:column;min-width:0}.brand{display:flex;align-items:center;gap:26px;margin-bottom:34px}.brand-mark{position:relative;width:92px;height:76px;flex:none}.brand-mark span{position:absolute;left:0;border-radius:11px 26px 26px 11px;background:linear-gradient(135deg,#2c74ff,#4a8dff)}.mark-top{top:0;width:82px;height:26px}.mark-mid{top:25px;left:14px!important;width:63px;height:26px;opacity:.72}.mark-bottom{bottom:0;width:82px;height:26px;background:linear-gradient(135deg,#6fa4ff,#2f72ee)!important}.brand-mark:after{content:"";position:absolute;left:0;top:25px;width:35px;height:26px;background:#f7fbff;clip-path:polygon(0 0,100% 0,58% 100%,0 100%)}.brand-word{display:flex;align-items:baseline;font-size:55px;line-height:1;font-weight:800;letter-spacing:-2px}.brand-word strong{color:#0c2957}.brand-word b{color:#3479f7;font-weight:800}
-.hero h1{margin:0 0 20px;font-size:clamp(38px,3.25vw,58px);line-height:1.18;letter-spacing:-2px;font-weight:800}.hero-sub{margin:0;color:#7890b3;font-size:clamp(17px,1.25vw,24px);line-height:1.7;letter-spacing:.2px}
-.scene{position:relative;width:min(930px,100%);height:430px;margin-top:18px;transform-origin:left center}.scene-ground{position:absolute;left:-8%;right:4%;bottom:8px;height:185px;border-radius:50%;background:radial-gradient(ellipse at center,rgba(107,157,236,.17),rgba(255,255,255,0) 66%);filter:blur(4px)}.scene-grid{position:absolute;left:-4%;right:5%;bottom:20px;height:180px;opacity:.34;background:repeating-linear-gradient(0deg,rgba(120,160,225,.16) 0 1px,transparent 1px 26px),repeating-linear-gradient(90deg,rgba(120,160,225,.16) 0 1px,transparent 1px 34px);transform:perspective(440px) rotateX(66deg);transform-origin:center bottom}
-.scene-base{position:absolute;height:66px;border-radius:20px;border:1px solid rgba(161,190,234,.42);background:linear-gradient(180deg,rgba(255,255,255,.94),rgba(224,237,254,.78));box-shadow:0 24px 40px rgba(82,123,190,.08)}.base-1{left:23%;bottom:35px;width:48%;transform:skewX(-17deg)}.base-2{left:29%;bottom:75px;width:38%;height:78px}.base-3{left:34%;bottom:112px;width:28%;height:92px}
-.core-platform{position:absolute;left:36%;bottom:115px;width:200px;height:150px}.core-ring{position:absolute;left:50%;top:14px;border:2px solid rgba(63,125,241,.52);border-radius:50%;transform:translateX(-50%) rotateX(68deg)}.ring-a{width:250px;height:95px}.ring-b{width:175px;height:66px;opacity:.5}.core-cubes{position:absolute;left:50%;top:24px;width:148px;height:104px;transform:translateX(-50%)}.cube{position:absolute;width:56px;height:56px;border:1px solid rgba(255,255,255,.76);background:linear-gradient(145deg,rgba(255,255,255,.88),rgba(95,153,255,.42));box-shadow:10px 16px 28px rgba(76,126,210,.12);transform:skewY(-18deg) rotate(30deg)}.c1{left:46px;top:0}.c2{left:8px;top:28px}.c3{left:82px;top:30px}.c4{left:42px;top:51px;background:linear-gradient(145deg,#71aaff,#2d70ef)}.c5{left:101px;top:8px;opacity:.55}.c6{left:0;top:2px;opacity:.62}.core-label{position:absolute;left:50%;bottom:-27px;transform:translateX(-50%);color:#8aa0bf;font-size:12px}
-.terminal{position:absolute;width:112px;height:112px;display:flex;flex-direction:column;align-items:center;justify-content:center;border-radius:18px;background:rgba(255,255,255,.74);border:1px solid rgba(177,202,240,.72);box-shadow:0 18px 35px rgba(83,126,195,.08);backdrop-filter:blur(7px);transform:perspective(500px) rotateY(-10deg)}.terminal b{margin-top:8px;color:#416a9e;font-size:13px}.terminal-screen{width:54px;height:46px;display:grid;place-items:center;color:#3c7df2}.terminal-ingest{left:10%;bottom:140px}.terminal-dev{left:62%;bottom:210px}.terminal-schedule{right:5%;bottom:125px}.terminal-govern{right:25%;bottom:28px}.bars{display:flex;align-items:flex-end;gap:5px;height:32px}.bars i{display:block;width:6px;border-radius:3px;background:#5a92f8}.bars i:nth-child(1){height:12px}.bars i:nth-child(2){height:23px}.bars i:nth-child(3){height:31px}.code span{font-size:22px;font-weight:800}.nodes{position:relative}.nodes i{position:absolute;width:12px;height:12px;border-radius:50%;background:#4a85f4}.nodes i:nth-child(1){left:7px;top:16px}.nodes i:nth-child(2){right:7px;top:6px}.nodes i:nth-child(3){right:11px;bottom:4px}.nodes:before,.nodes:after{content:"";position:absolute;width:28px;height:2px;background:#7aa5ed;transform-origin:left center}.nodes:before{left:16px;top:20px;transform:rotate(-22deg)}.nodes:after{left:18px;top:23px;transform:rotate(18deg)}.shield{font-size:26px;font-weight:800;color:#4d86f5}
-.cylinder{position:absolute;left:12%;bottom:35px;width:90px;height:72px}.cylinder i{position:absolute;left:0;width:100%;height:24px;border-radius:50%;border:1px solid rgba(154,185,232,.5);background:linear-gradient(180deg,#fff,#e6f0ff)}.cylinder i:nth-child(1){top:0}.cylinder i:nth-child(2){top:18px}.cylinder i:nth-child(3){top:36px}.cyl-b{left:68%;bottom:168px;width:45px;height:50px}.tree{position:absolute;width:20px;height:52px;border-radius:50% 50% 44% 44%;background:linear-gradient(180deg,#edf6ff,#cfe1fa)}.tree:after{content:"";position:absolute;left:9px;bottom:-16px;width:2px;height:18px;background:#bfd0ea}.t1{left:4%;bottom:72px}.t2{right:0;bottom:87px}.t3{right:16%;bottom:154px}.wire{position:absolute;height:1px;background:linear-gradient(90deg,transparent,#74a6f0,transparent);transform-origin:left center}.w1{left:20%;bottom:190px;width:195px;transform:rotate(-5deg)}.w2{left:54%;bottom:225px;width:145px;transform:rotate(12deg)}.w3{left:56%;bottom:133px;width:220px;transform:rotate(-4deg)}.w4{left:35%;bottom:95px;width:250px;transform:rotate(5deg)}
-.slogan{display:flex;align-items:center;gap:18px;margin-top:-10px;color:#98acc9;font-size:12px;letter-spacing:9px}.slogan i{display:block;width:90px;height:1px;background:#c5d3e8}
-.login-card{width:100%;max-width:570px;min-height:605px;justify-self:end;padding:58px 58px 50px;border:1px solid rgba(220,229,242,.92);border-radius:22px;background:rgba(255,255,255,.96);box-shadow:0 28px 70px rgba(54,96,164,.11);backdrop-filter:blur(14px)}.login-card h2{margin:0 0 12px;font-size:46px;line-height:1.1;letter-spacing:-1.6px}.welcome{margin-bottom:38px;color:#7890b3;font-size:20px}.field{margin-bottom:25px}.field>label{display:block;margin-bottom:9px;color:#18375f;font-size:17px;font-weight:650}.input-wrap{position:relative;height:64px}.input-wrap input{width:100%;height:100%;padding:0 54px;border:1px solid #d3deee;border-radius:8px;outline:none;background:#fff;color:#17375f;font-size:17px;transition:.18s}.input-wrap input::placeholder{color:#a8b7ca}.input-wrap input:focus{border-color:#6b9bff;box-shadow:0 0 0 4px rgba(52,121,247,.09)}.input-icon{position:absolute;left:19px;top:50%;width:21px;height:21px;transform:translateY(-50%);z-index:2}.user-icon:before{content:"";position:absolute;left:7px;top:1px;width:7px;height:7px;border:2px solid #7893bb;border-radius:50%}.user-icon:after{content:"";position:absolute;left:3px;bottom:1px;width:15px;height:8px;border:2px solid #7893bb;border-bottom:0;border-radius:10px 10px 0 0}.lock-icon:before{content:"";position:absolute;left:3px;top:8px;width:15px;height:12px;border:2px solid #7893bb;border-radius:3px}.lock-icon:after{content:"";position:absolute;left:6px;top:1px;width:9px;height:10px;border:2px solid #7893bb;border-bottom:0;border-radius:8px 8px 0 0}.eye{position:absolute;right:14px;top:50%;width:34px;height:34px;transform:translateY(-50%);border:0;background:transparent;cursor:pointer}.eye span{position:absolute;left:8px;top:11px;width:18px;height:12px;border:2px solid #7893bb;border-radius:50%}.eye span:after{content:"";position:absolute;left:5px;top:2px;width:4px;height:4px;border:2px solid #7893bb;border-radius:50%}.eye span.off:before{content:"";position:absolute;left:-4px;top:4px;width:25px;height:2px;background:#7893bb;transform:rotate(42deg)}
-.options{display:flex;align-items:center;justify-content:space-between;margin:2px 0 34px}.remember{display:flex;align-items:center;gap:10px;color:#486183;font-size:17px;cursor:pointer}.remember input{width:21px;height:21px;accent-color:var(--blue)}.forgot{border:0;background:none;color:#2673f4;font-size:17px;cursor:pointer}.login-btn{width:100%;height:64px;display:flex;align-items:center;justify-content:center;gap:10px;border:0;border-radius:8px;background:linear-gradient(90deg,#3479f7,#2f73ef);color:#fff;font-size:20px;font-weight:750;letter-spacing:10px;box-shadow:0 12px 24px rgba(52,121,247,.18);cursor:pointer}.login-btn:hover:not(:disabled){filter:brightness(.98);transform:translateY(-1px)}.login-btn:disabled{opacity:.7;cursor:not-allowed}.session-check{min-height:480px;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#647d9f}.session-check strong{margin-top:16px}.session-check small{margin-top:6px;color:#9aacbf}.spinner{width:28px;height:28px;border:3px solid rgba(52,121,247,.15);border-top-color:#3479f7;border-radius:50%;animation:spin .75s linear infinite}.spinner.small{width:18px;height:18px;border-width:2px;border-color:rgba(255,255,255,.35);border-top-color:#fff}@keyframes spin{to{transform:rotate(360deg)}}
-footer{position:absolute;left:50%;bottom:22px;z-index:3;display:flex;align-items:center;gap:20px;transform:translateX(-50%);color:#9aaeca;font-size:12px;white-space:nowrap}footer i{width:36px;height:1px;background:#bdcce1}
-@media(max-width:1550px){.shell{width:min(1420px,calc(100vw - 76px));grid-template-columns:minmax(0,1.12fr) minmax(470px,.78fr);gap:50px}.hero{padding-top:12vh}.brand{margin-bottom:24px}.brand-mark{width:78px;height:65px}.brand-word{font-size:46px}.scene{transform:scale(.9);width:104%;margin-top:-2px}.login-card{max-width:520px;min-height:560px;padding:48px 48px 42px}.login-card h2{font-size:40px}.welcome{font-size:18px;margin-bottom:30px}.input-wrap{height:58px}.login-btn{height:58px}}
-@media(max-height:820px) and (min-width:1101px){.hero{padding-top:7vh;padding-bottom:6vh}.brand{margin-bottom:16px}.brand-mark{width:66px;height:55px}.brand-word{font-size:40px}.hero h1{font-size:38px;margin-bottom:10px}.hero-sub{font-size:17px;line-height:1.5}.scene{height:330px;margin-top:0;transform:scale(.78);width:122%;transform-origin:left top}.slogan{margin-top:-45px;font-size:10px;letter-spacing:6px}.login-card{max-width:485px;min-height:490px;padding:34px 40px}.login-card h2{font-size:34px}.welcome{font-size:16px;margin-bottom:23px}.field{margin-bottom:17px}.field>label{font-size:15px;margin-bottom:6px}.input-wrap{height:52px}.input-wrap input{font-size:15px}.options{margin-bottom:22px}.remember,.forgot{font-size:14px}.login-btn{height:52px;font-size:17px}.top-note{top:3vh}.session-check{min-height:410px}}
-@media(max-width:1100px){.login-page{overflow:auto}.top-note{display:none}.shell{height:auto;min-height:100vh;grid-template-columns:1fr;width:min(760px,calc(100vw - 40px));gap:30px;padding:54px 0 100px}.hero{padding:0}.brand{margin-bottom:22px}.scene{width:100%;height:360px;transform:none}.login-card{justify-self:center;max-width:620px;min-height:0}.slogan{margin-top:2px}footer{position:absolute;bottom:18px}}
-@media(max-width:640px){.shell{width:calc(100vw - 28px);padding-top:32px}.brand{gap:15px}.brand-mark{width:58px;height:49px}.brand-word{font-size:34px}.hero h1{font-size:29px;letter-spacing:-1px}.hero-sub{font-size:15px}.scene{height:245px;margin-top:8px;transform:scale(.82);width:122%;transform-origin:left top}.terminal{transform:scale(.85)}.slogan{margin-top:-36px;font-size:9px;letter-spacing:4px}.login-card{padding:32px 24px 30px;border-radius:18px}.login-card h2{font-size:33px}.welcome{font-size:16px;margin-bottom:24px}.field{margin-bottom:18px}.field>label{font-size:15px}.input-wrap{height:54px}.input-wrap input{font-size:15px;padding-left:48px}.options{margin-bottom:24px}.remember,.forgot{font-size:14px}.login-btn{height:54px;font-size:17px}footer{font-size:10px;gap:10px}footer i{width:20px}}
-@media(max-width:420px){.brand-word{font-size:30px}.brand-mark{width:52px;height:43px}.hero h1{font-size:26px}.scene{height:210px;transform:scale(.72);width:138%}.slogan{display:none}.login-card{padding:28px 18px}.welcome{font-size:15px}footer{display:none}}
+.login-page{--blue:#2f6ff7;--ink:#0c234a;--muted:#7487a8;--line:#dfe7f4;--shadow:0 24px 70px rgba(63,104,173,.12);position:relative;min-height:100vh;overflow:hidden;color:var(--ink);background:linear-gradient(180deg,#fbfdff 0%,#f5f9ff 100%)}
+.login-page:before{content:"";position:absolute;inset:0;background:radial-gradient(circle at 88% 8%,rgba(85,139,244,.13),transparent 28%),radial-gradient(circle at 15% 80%,rgba(76,133,255,.1),transparent 26%);pointer-events:none}.bg-orbit{position:absolute;border:2px solid rgba(92,145,230,.075);border-radius:50%;pointer-events:none}.orbit-one{width:990px;height:990px;right:-180px;top:-620px}.orbit-two{width:760px;height:760px;right:-220px;top:-430px}.corner-copy{position:absolute;right:5.6vw;top:5vh;z-index:3;display:flex;flex-direction:column;gap:7px;color:#a1b2cc;font-size:10px;letter-spacing:2.4px;line-height:1}.corner-copy i{width:26px;height:1px;margin-bottom:5px;background:#9eb3d0}
+.shell{position:relative;z-index:2;width:min(1450px,calc(100vw - 72px));height:100vh;margin:0 auto;display:grid;grid-template-columns:minmax(0,1.45fr) minmax(440px,.85fr);gap:70px;align-items:center}.left{position:relative;align-self:stretch;padding:112px 0 56px;display:flex;flex-direction:column;min-width:0}.brand{width:510px;max-width:68%;height:115px;display:flex;align-items:center;gap:20px;margin-bottom:18px}.brand-logo{width:106px;height:86px;flex:none;filter:drop-shadow(0 10px 22px rgba(47,111,247,.13))}.brand-word{display:flex;align-items:baseline;font-size:56px;line-height:1;font-weight:800;letter-spacing:-2.5px;white-space:nowrap}.brand-word strong{color:#0a2857}.brand-word b{color:#3478f6;font-weight:800}.left h1{font-size:44px;line-height:1.2;font-weight:760;letter-spacing:-1.5px;margin:0 0 18px}.sub{font-size:22px;line-height:1.65;color:#778aa9;margin:0;max-width:680px}.illustration-wrap{position:relative;flex:1;min-height:390px;margin-top:10px}.illustration{position:absolute;left:-120px;bottom:-10px;width:min(940px,105%);height:auto;display:block;filter:drop-shadow(0 24px 36px rgba(63,113,203,.07))}.left-foot{display:flex;align-items:center;gap:18px;font-size:14px;letter-spacing:8px;color:#9fb0cb;margin-left:4px;margin-top:auto;white-space:nowrap}.left-foot i{width:96px;height:1px;background:#cbd7e8}
+.card{width:100%;max-width:580px;justify-self:end;background:rgba(255,255,255,.96);border:1px solid rgba(221,230,243,.92);border-radius:24px;box-shadow:var(--shadow);padding:54px 60px 60px;backdrop-filter:blur(10px)}.card h2{font-size:40px;line-height:1.15;margin:0 0 12px;font-weight:800}.welcome{font-size:21px;color:#7487a8;margin-bottom:36px}.field{margin-bottom:22px}.field>label{display:block;font-size:18px;margin-bottom:10px;color:#223d68;font-weight:600}.input-box{position:relative;height:64px}.input-box input{width:100%;height:100%;border:1px solid #cfd9eb;border-radius:8px;background:#fff;padding:0 58px;font-size:18px;color:#20375f;outline:none;transition:.2s}.input-box input::placeholder{color:#a5b4ca}.input-box input:focus{border-color:#6d9cff;box-shadow:0 0 0 4px rgba(47,111,247,.1)}.input-box input:disabled{background:#f7f9fc}.user-icon,.lock-icon{position:absolute;left:20px;top:50%;width:21px;height:21px;transform:translateY(-50%);z-index:2}.user-icon:before{content:"";position:absolute;left:6px;top:0;width:8px;height:8px;border:2px solid #7892b9;border-radius:50%}.user-icon:after{content:"";position:absolute;left:2px;bottom:0;width:16px;height:9px;border:2px solid #7892b9;border-bottom:0;border-radius:10px 10px 0 0}.lock-icon:before{content:"";position:absolute;left:2px;top:8px;width:17px;height:13px;border:2px solid #7892b9;border-radius:3px}.lock-icon:after{content:"";position:absolute;left:6px;top:1px;width:9px;height:10px;border:2px solid #7892b9;border-bottom:0;border-radius:8px 8px 0 0}.eye{position:absolute;right:13px;top:50%;width:38px;height:38px;transform:translateY(-50%);border:0;background:transparent;cursor:pointer}.eye span{position:absolute;left:9px;top:12px;width:20px;height:13px;border:2px solid #7892b9;border-radius:50%}.eye span:after{content:"";position:absolute;left:6px;top:3px;width:4px;height:4px;border:2px solid #7892b9;border-radius:50%}.eye span.off:before{content:"";position:absolute;left:-4px;top:4px;width:27px;height:2px;background:#7892b9;transform:rotate(40deg)}.row{display:flex;align-items:center;justify-content:space-between;margin:6px 0 30px;gap:20px}.remember{display:flex;align-items:center;gap:10px;font-size:17px;color:#31496f;cursor:pointer}.remember input{width:20px;height:20px;accent-color:var(--blue)}.link{border:0;background:none;color:#1e6df4;font-size:17px;cursor:pointer;padding:0}.login{width:100%;height:64px;display:flex;align-items:center;justify-content:center;gap:10px;border:0;border-radius:8px;background:#2f70f3;color:#fff;font-weight:700;font-size:20px;letter-spacing:10px;cursor:pointer;box-shadow:0 10px 24px rgba(47,112,243,.18);transition:.2s}.login:hover:not(:disabled){transform:translateY(-1px);background:#2767e6}.login:disabled{opacity:.72;cursor:not-allowed}.session-check{min-height:360px;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#607695}.session-check strong{margin-top:18px;font-size:17px}.session-check small{margin-top:6px;color:#96a6be}.spinner{width:30px;height:30px;border:3px solid rgba(47,111,247,.18);border-top-color:#2f6ff7;border-radius:50%;animation:spin .75s linear infinite}.spinner.small{width:18px;height:18px;border-width:2px;border-color:rgba(255,255,255,.35);border-top-color:#fff}@keyframes spin{to{transform:rotate(360deg)}}.copyright{position:absolute;left:50%;bottom:26px;z-index:3;display:flex;align-items:center;gap:20px;transform:translateX(-50%);font-size:13px;color:#97a8c2;white-space:nowrap}.copyright i{width:36px;height:1px;background:#c5d3e6}
+@media(max-width:1500px){.shell{width:min(1320px,calc(100vw - 56px));gap:48px;grid-template-columns:minmax(0,1.35fr) minmax(420px,.82fr)}.left{padding-top:76px}.brand{width:430px;height:96px;margin-bottom:12px}.brand-logo{width:88px;height:72px}.brand-word{font-size:47px}.left h1{font-size:40px}.sub{font-size:19px}.illustration-wrap{min-height:330px}.illustration{left:-95px;width:min(820px,106%)}.card{max-width:530px;padding:46px 50px 50px}.card h2{font-size:36px}.welcome{font-size:18px;margin-bottom:30px}.input-box,.login{height:58px}.field>label{font-size:16px}}
+@media(max-height:820px) and (min-width:1101px){.shell{gap:44px}.left{padding-top:42px;padding-bottom:36px}.brand{width:360px;height:82px;margin-bottom:8px}.brand-logo{width:74px;height:62px}.brand-word{font-size:40px}.left h1{font-size:34px;margin-bottom:10px}.sub{font-size:17px;line-height:1.48}.illustration-wrap{min-height:260px;margin-top:0}.illustration{left:-72px;bottom:-4px;width:min(700px,106%)}.left-foot{font-size:11px;letter-spacing:6px}.card{max-width:500px;padding:36px 44px 40px}.card h2{font-size:32px}.welcome{font-size:17px;margin-bottom:24px}.field{margin-bottom:16px}.field>label{font-size:15px;margin-bottom:7px}.input-box,.login{height:52px}.input-box input{font-size:16px}.row{margin:2px 0 20px}.remember,.link{font-size:14px}.corner-copy{top:3vh}.copyright{bottom:12px;font-size:11px}}
+@media(max-height:680px) and (min-width:1101px){.left{padding-top:24px}.brand{width:310px;height:68px}.brand-logo{width:64px;height:52px}.brand-word{font-size:34px}.left h1{font-size:30px}.sub{font-size:15px}.illustration-wrap{min-height:190px}.illustration{width:min(590px,104%);left:-58px}.left-foot{display:none}.card{max-width:450px;padding:27px 36px 30px}.card h2{font-size:28px}.welcome{font-size:15px;margin-bottom:17px}.field{margin-bottom:11px}.input-box,.login{height:47px}.row{margin:0 0 14px}.copyright{bottom:8px}.corner-copy{display:none}}
+@media(max-width:1100px){.login-page{overflow:auto}.corner-copy{display:none}.shell{height:auto;min-height:100vh;grid-template-columns:1fr;width:min(760px,calc(100vw - 40px));gap:24px;padding:52px 0 90px}.left{padding:0;align-self:auto}.brand{max-width:72%;width:410px;height:92px}.brand-logo{width:84px;height:70px}.brand-word{font-size:44px}.left h1{font-size:36px}.sub{font-size:18px}.illustration-wrap{min-height:290px}.illustration{position:relative;left:-30px;bottom:auto;width:110%;margin-top:10px}.left-foot{display:none}.card{justify-self:center;max-width:620px}.copyright{position:absolute;bottom:18px}}
+@media(max-width:640px){.shell{width:calc(100vw - 28px);padding-top:32px}.brand{max-width:84%;width:330px;height:75px;gap:12px}.brand-logo{width:68px;height:58px}.brand-word{font-size:36px}.left h1{font-size:30px}.sub{font-size:16px}.illustration-wrap{min-height:0}.illustration{left:-18px;width:112%}.card{padding:34px 24px;border-radius:18px}.card h2{font-size:34px}.welcome{font-size:17px;margin-bottom:28px}.input-box,.login{height:56px}.row{align-items:flex-start}.remember,.link{font-size:15px}.copyright{font-size:11px;gap:10px}.copyright i{width:20px}}
+@media(max-width:420px){.brand{width:290px}.brand-logo{width:58px;height:50px}.brand-word{font-size:31px}.left h1{font-size:27px}.sub{font-size:14px}.card{padding:28px 18px}.copyright{display:none}}
 :global(html:has(.login-page)),:global(body:has(.login-page)),:global(#app:has(.login-page)){min-width:0;width:100%;min-height:100%;overflow-x:hidden}
 </style>
