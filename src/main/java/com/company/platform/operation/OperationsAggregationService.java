@@ -96,6 +96,19 @@ public class OperationsAggregationService {
             totalMemory = Math.max(0L, osBean.getTotalMemorySize());
             freeMemory = Math.max(0L, osBean.getFreeMemorySize());
         }
+        // Linux MemAvailable includes reclaimable page cache and is closer to what operators
+        // expect from `free`/host monitoring. Fall back to the JDK values on other systems.
+        try {
+            Path memInfo = Path.of("/proc/meminfo");
+            if (Files.isReadable(memInfo)) {
+                long procTotal = 0L, procAvailable = 0L;
+                for (String line : Files.readAllLines(memInfo)) {
+                    if (line.startsWith("MemTotal:")) procTotal = parseMemInfoBytes(line);
+                    else if (line.startsWith("MemAvailable:")) procAvailable = parseMemInfoBytes(line);
+                }
+                if (procTotal > 0 && procAvailable >= 0) { totalMemory = procTotal; freeMemory = procAvailable; }
+            }
+        } catch (Exception ignored) { }
         long usedMemory = Math.max(0L, totalMemory - freeMemory);
         double memoryUsage = totalMemory == 0 ? 0.0 : Math.min(100.0, usedMemory * 100.0 / totalMemory);
 
@@ -110,6 +123,12 @@ public class OperationsAggregationService {
         double diskUsage = totalDisk == 0 ? 0.0 : Math.min(100.0, usedDisk * 100.0 / totalDisk);
         return new SystemMetrics(round(cpuUsage), round(memoryUsage), round(diskUsage),
                 totalMemory, usedMemory, totalDisk, usedDisk, LocalDateTime.now());
+    }
+
+    private long parseMemInfoBytes(String line) {
+        String[] parts = line.trim().split("\\s+");
+        if (parts.length < 2) return 0L;
+        try { return Long.parseLong(parts[1]) * 1024L; } catch (NumberFormatException ignored) { return 0L; }
     }
 
     private double round(double value) { return Math.round(value * 10.0) / 10.0; }
