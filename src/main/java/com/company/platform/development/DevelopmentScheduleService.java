@@ -61,7 +61,7 @@ public class DevelopmentScheduleService {
     @Transactional
     public BundleView publish(long fileId,int sqlVersion,String operator,String remark) {
         ScheduleView s=get(fileId);
-        int release=currentReleaseNo(fileId)+1;
+        int release=nextReleaseNo(fileId);
         jdbc.update("UPDATE dev_file_release_bundle SET current_flag=FALSE WHERE file_id=?",fileId);
         jdbc.update("INSERT INTO dev_file_release_bundle(file_id,release_no,sql_version,schedule_version,current_flag,operator_name,remark) VALUES(?,?,?,?,TRUE,?,?)",fileId,release,sqlVersion,s.currentVersion(),operator(operator),blank(remark));
         if(s.currentVersion()>0) jdbc.update("UPDATE dev_file_schedule SET published_version=current_version WHERE file_id=?",fileId);
@@ -231,6 +231,7 @@ public class DevelopmentScheduleService {
     private String publishedSql(long fileId,int version){return jdbc.query("SELECT content FROM dev_file_version WHERE file_id=? AND version_no=?",(rs,n)->rs.getString(1),fileId,version).stream().findFirst().orElseThrow(()->new BadRequestException("生产 SQL V"+version+" 不存在"));}
     private int publishedSqlVersion(long fileId){Integer v=jdbc.query("SELECT version_no FROM dev_file_version WHERE file_id=? AND publish_flag=TRUE ORDER BY version_no DESC LIMIT 1",(rs,n)->rs.getInt(1),fileId).stream().findFirst().orElse(0);return v==null?0:v;}
     private int currentReleaseNo(long fileId){Integer v=jdbc.query("SELECT release_no FROM dev_file_release_bundle WHERE file_id=? AND current_flag=TRUE LIMIT 1",(rs,n)->rs.getInt(1),fileId).stream().findFirst().orElse(0);return v==null?0:v;}
+    private int nextReleaseNo(long fileId){Integer v=jdbc.queryForObject("SELECT COALESCE(MAX(release_no),0)+1 FROM dev_file_release_bundle WHERE file_id=?",Integer.class,fileId);return v==null?1:v;}
     private List<DependencyView> dependencies(long fileId){return jdbc.query("SELECT d.upstream_file_id,f.name FROM dev_file_schedule_dependency d JOIN dev_file f ON f.id=d.upstream_file_id WHERE d.file_id=? ORDER BY f.name",(rs,n)->new DependencyView(rs.getLong(1),rs.getString(2)),fileId);}
     private List<DependencyView> downstream(long fileId){return jdbc.query("SELECT d.file_id,f.name FROM dev_file_schedule_dependency d JOIN dev_file f ON f.id=d.file_id WHERE d.upstream_file_id=? ORDER BY f.name",(rs,n)->new DependencyView(rs.getLong(1),rs.getString(2)),fileId);}
     private void validate(ScheduleRequest r,long fileId){if(r==null||r.cronExpression()==null||!org.quartz.CronExpression.isValidExpression(r.cronExpression().trim()))throw new BadRequestException("Cron 表达式无效，请使用 Quartz Cron 格式");try{ZoneId.of(norm(r.timezone(),"Asia/Shanghai"));}catch(Exception ex){throw new BadRequestException("无效时区");}if(r.dataSourceId()==null)throw new BadRequestException("请选择 StarRocks 数据源");Integer count=jdbc.queryForObject("SELECT COUNT(*) FROM data_source WHERE id=? AND type='STARROCKS'",Integer.class,r.dataSourceId());if(count==null||count==0)throw new BadRequestException("调度仅支持 StarRocks 数据源");for(Long id:safeIds(r.upstreamFileIds())){if(id==fileId)throw new BadRequestException("任务不能依赖自身");requireFile(id);Integer same=jdbc.queryForObject("SELECT COUNT(*) FROM dev_file a JOIN dev_file b ON a.project_id=b.project_id WHERE a.id=? AND b.id=?",Integer.class,fileId,id);if(same==null||same==0)throw new BadRequestException("上游依赖必须属于当前开发项目");}}
