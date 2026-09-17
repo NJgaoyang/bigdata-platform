@@ -74,6 +74,14 @@ public class DevelopmentScheduleService {
         return new BundleView(fileId,sqlCurrent,s.publishedSqlVersion(),s.currentVersion(),s.publishedVersion(),s.currentReleaseNo(),sqlCurrent!=s.publishedSqlVersion(),s.currentVersion()!=s.publishedVersion());
     }
 
+    @Transactional
+    public BundleView resetPublication(long fileId) {
+        requireFile(fileId);
+        jdbc.update("UPDATE dev_file_release_bundle SET current_flag=FALSE WHERE file_id=?",fileId);
+        jdbc.update("UPDATE dev_file_schedule SET published_version=0 WHERE file_id=?",fileId);
+        return bundle(fileId);
+    }
+
     public List<ReleaseView> releases(long fileId){requireFile(fileId);return jdbc.query("SELECT release_no,sql_version,schedule_version,current_flag,operator_name,remark,released_at FROM dev_file_release_bundle WHERE file_id=? ORDER BY release_no DESC",(rs,n)->new ReleaseView(rs.getInt(1),rs.getInt(2),rs.getInt(3),rs.getBoolean(4),rs.getString(5),rs.getString(6),rs.getTimestamp(7).toLocalDateTime()),fileId);}
 
     public ScheduleRuntimeView runtime(long fileId) {
@@ -127,6 +135,7 @@ public class DevelopmentScheduleService {
 
     public ScheduleRuntimeView runNow(long fileId,String operator){
         if(!lifecycleOnline(fileId)) throw new BadRequestException("开发任务已下线，不能启动生产任务");
+        if(!productionActive(fileId)) throw new BadRequestException("当前上线版本尚未发布，请先发布");
         ProdConfig p=prodConfig(fileId);
         if(p==null) throw new BadRequestException("开发任务还没有已发布的生产版本，请先发布");
         Integer active=jdbc.queryForObject("SELECT COUNT(*) FROM dev_file_schedule_execution WHERE file_id=? AND status='RUNNING'",Integer.class,fileId);
@@ -198,13 +207,18 @@ public class DevelopmentScheduleService {
     public void refreshLifecycle(long fileId){ syncQuartz(fileId); }
 
     private void syncQuartz(long fileId){
-        ProdConfig p=lifecycleOnline(fileId)?prodConfig(fileId):null; JobKey jk=jobKey(fileId);TriggerKey tk=new TriggerKey("dev_schedule_"+fileId,"datasphere-development");
+        ProdConfig p=productionActive(fileId)?prodConfig(fileId):null; JobKey jk=jobKey(fileId);TriggerKey tk=new TriggerKey("dev_schedule_"+fileId,"datasphere-development");
         try{if(p==null||!p.enabled()){if(quartz.checkExists(tk))quartz.unscheduleJob(tk);if(quartz.checkExists(jk))quartz.deleteJob(jk);return;} JobDetail job=JobBuilder.newJob(DevelopmentScheduleQuartzJob.class).withIdentity(jk).usingJobData("fileId",String.valueOf(fileId)).storeDurably(true).build();if(quartz.checkExists(jk))quartz.addJob(job,true);else quartz.addJob(job,false);CronTrigger trigger=TriggerBuilder.newTrigger().withIdentity(tk).forJob(jk).withSchedule(CronScheduleBuilder.cronSchedule(p.cronExpression()).inTimeZone(TimeZone.getTimeZone(p.timezone())).withMisfireHandlingInstructionDoNothing()).build();if(quartz.checkExists(tk))quartz.rescheduleJob(tk,trigger);else quartz.scheduleJob(trigger);quartz.resumeTrigger(tk);}catch(SchedulerException ex){throw new BadRequestException("同步开发任务调度失败："+ex.getMessage());}
     }
 
     private boolean lifecycleOnline(long fileId){
         String v=jdbc.queryForObject("SELECT lifecycle_status FROM dev_file WHERE id=?",String.class,fileId);
         return "ONLINE".equalsIgnoreCase(v);
+    }
+    private boolean productionActive(long fileId){
+        Map<String,Object> row=jdbc.queryForMap("SELECT lifecycle_status,status FROM dev_file WHERE id=?",fileId);
+        return "ONLINE".equalsIgnoreCase(String.valueOf(row.get("lifecycle_status")))
+                && "PUBLISHED".equalsIgnoreCase(String.valueOf(row.get("status")));
     }
     private ProdConfig prodConfig(long fileId){
         List<Map<String,Object>> rows=jdbc.queryForList("SELECT s.published_version,b.release_no,b.sql_version FROM dev_file_schedule s LEFT JOIN dev_file_release_bundle b ON b.file_id=s.file_id AND b.current_flag=TRUE WHERE s.file_id=? AND s.published_version>0",fileId);if(rows.isEmpty())return null;int ver=((Number)rows.getFirst().get("published_version")).intValue();int rel=rows.getFirst().get("release_no")==null?0:((Number)rows.getFirst().get("release_no")).intValue();int sql=rows.getFirst().get("sql_version")==null?publishedSqlVersion(fileId):((Number)rows.getFirst().get("sql_version")).intValue();

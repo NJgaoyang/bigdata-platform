@@ -45,6 +45,7 @@ export const developmentApi = {
   saveFile: (id:number,payload:{content:string;name?:string;description?:string;folderId?:number;moveToRoot?:boolean}) => api.put<DevFile>(`/development/files/${id}`,payload),
   onlineFile: (id:number) => api.post<DevFile>(`/development/files/${id}/online`),
   offlineFile: (id:number) => api.post<DevFile>(`/development/files/${id}/offline`),
+  unpublishFile: (id:number) => api.post<DevFile>(`/development/files/${id}/unpublish`),
   deleteFile: (id:number) => api.delete<void>(`/development/files/${id}`),
   recycleBin: (projectId:number) => api.get<RecycledDevFile[]>('/development/files/recycle', { params:{ projectId } }),
   restoreFile: (id:number) => api.post<DevFile>(`/development/files/${id}/restore`),

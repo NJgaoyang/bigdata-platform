@@ -347,9 +347,31 @@ public class DevelopmentService {
         DevFileView current = requireFile(id);
         requireProjectEdit(current.projectId(), operator);
         if ("ONLINE".equalsIgnoreCase(current.lifecycleStatus())) return current;
+        clearPublishedVersions(id);
         DevFileView updated = new DevFileView(current.id(), current.projectId(), current.folderId(), current.name(), current.fileType(),
-                current.content(), current.description(), current.status(), current.currentVersion(), LocalDateTime.now(), "ONLINE", true, current.ownerName());
+                current.content(), current.description(), "DRAFT", current.currentVersion(), LocalDateTime.now(), "ONLINE", true, current.ownerName());
         store.persistFile(updated); store.files.put(id, updated); return updated;
+    }
+
+    @Transactional
+    public DevFileView unpublishFile(long id, String operator) {
+        DevFileView current = requireFile(id);
+        requireProjectEdit(current.projectId(), operator);
+        if (!"ONLINE".equalsIgnoreCase(current.lifecycleStatus())) throw new BadRequestException("任务已下线，不能取消发布");
+        if (!"PUBLISHED".equalsIgnoreCase(current.status())) throw new BadRequestException("当前上线版本尚未发布");
+        clearPublishedVersions(id);
+        DevFileView updated = new DevFileView(current.id(), current.projectId(), current.folderId(), current.name(), current.fileType(),
+                current.content(), current.description(), "DRAFT", current.currentVersion(), LocalDateTime.now(), "ONLINE", current.everOnline(), current.ownerName());
+        store.persistFile(updated); store.files.put(id, updated); return updated;
+    }
+
+    private void clearPublishedVersions(long fileId) {
+        List<FileVersionView> updates = store.versions.values().stream()
+                .filter(version -> version.fileId() == fileId && version.publishFlag())
+                .map(version -> new FileVersionView(version.id(), version.fileId(), version.versionNo(), version.content(), version.checksum(), false))
+                .toList();
+        updates.forEach(store::persistVersion);
+        updates.forEach(version -> store.versions.put(version.id(), version));
     }
 
     @Transactional

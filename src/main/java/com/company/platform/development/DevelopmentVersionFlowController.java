@@ -15,9 +15,13 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/development")
 public class DevelopmentVersionFlowController {
     private final DevelopmentVersionFlowService service;
+    private final DevelopmentService development;
+    private final DevelopmentScheduleService schedules;
 
-    public DevelopmentVersionFlowController(DevelopmentVersionFlowService service) {
+    public DevelopmentVersionFlowController(DevelopmentVersionFlowService service, DevelopmentService development, DevelopmentScheduleService schedules) {
         this.service = service;
+        this.development = development;
+        this.schedules = schedules;
     }
 
     @PostMapping("/files/push-to-project")
@@ -33,7 +37,10 @@ public class DevelopmentVersionFlowController {
 
     @PostMapping("/files/{id}/unpublish")
     public Result<DevFileView> unpublish(@PathVariable long id, HttpServletRequest servletRequest) {
-        throw new BadRequestException("系统已启用单项目共享开发模式，请直接在数据开发中按“下线 → 修改 → 上线 → 发布”流程操作");
+        DevFileView updated = development.unpublishFile(id, operator(servletRequest));
+        schedules.resetPublication(id);
+        schedules.refreshLifecycle(id);
+        return Result.ok(updated, "已取消发布，任务保持上线");
     }
 
     @PostMapping("/files/{id}/create-development-version")

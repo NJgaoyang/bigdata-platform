@@ -102,10 +102,14 @@ public class DevelopmentController {
     @PostMapping("/files/{id}/online")
     public Result<DevFileView> onlineFile(@PathVariable long id, HttpServletRequest servletRequest) {
         String operator = operator(servletRequest);
+        DevFileView before = service.getFile(id, operator);
         DevFileView updated = service.onlineFile(id, operator);
-        try { schedules.refreshLifecycle(id); }
+        try {
+            if (!"ONLINE".equalsIgnoreCase(before.lifecycleStatus())) schedules.resetPublication(id);
+            schedules.refreshLifecycle(id);
+        }
         catch (RuntimeException ex) { service.offlineFile(id, operator); try { schedules.refreshLifecycle(id); } catch (RuntimeException ignored) {} throw ex; }
-        return Result.ok(updated, "任务已上线");
+        return Result.ok(updated, "任务已上线，等待发布");
     }
 
     @PostMapping("/files/{id}/offline")
