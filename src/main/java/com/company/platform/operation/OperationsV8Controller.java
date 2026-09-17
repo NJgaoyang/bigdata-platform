@@ -22,6 +22,7 @@ public class OperationsV8Controller {
     @GetMapping("/instances") public Result<List<OperationsAggregationService.InstanceItem>> instances() { return Result.ok(service.instances()); }
     @GetMapping("/failures") public Result<List<OperationsAggregationService.FailureItem>> failures() { return Result.ok(service.failures()); }
     @GetMapping("/alerts") public Result<List<OperationsAggregationService.AlertItem>> alerts() { return Result.ok(service.alerts()); }
+    @GetMapping("/system-metrics") public Result<OperationsAggregationService.SystemMetrics> systemMetrics() { return Result.ok(service.systemMetrics()); }
     @GetMapping("/instances/{type}/{id}/log") public Result<String> log(@PathVariable String type, @PathVariable String id) { return Result.ok(service.log(type, id)); }
     @PostMapping("/instances/{type}/{id}/stop") public Result<Void> stop(@PathVariable String type, @PathVariable String id) {
         service.stop(type, id); return Result.ok(null, "停止请求已提交");

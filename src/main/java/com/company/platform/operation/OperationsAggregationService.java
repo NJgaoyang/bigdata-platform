@@ -9,6 +9,9 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
+import java.lang.management.ManagementFactory;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -83,6 +86,34 @@ public class OperationsAggregationService {
         return tasks().stream().filter(x->failed(x.runtimeStatus())).map(x->new FailureItem(x.type(),String.valueOf(x.id()),x.lastExecutionId(),x.name(),x.engine(),x.runtimeStatus(),1,x.errorMessage(),x.lastStartedAt())).toList();
     }
 
+    public SystemMetrics systemMetrics() {
+        double cpuUsage = 0.0;
+        long totalMemory = 0L, freeMemory = 0L;
+        var baseBean = ManagementFactory.getOperatingSystemMXBean();
+        if (baseBean instanceof com.sun.management.OperatingSystemMXBean osBean) {
+            double load = osBean.getCpuLoad();
+            cpuUsage = load < 0 ? 0.0 : Math.min(100.0, load * 100.0);
+            totalMemory = Math.max(0L, osBean.getTotalMemorySize());
+            freeMemory = Math.max(0L, osBean.getFreeMemorySize());
+        }
+        long usedMemory = Math.max(0L, totalMemory - freeMemory);
+        double memoryUsage = totalMemory == 0 ? 0.0 : Math.min(100.0, usedMemory * 100.0 / totalMemory);
+
+        long totalDisk = 0L, usableDisk = 0L;
+        try {
+            Path appPath = Path.of(System.getProperty("user.dir", ".")).toAbsolutePath();
+            var store = Files.getFileStore(appPath);
+            totalDisk = Math.max(0L, store.getTotalSpace());
+            usableDisk = Math.max(0L, store.getUsableSpace());
+        } catch (Exception ignored) { }
+        long usedDisk = Math.max(0L, totalDisk - usableDisk);
+        double diskUsage = totalDisk == 0 ? 0.0 : Math.min(100.0, usedDisk * 100.0 / totalDisk);
+        return new SystemMetrics(round(cpuUsage), round(memoryUsage), round(diskUsage),
+                totalMemory, usedMemory, totalDisk, usedDisk, LocalDateTime.now());
+    }
+
+    private double round(double value) { return Math.round(value * 10.0) / 10.0; }
+
     public List<AlertItem> alerts() {
         return jdbc.query("SELECT id,channel_id,channel_name,channel_type,task_name,task_status,message,delivery_status,response_message,pushed_at FROM alert_delivery_history ORDER BY pushed_at DESC,id DESC LIMIT 500",
                 (rs,n)->new AlertItem(rs.getString("channel_type"),rs.getString("channel_name"),String.valueOf(rs.getObject("channel_id")),rs.getString("task_name"),rs.getString("task_status"),
@@ -156,6 +187,7 @@ public class OperationsAggregationService {
     private InstanceItem item(String type,String id,String externalId,String name,String status,String engine,String createdBy,java.sql.Timestamp started,java.sql.Timestamp finished,String error,java.sql.Timestamp created){return new InstanceItem(type,id,externalId,name==null||name.isBlank()?"未命名任务":name,status,engine,createdBy==null||createdBy.isBlank()?"platform":createdBy,time(started),time(finished),error,time(created));}
 
     public record Summary(long total,long running,long success,long failed,long stopped){}
+    public record SystemMetrics(double cpuUsage,double memoryUsage,double diskUsage,long totalMemoryBytes,long usedMemoryBytes,long totalDiskBytes,long usedDiskBytes,LocalDateTime sampledAt){}
     public record TaskItem(String type,long id,String name,String engine,String lifecycleStatus,String runtimeStatus,String owner,String lastExecutionId,LocalDateTime lastStartedAt,LocalDateTime lastFinishedAt,String errorMessage,boolean canStart,boolean canRerun,boolean canKill){}
     public record TaskActionResult(String type,long id,String executionId,String status){}
     public record InstanceItem(String type,String id,String externalId,String name,String status,String engine,String createdBy,LocalDateTime startedAt,LocalDateTime finishedAt,String errorMessage,LocalDateTime createdAt){}
