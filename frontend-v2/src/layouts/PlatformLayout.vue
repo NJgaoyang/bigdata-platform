@@ -5,6 +5,7 @@ import { productNavigation, releaseNavigation, systemNavigation } from '../navig
 import { authApi, type CurrentUser } from '../api/auth'
 import { ArrowDown } from '@element-plus/icons-vue'
 import { moduleViewPermission, hasPermission } from '../auth/permissions'
+import DataSphereLogo from '../components/brand/DataSphereLogo.vue'
 
 const route = useRoute()
 const username=ref('admin'), displayName=ref('用户'), roleCode=ref('ADMIN'), me=ref<CurrentUser|null>(null)
@@ -37,8 +38,7 @@ onMounted(loadMe)
   <div class="platform-shell">
     <header :class="['topbar', {'topbar--development': moduleKey === 'development'}]">
       <button class="brand" type="button" @click="go('/')" aria-label="返回工作台">
-        <span class="brand__mark"><i /></span>
-        <span class="brand__copy"><strong>DataSphere</strong><small>企业数据开发平台</small></span>
+        <DataSphereLogo size="md" subtitle="企业数据开发平台" />
       </button>
       <nav class="product-nav" aria-label="主导航">
         <button v-for="item in visibleProducts" :key="item.key" type="button"
@@ -81,12 +81,7 @@ onMounted(loadMe)
 <style scoped>
 .platform-shell { min-height: 100%; background: var(--ds-bg); }
 .topbar { position: sticky; top: 0; z-index: 20; height: var(--ds-topbar); display: flex; align-items: center; gap: 18px; padding: 0 24px 0 28px; border-bottom: 1px solid var(--ds-border); background: #fff; }
-.brand { width: 224px; flex: 0 0 224px; display: flex; align-items: center; gap: 11px; padding: 0; border: 0; background: transparent; text-align: left; cursor: pointer; }
-.brand__mark { width: 40px; height: 40px; display: grid; place-items: center; border-radius: 10px; background: var(--ds-brand); }
-.brand__mark i { width: 22px; height: 22px; display: block; border: 2px solid #fff; border-radius: 3px; transform: rotate(45deg); }
-.brand__copy { min-width: 0; display: flex; flex-direction: column; }
-.brand__copy strong { font-size: 20px; line-height: 23px; letter-spacing: -.3px; }
-.brand__copy small { margin-top: 2px; color: var(--ds-text-tertiary); font-size: 10px; }
+.brand { width: 236px; flex: 0 0 236px; display: flex; align-items: center; padding: 0; border: 0; background: transparent; text-align: left; cursor: pointer; }
 .product-nav { align-self: stretch; display: flex; align-items: stretch; white-space: nowrap; }
 .product-nav__item { position: relative; min-width: 72px; padding: 0 13px; border: 0; background: transparent; color: #344054; cursor: pointer; font-size: 14px; }
 .product-nav__item:hover { color: var(--ds-brand); }
