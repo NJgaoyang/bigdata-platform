@@ -118,12 +118,20 @@ onMounted(loadSources)
 
     <section class="governance-shell">
       <aside class="database-panel">
-        <div class="panel-head"><div><strong>数据库</strong><span>{{databases.length}}</span></div></div>
+        <div class="source-summary" v-if="source">
+          <div class="source-mark"><span></span></div>
+          <div class="source-summary-copy">
+            <div class="source-summary-title"><strong>{{source.name}}</strong><span>{{source.type}}</span></div>
+            <small>{{databases.length}} 个数据库 · {{connectionState==='ok'?'连接正常':connectionState==='bad'?'连接异常':'元数据目录'}}</small>
+          </div>
+        </div>
+        <div class="panel-head"><div><strong>数据库目录</strong><span>{{databases.length}}</span></div></div>
         <div class="panel-search"><el-input v-model="databaseKeyword" placeholder="搜索数据库" clearable /></div>
         <div class="database-list">
           <button v-for="item in filteredDatabases" :key="item.name" :class="['database-row',{active:database===item.name}]" @click="selectDatabase(item.name)">
             <span class="database-icon"><i/><i/></span>
-            <span class="database-copy"><strong>{{item.name}}</strong><small v-if="item.comment">{{item.comment}}</small></span>
+            <span class="database-copy"><strong>{{item.name}}</strong><small>{{item.comment||'数据库'}}</small></span>
+            <span class="database-arrow">›</span>
           </button>
           <div v-if="!filteredDatabases.length" class="empty-small">暂无数据库</div>
         </div>
@@ -211,6 +219,16 @@ onMounted(loadSources)
 .table-content :deep(.el-table){--el-table-header-bg-color:#fbfcfe;--el-table-row-hover-bg-color:#f6faff;--el-table-border-color:#eef2f7}.table-content :deep(.el-table th.el-table__cell){height:44px;background:#fbfcfe;color:#78889f;font-size:11px;font-weight:650}.table-content :deep(.el-table td.el-table__cell){border-bottom-color:#f0f3f7}.table-name{color:#2468d8;font-weight:650}.type-text{display:inline-flex;padding:3px 8px;border-radius:999px;background:#f1f5fa;color:#5f7188}
 .drawer-head{min-height:116px;padding:24px 26px 18px;border-bottom-color:#e7edf5;background:#fff}.drawer-path{color:#8493a8}.drawer-head h2{color:#102847;font-size:21px}.drawer-head p{color:#74849a}.drawer-tabs{height:46px;flex-basis:46px;padding:0 26px;border-bottom-color:#e7edf5;background:#fbfdff}.drawer-tabs button{color:#687a92}.drawer-tabs button.active{color:#2468d8}.drawer-tabs button.active:after{background:#3b82f6}.drawer-body{background:#fbfdff}.overview-panel{padding:22px 26px}.overview-grid{border-color:#e2e9f3;border-radius:12px;overflow:hidden;background:#fff}.overview-grid>div{border-color:#edf1f6;padding:12px 14px}.overview-grid label{color:#8190a5}.overview-grid strong{color:#334a66}.info-section{border-color:#e2e9f3;border-radius:12px;overflow:hidden;background:#fff}.section-title{height:42px;background:#f7faff;border-bottom-color:#e7edf5;color:#31506f}.info-section dt,.info-section dd{border-bottom-color:#eef2f7}.info-section dt{background:#fbfcfe;color:#8392a7}.drawer-table-section{padding:16px 22px}.preview-table-shell{border-color:#e2e9f3;border-radius:10px;background:#fff}.preview-table th{background:#f8fbff;color:#63758d}.preview-table th,.preview-table td{border-bottom-color:#eef2f7}
 :deep(.metadata-drawer .el-drawer__body){padding:0;background:#fbfdff}
-@media(max-width:1280px){.metadata-page{padding:20px}.governance-shell{grid-template-columns:230px minmax(0,1fr)}}
+/* Metadata database navigator */
+.governance-shell{grid-template-columns:286px minmax(0,1fr)}
+.database-panel{background:linear-gradient(180deg,#f9fbff 0%,#fbfdff 100%)}
+.source-summary{margin:12px 12px 8px;padding:13px 12px;display:flex;align-items:center;gap:11px;border:1px solid #deE8f5;border-radius:12px;background:linear-gradient(135deg,#ffffff 0%,#f3f8ff 100%);box-shadow:0 6px 18px rgba(51,99,168,.055)}
+.source-mark{width:34px;height:34px;flex:0 0 34px;border-radius:10px;display:grid;place-items:center;background:linear-gradient(145deg,#e8f2ff,#f6faff);box-shadow:inset 0 0 0 1px #dbe9fb}.source-mark span{position:relative;width:17px;height:13px;border:1.5px solid #3b82f6;border-radius:50%}.source-mark span:before,.source-mark span:after{content:'';position:absolute;left:-1.5px;width:16px;height:5px;border-left:1.5px solid #3b82f6;border-right:1.5px solid #3b82f6;border-bottom:1.5px solid #3b82f6;border-radius:0 0 50% 50%}.source-mark span:before{top:3px}.source-mark span:after{top:7px}.source-summary-copy{min-width:0;flex:1}.source-summary-title{display:flex;align-items:center;gap:7px;min-width:0}.source-summary-title strong{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#17304f;font-size:13px}.source-summary-title span{flex:none;padding:2px 6px;border-radius:999px;background:#eaf2ff;color:#2f6fed;font-size:9px;font-weight:650}.source-summary-copy small{display:block;margin-top:5px;color:#8392a7;font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.panel-head{margin-top:1px;padding:0 13px;background:transparent;border-bottom:0}.panel-head strong{font-size:12px;letter-spacing:.1px}.panel-head span{height:18px;min-width:20px;padding:0 6px;font-size:10px}
+.panel-search{padding:0 11px 10px;border-bottom:0;background:transparent}.panel-search :deep(.el-input__wrapper){min-height:34px;background:rgba(255,255,255,.92);box-shadow:0 0 0 1px #e1eaf5 inset}
+.database-list{padding:2px 9px 10px}.database-row{min-height:54px;padding:8px 9px 8px 10px;gap:10px;margin:3px 0;border:1px solid transparent;border-radius:11px;transition:background .16s ease,border-color .16s ease,box-shadow .16s ease,transform .16s ease}.database-row:hover{background:#fff;border-color:#e5edf7;box-shadow:0 5px 16px rgba(45,91,155,.05);transform:translateY(-1px)}.database-row.active{background:linear-gradient(90deg,#eaf3ff 0%,#f5f9ff 100%);border-color:#cfe0fb;box-shadow:0 6px 18px rgba(59,130,246,.08)}.database-row.active:before{left:-1px;top:9px;bottom:9px;width:3px;border-radius:0 3px 3px 0;background:#3b82f6}
+.database-icon{width:30px;height:30px;flex:0 0 30px;border:0!important;border-radius:9px!important;background:#f0f5fb;display:grid;place-items:center}.database-icon:before{content:'';position:absolute;left:7px!important;top:8px!important;width:14px!important;height:10px!important;border:1.4px solid #70849f!important;border-radius:50%!important;background:transparent}.database-icon:after{content:'';position:absolute;left:7px!important;top:12px!important;width:14px!important;height:9px!important;border-left:1.4px solid #70849f!important;border-right:1.4px solid #70849f!important;border-bottom:1.4px solid #70849f!important;border-radius:0 0 50% 50%!important}.database-icon i{display:none}.database-row.active .database-icon{background:#dceaff}.database-row.active .database-icon:before,.database-row.active .database-icon:after{border-color:#347cf0!important}
+.database-copy{flex:1;min-width:0}.database-copy strong{font-size:12px;font-weight:650;color:#344b66}.database-copy small{margin-top:4px;font-size:10px;color:#95a1b2}.database-row.active .database-copy strong{color:#1f63cb}.database-row.active .database-copy small{color:#7189a8}.database-arrow{flex:none;color:#b2bdca;font-size:19px;line-height:1;transform:translateX(-1px);transition:transform .16s ease,color .16s ease}.database-row:hover .database-arrow{color:#7a91ad;transform:translateX(1px)}.database-row.active .database-arrow{color:#3b82f6;transform:translateX(1px)}
+@media(max-width:1280px){.metadata-page{padding:20px}.governance-shell{grid-template-columns:250px minmax(0,1fr)}.source-summary{margin:10px 9px 7px}}
 
 </style>
