@@ -38,7 +38,7 @@ onMounted(loadMe)
   <div class="platform-shell">
     <header :class="['topbar', {'topbar--development': moduleKey === 'development'}]">
       <button class="brand" type="button" @click="go('/')" aria-label="返回工作台">
-        <DataSphereLogo size="md" subtitle="企业数据开发平台" />
+        <DataSphereLogo size="md" />
       </button>
       <nav class="product-nav" aria-label="主导航">
         <button v-for="item in visibleProducts" :key="item.key" type="button"

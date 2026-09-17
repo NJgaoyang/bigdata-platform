@@ -55,7 +55,7 @@ function forgotPassword(){
 <template>
   <main class="modern-login-page">
     <div class="top-brand" aria-label="DataSphere 数据开发平台">
-      <DataSphereLogo size="md" subtitle="让数据创造更大价值" />
+      <DataSphereLogo size="md" />
     </div>
 
     <section class="intro-pane" aria-label="产品介绍">
