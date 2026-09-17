@@ -9,7 +9,7 @@ import { operationsApi, type AlertItem, type FailureItem, type OperationInstance
 
 const route=useRoute(),router=useRouter()
 const loading=ref(true),summary=ref<OperationSummary|null>(null),tasks=ref<OperationTask[]>([]),instances=ref<OperationInstance[]>([]),failures=ref<FailureItem[]>([]),alerts=ref<AlertItem[]>([]),systemMetrics=ref<SystemMetrics|null>(null)
-const taskType=ref('ALL'),keyword=ref(''),busy=ref(new Set<string>()),detailOpen=ref(false),detail=ref<OperationTask>(),logOpen=ref(false),logTitle=ref('运行日志'),logText=ref('')
+const taskType=ref('ALL'),keyword=ref(''),busy=ref(new Set<string>()),detailOpen=ref(false),detail=ref<OperationTask>(),logOpen=ref(false),logTitle=ref('运行日志'),logText=ref(''),now=ref(new Date())
 const mode=computed(()=>route.path.split('/').pop()||'overview')
 const title=computed(()=>({overview:'运维总览',tasks:'任务运维',instances:'运行实例',failures:'失败任务',alerts:'告警中心'} as Record<string,string>)[mode.value]||'运维中心')
 const subtitle=computed(()=>({overview:'统一监控离线集成、实时集成和数据开发任务。',tasks:'只提供生产运维操作，不允许在运维中心修改任务配置。',instances:'查看三类任务的实际运行实例。',failures:'集中查看需要人工处理的失败任务。',alerts:'展示已经真实推送到告警渠道的历史记录。'} as Record<string,string>)[mode.value]||'')
@@ -41,7 +41,7 @@ const failedPath=computed(()=>smoothPath(seriesPoints('failed')))
 const runningPath=computed(()=>smoothPath(seriesPoints('running')))
 const pieSuccessDeg=computed(()=>trendData.value.total?trendData.value.success/trendData.value.total*360:0)
 function showXAxisLabel(i:number){const n=trendData.value.rows.length;if(n<=7)return true;if(n<=24)return i%4===0||i===n-1;return i%5===0||i===n-1}
-const todayLabel=computed(()=>{const d=new Date();return `今日 ${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`})
+const currentDateTime=computed(()=>{const d=now.value;const pad=(v:number)=>String(v).padStart(2,'0');return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`})
 const recentAlerts=computed(()=>[...alerts.value].sort((a,b)=>new Date(b.occurredAt||0).getTime()-new Date(a.occurredAt||0).getTime()).slice(0,5))
 const componentCards=computed(()=>[
   {type:'OFFLINE',name:'离线集成',engine:'SeaTunnel'},
@@ -67,11 +67,11 @@ async function showLog(row:OperationTask){try{logTitle.value=`${row.name} · 运
 function showDetail(row:OperationTask){detail.value=row;detailOpen.value=true}
 async function stopInstance(r:OperationInstance){try{await ElMessageBox.confirm(`确认杀死“${r.name}”当前实例？`,'杀死确认',{type:'error',confirmButtonText:'确认杀死',cancelButtonText:'取消'});await operationsApi.stop(r.type,r.id);ElMessage.success('杀死请求已执行');await load()}catch(e){if(e!=='cancel'&&e!=='close')ElMessage.error(e instanceof Error?e.message:'杀死失败')}}
 async function instanceLog(r:OperationInstance){try{logTitle.value=`${r.name} · 实例日志`;logText.value='正在加载日志...';logOpen.value=true;logText.value=await operationsApi.log(r.type,r.id)}catch(e){logText.value=e instanceof Error?e.message:'日志加载失败'}}
-let metricsTimer:number|undefined
-watch(()=>route.path,load);onMounted(()=>{void load();metricsTimer=window.setInterval(()=>void refreshSystemMetrics(),10000)});onUnmounted(()=>{if(metricsTimer)window.clearInterval(metricsTimer)})
+let metricsTimer:number|undefined,clockTimer:number|undefined
+watch(()=>route.path,load);onMounted(()=>{void load();metricsTimer=window.setInterval(()=>void refreshSystemMetrics(),10000);clockTimer=window.setInterval(()=>{now.value=new Date()},1000)});onUnmounted(()=>{if(metricsTimer)window.clearInterval(metricsTimer);if(clockTimer)window.clearInterval(clockTimer)})
 </script>
 
-<template><div class="ds-page" :class="{'overview-page':mode==='overview'}"><PageHeader :title="title" :subtitle="subtitle"><template v-if="mode==='overview'" #actions><div class="overview-actions"><span class="today-chip">▣ {{todayLabel}}</span><button class="refresh-btn" @click="load">↻ 刷新</button></div></template></PageHeader>
+<template><div class="ds-page" :class="{'overview-page':mode==='overview'}"><PageHeader :title="title" :subtitle="subtitle"><template v-if="mode==='overview'" #actions><div class="overview-actions"><span class="today-chip">▣ {{currentDateTime}}</span><button class="refresh-btn" @click="load">↻ 刷新</button></div></template></PageHeader>
 <el-skeleton v-if="loading" :rows="7" animated/>
 <template v-else-if="mode==='overview'&&summary">
   <div class="overview-metrics">

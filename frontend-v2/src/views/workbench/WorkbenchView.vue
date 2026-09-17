@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import PageHeader from '../../components/PageHeader.vue'
 import StatusBadge from '../../components/StatusBadge.vue'
@@ -13,6 +13,7 @@ const summary = ref<WorkbenchSummary | null>(null)
 const safeSummary = computed<WorkbenchSummary>(() => summary.value ?? { issues: 0, running: 0, unpublished: 0, successRate24h: undefined, successful24h: 0, failed24h: 0, unhealthySources: 0, generatedAt: '' })
 const issues = ref<WorkbenchIssue[]>([])
 const recentRuns = ref<WorkbenchRun[]>([])
+const now = ref(new Date())
 
 const successRateNumber = computed(() => Math.max(0, Math.min(100, summary.value?.successRate24h ?? 0)))
 const successRate = computed(() => summary.value?.successRate24h == null ? '—' : `${summary.value.successRate24h.toFixed(2)}%`)
@@ -23,6 +24,11 @@ const visibleRuns = computed(() => recentRuns.value.slice(0, 8))
 
 function go(path?: string) { if (path) void router.push(path) }
 function formatTime(value?: string) { return formatDateTime(value) }
+const currentDateTime = computed(() => {
+  const d = now.value
+  const pad = (v: number) => String(v).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
+})
 
 async function load() {
   loading.value = true
@@ -40,15 +46,16 @@ async function load() {
     loading.value = false
   }
 }
-onMounted(load)
+let clockTimer: number | undefined
+onMounted(() => { void load(); clockTimer = window.setInterval(() => { now.value = new Date() }, 1000) })
+onUnmounted(() => { if (clockTimer) window.clearInterval(clockTimer) })
 </script>
 
 <template>
   <div class="ds-page ds-page--wide workbench">
     <PageHeader title="工作台" subtitle="聚焦今天需要关注的事项、运行状态与最近执行。">
       <template #actions>
-        <div class="updated-at" v-if="safeSummary.generatedAt">更新于 {{ formatTime(safeSummary.generatedAt) }}</div>
-        <el-button class="refresh-btn" @click="load" :loading="loading">刷新</el-button>
+        <div class="header-actions"><span class="datetime-chip">▣ {{ currentDateTime }}</span><el-button class="refresh-btn" @click="load" :loading="loading">↻ 刷新</el-button></div>
       </template>
     </PageHeader>
 
@@ -147,7 +154,7 @@ onMounted(load)
 
 <style scoped>
 .workbench{padding-top:28px;padding-bottom:36px;background:linear-gradient(180deg,#fbfdff 0%,#f8fbff 100%)}
-.updated-at{color:#8a98ae;font-size:12px;white-space:nowrap}.refresh-btn{border-color:#d8e4f4!important;color:#31506f!important;background:#fff!important}
+.header-actions{display:flex;align-items:center;gap:9px}.datetime-chip{height:36px;display:inline-flex;align-items:center;padding:0 13px;border:1px solid #dfe7f2;border-radius:8px;background:#fff;color:#52647d;font-size:12px;white-space:nowrap}.refresh-btn{height:36px!important;border-color:#d8e4f4!important;color:#31506f!important;background:#fff!important}
 .metric-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px}.metric-card{position:relative;min-height:148px;padding:20px 22px;border:1px solid #e4ebf5;border-radius:16px;background:rgba(255,255,255,.94);box-shadow:0 10px 30px rgba(42,83,163,.045);overflow:hidden}.metric-card:after{content:"";position:absolute;right:-28px;top:-28px;width:92px;height:92px;border-radius:50%;background:radial-gradient(circle,rgba(59,130,246,.09),rgba(59,130,246,0) 70%)}.metric-card__top{display:flex;align-items:center;gap:10px}.metric-icon{width:34px;height:34px;border-radius:10px;display:grid;place-items:center;background:#edf5ff;color:#347ff3}.metric-label{color:#61718a;font-size:13px;font-weight:600}.metric-value{margin-top:17px;color:#0a2142;font-size:32px;line-height:1;font-weight:760;letter-spacing:-.7px}.metric-hint{margin-top:12px;color:#8b99ad;font-size:11px;line-height:1.5}.metric-card--danger .metric-icon{background:#fff2f0;color:#d94d3f}.metric-card--danger .metric-value{color:#bd3529}.metric-card--success .metric-icon{background:#edf9f4;color:#19a66a}
 .metric-icon i,.empty-icon i{position:relative;display:block;width:16px;height:16px}.i-alert:before{content:"!";position:absolute;inset:0;border:1.6px solid currentColor;border-radius:50%;font:700 11px/14px Arial;text-align:center}.i-play:before{content:"";position:absolute;left:4px;top:2px;border-left:9px solid currentColor;border-top:6px solid transparent;border-bottom:6px solid transparent}.i-edit:before{content:"";position:absolute;left:3px;top:3px;width:9px;height:9px;border:1.6px solid currentColor;border-radius:2px}.i-edit:after{content:"";position:absolute;right:0;top:1px;width:8px;height:2px;background:currentColor;transform:rotate(-45deg);transform-origin:right center}.i-check:before{content:"";position:absolute;left:3px;top:3px;width:10px;height:6px;border-left:2px solid currentColor;border-bottom:2px solid currentColor;transform:rotate(-45deg)}
 .overview-grid{display:grid;grid-template-columns:.72fr 1.28fr;gap:14px;margin-top:14px}.surface-card{border:1px solid #e4ebf5;border-radius:16px;background:rgba(255,255,255,.96);box-shadow:0 10px 30px rgba(42,83,163,.04)}.quality-card,.attention-card{min-height:292px;padding:20px 22px}.section-head{display:flex;align-items:flex-start;gap:14px}.section-head>div:first-child{min-width:0}.section-head h2{margin:0;color:#102847;font-size:16px;font-weight:700;letter-spacing:-.1px}.section-head p{margin:6px 0 0;color:#8b99ad;font-size:11px}.soft-tag{margin-left:auto;padding:5px 9px;border-radius:999px;background:#f2f7fd;color:#66809f;font-size:10px}.text-action{margin-left:auto!important;padding:2px 0!important;color:#2877eb!important;font-size:12px!important}
@@ -155,5 +162,5 @@ onMounted(load)
 .attention-list{margin-top:15px}.attention-item{min-height:52px;display:grid;grid-template-columns:70px minmax(0,1fr) 88px 38px;align-items:center;gap:12px;border-top:1px solid #eef2f7}.issue-type{overflow:hidden;color:#d55246;font-size:10px;font-weight:650;text-overflow:ellipsis;white-space:nowrap}.attention-main{min-width:0}.attention-main strong{display:block;overflow:hidden;color:#2b3f5c;font-size:12px;font-weight:650;text-overflow:ellipsis;white-space:nowrap}.attention-main small{display:block;margin-top:3px;overflow:hidden;color:#97a3b5;font-size:10px;text-overflow:ellipsis;white-space:nowrap}.row-action{border:0;background:none;color:#2877eb;font-size:11px;cursor:pointer;padding:4px 0}.clean-empty{min-height:210px;display:flex;align-items:center;justify-content:center;gap:12px;color:#8492a7}.empty-icon{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;background:#edf7f2;color:#19a66a}.clean-empty strong{display:block;color:#52647e;font-size:12px}.clean-empty small{display:block;margin-top:5px;color:#99a5b5;font-size:10px}
 .runs-card{margin-top:14px;overflow:hidden}.section-head--runs{padding:20px 22px 14px}.runs-table-wrap{overflow:auto}.runs-table{width:100%;border-collapse:collapse;table-layout:fixed}.runs-table th{height:38px;padding:0 18px;border-top:1px solid #eef2f7;border-bottom:1px solid #eef2f7;background:#fbfcfe;color:#8492a6;font-size:10px;font-weight:600;text-align:left}.runs-table th:nth-child(1){width:34%}.runs-table th:nth-child(2){width:18%}.runs-table th:nth-child(3){width:18%}.runs-table th:nth-child(4){width:25%}.runs-table th:last-child{width:5%}.runs-table td{height:52px;padding:0 18px;border-bottom:1px solid #f0f3f7;color:#52627a;font-size:11px}.runs-table tbody tr{cursor:pointer;transition:background .16s ease}.runs-table tbody tr:hover{background:#f8fbff}.runs-table tbody tr:last-child td{border-bottom:0}.run-name{display:flex;align-items:center;gap:10px;min-width:0}.run-mark{width:7px;height:7px;border-radius:50%;background:#70a9ff;box-shadow:0 0 0 4px #edf5ff}.run-name strong{overflow:hidden;color:#2a3e5b;font-size:12px;font-weight:650;text-overflow:ellipsis;white-space:nowrap}.type-pill{display:inline-flex;padding:4px 8px;border-radius:999px;background:#f1f6fc;color:#617895;font-size:10px}.run-time{color:#8c99ac!important}.chevron{color:#9aa8ba;font-size:18px}.clean-empty--wide{min-height:150px}
 @media(max-width:1280px){.metric-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.overview-grid{grid-template-columns:1fr}}
-@media(max-width:760px){.metric-grid{grid-template-columns:1fr}.quality-content{gap:22px}.attention-item{grid-template-columns:60px minmax(0,1fr) 72px}.attention-item .row-action{display:none}.runs-table th:nth-child(2),.runs-table td:nth-child(2){display:none}.updated-at{display:none}}
+@media(max-width:760px){.metric-grid{grid-template-columns:1fr}.quality-content{gap:22px}.attention-item{grid-template-columns:60px minmax(0,1fr) 72px}.attention-item .row-action{display:none}.runs-table th:nth-child(2),.runs-table td:nth-child(2){display:none}.datetime-chip{display:none}}
 </style>
