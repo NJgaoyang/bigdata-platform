@@ -13,14 +13,14 @@ class DataSourceServiceTest {
     @Test
     void buildsMysqlConnectionInfoAndDecryptsPassword() {
         PlatformStore store = new PlatformStore();
-        DataSourceService service = new DataSourceService(store, new PasswordCipher(), new DynamicDataSourceManager());
+        DataSourceService service = new DataSourceService(store, new PasswordCipher("test-master-key"), new DynamicDataSourceManager());
 
         DataSourceView source = service.create(new CreateDataSourceRequest(
                 "mysql-prod", DataSourceType.MYSQL, "192.168.113.135", 3306,
-                "bigdata_platform", "root", "secret"));
+                "datasphere", "root", "secret"));
 
         DataSourceService.ConnectionInfo info = service.connectionInfo(source.id());
-        assertTrue(info.jdbcUrl().startsWith("jdbc:mysql://192.168.113.135:3306/bigdata_platform"));
+        assertTrue(info.jdbcUrl().startsWith("jdbc:mysql://192.168.113.135:3306/datasphere"));
         assertEquals("root", info.username());
         assertEquals("secret", info.password());
     }
@@ -28,7 +28,7 @@ class DataSourceServiceTest {
     @Test
     void rejectsDuplicateDataSourceNameWithActionableMessage() {
         PlatformStore store = new PlatformStore();
-        DataSourceService service = new DataSourceService(store, new PasswordCipher(), new DynamicDataSourceManager());
+        DataSourceService service = new DataSourceService(store, new PasswordCipher("test-master-key"), new DynamicDataSourceManager());
         service.create(new CreateDataSourceRequest("warehouse", DataSourceType.STARROCKS, "host", 9030, "ods", "user", "secret"));
         BadRequestException error = assertThrows(BadRequestException.class, () ->
                 service.create(new CreateDataSourceRequest("WAREHOUSE", DataSourceType.STARROCKS, "other", 9030, "ods", "user", "secret")));
@@ -38,7 +38,7 @@ class DataSourceServiceTest {
     @Test
     void allowsDataSourceWithoutDefaultDatabase() {
         PlatformStore store = new PlatformStore();
-        DataSourceService service = new DataSourceService(store, new PasswordCipher(), new DynamicDataSourceManager());
+        DataSourceService service = new DataSourceService(store, new PasswordCipher("test-master-key"), new DynamicDataSourceManager());
 
         DataSourceView source = service.create(new CreateDataSourceRequest(
                 "mysql-server", DataSourceType.MYSQL, "db.example", 3306,
@@ -64,7 +64,7 @@ class DataSourceServiceTest {
     @Test
     void persistsMetadataVisibilityAcrossOrdinaryEdits() {
         PlatformStore store = new PlatformStore();
-        DataSourceService service = new DataSourceService(store, new PasswordCipher(), new DynamicDataSourceManager());
+        DataSourceService service = new DataSourceService(store, new PasswordCipher("test-master-key"), new DynamicDataSourceManager());
         DataSourceView source = service.create(new CreateDataSourceRequest(
                 "warehouse", DataSourceType.STARROCKS, "db.example", 9030,
                 "ods", "reader", "secret"));

@@ -2,7 +2,7 @@ package com.company.platform.development;
 
 import com.company.platform.common.BadRequestException;
 import com.company.platform.common.PlatformStore;
-import com.company.platform.config.PlatformProperties;
+import com.company.platform.config.DataSphereProperties;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -29,7 +29,7 @@ class DevelopmentVersionFlowServiceTest {
         store.userPermissions.clear();
         store.projectPermissions.clear();
         development = new DevelopmentService(store);
-        DevelopmentAccessService access = new DevelopmentAccessService(store, development, new PlatformProperties());
+        DevelopmentAccessService access = new DevelopmentAccessService(store, development, new DataSphereProperties());
         flow = new DevelopmentVersionFlowService(store, development, access);
         mine = development.createProject(new DevelopmentRequests.ProjectRequest("我的开发", "个人工作区"), "admin");
         project = development.createProject(new DevelopmentRequests.ProjectRequest("项目空间", "团队公共开发空间"), "admin");

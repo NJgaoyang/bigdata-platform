@@ -1,7 +1,7 @@
 package com.company.platform.development;
 
 import com.company.platform.common.PlatformStore;
-import com.company.platform.config.PlatformProperties;
+import com.company.platform.config.DataSphereProperties;
 import com.company.platform.system.UserView;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -31,7 +31,7 @@ class DevelopmentAccessServiceTest {
         store.users.put(21L, new UserView(21L, "alice", "Alice", "USER", "ACTIVE", LocalDateTime.now(), null));
         store.userPermissions.put(21L, Set.of("DATA_DEVELOPMENT_VIEW", "DATA_DEVELOPMENT_EDIT"));
         development = new DevelopmentService(store);
-        access = new DevelopmentAccessService(store, development, new PlatformProperties());
+        access = new DevelopmentAccessService(store, development, new DataSphereProperties());
     }
 
     @Test

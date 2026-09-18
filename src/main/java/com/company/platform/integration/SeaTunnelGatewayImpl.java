@@ -1,7 +1,7 @@
 package com.company.platform.integration;
 
 import com.company.platform.cluster.SeaTunnelSshClient;
-import com.company.platform.config.PlatformProperties;
+import com.company.platform.config.DataSphereProperties;
 import jakarta.annotation.PreDestroy;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
@@ -28,7 +28,7 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 @Component
 public class SeaTunnelGatewayImpl implements SeaTunnelGateway {
-    private final PlatformProperties properties;
+    private final DataSphereProperties properties;
     private final SeaTunnelSshClient sshClient;
     private final Map<String, Process> processes = new ConcurrentHashMap<>();
     private final Map<String, Path> configs = new ConcurrentHashMap<>();
@@ -37,10 +37,10 @@ public class SeaTunnelGatewayImpl implements SeaTunnelGateway {
     private final Map<String, String> terminalStates = new ConcurrentHashMap<>();
 
     /** Retained for unit tests and local-only callers. */
-    public SeaTunnelGatewayImpl(PlatformProperties properties) { this(properties, null); }
+    public SeaTunnelGatewayImpl(DataSphereProperties properties) { this(properties, null); }
 
     @Autowired
-    public SeaTunnelGatewayImpl(PlatformProperties properties, SeaTunnelSshClient sshClient) {
+    public SeaTunnelGatewayImpl(DataSphereProperties properties, SeaTunnelSshClient sshClient) {
         this.properties = properties;
         this.sshClient = sshClient;
     }

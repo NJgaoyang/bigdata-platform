@@ -30,7 +30,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 /** DataSphere-owned scheduler. Quartz only fires cron triggers; DAG execution and state belong to the platform. */
 @Component
 @Primary
-@ConditionalOnProperty(prefix = "platform.scheduler", name = "type", havingValue = "local", matchIfMissing = true)
+@ConditionalOnProperty(prefix = "datasphere.scheduler", name = "type", havingValue = "local", matchIfMissing = true)
 public class LocalSchedulerGateway implements SchedulerGateway {
     private final JdbcTemplate jdbc;
     private final Scheduler quartz;

@@ -3,7 +3,7 @@ package com.company.platform.query;
 import com.company.platform.common.BadRequestException;
 import com.company.platform.common.ForbiddenException;
 import com.company.platform.common.PlatformStore;
-import com.company.platform.config.PlatformProperties;
+import com.company.platform.config.DataSphereProperties;
 import com.company.platform.datasource.DataSourceService;
 import com.company.platform.datasource.DataSourceType;
 import com.company.platform.datasource.DynamicDataSourceManager;
@@ -34,7 +34,7 @@ import java.util.regex.Pattern;
 public class QueryService {
     private static final int MAX_IN_MEMORY_RESULTS = 1000;
     private final SqlSafetyChecker safetyChecker;
-    private final PlatformProperties properties;
+    private final DataSphereProperties properties;
     private final DataSourceService dataSources;
     private final DynamicDataSourceManager connectionManager;
     private final RunningStatementRegistry statementRegistry;
@@ -45,7 +45,7 @@ public class QueryService {
     private final ConcurrentLinkedDeque<String> resultOrder = new ConcurrentLinkedDeque<>();
     private final ThreadPoolExecutor queryExecutor;
 
-    public QueryService(SqlSafetyChecker safetyChecker, PlatformProperties properties, DataSourceService dataSources,
+    public QueryService(SqlSafetyChecker safetyChecker, DataSphereProperties properties, DataSourceService dataSources,
                         DynamicDataSourceManager connectionManager, RunningStatementRegistry statementRegistry, PlatformStore store) {
         this.safetyChecker = safetyChecker; this.properties = properties; this.dataSources = dataSources;
         this.connectionManager = connectionManager; this.statementRegistry = statementRegistry; this.store = store;

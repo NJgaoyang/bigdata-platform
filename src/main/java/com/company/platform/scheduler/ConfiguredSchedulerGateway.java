@@ -10,7 +10,7 @@ import java.util.Map;
 /** Ensures every real scheduler operation uses the latest persisted DS cluster configuration. */
 @Component
 @Primary
-@ConditionalOnProperty(prefix = "platform.scheduler", name = "type", havingValue = "dolphinscheduler")
+@ConditionalOnProperty(prefix = "datasphere.scheduler", name = "type", havingValue = "dolphinscheduler")
 public class ConfiguredSchedulerGateway implements SchedulerGateway {
     private final DolphinSchedulerGatewayImpl delegate;
     private final DolphinSchedulerRuntimeConfigurator runtime;

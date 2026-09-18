@@ -3,7 +3,7 @@ package com.company.platform.datasource;
 import com.company.platform.common.ForbiddenException;
 import com.company.platform.common.NotFoundException;
 import com.company.platform.common.PlatformStore;
-import com.company.platform.config.PlatformProperties;
+import com.company.platform.config.DataSphereProperties;
 import com.company.platform.system.UserView;
 import org.springframework.stereotype.Service;
 
@@ -16,9 +16,9 @@ public class DataSourceAccessService {
     public enum Access { VIEW, QUERY, EDIT }
 
     private final PlatformStore store;
-    private final PlatformProperties properties;
+    private final DataSphereProperties properties;
 
-    public DataSourceAccessService(PlatformStore store, PlatformProperties properties) {
+    public DataSourceAccessService(PlatformStore store, DataSphereProperties properties) {
         this.store = store;
         this.properties = properties;
     }

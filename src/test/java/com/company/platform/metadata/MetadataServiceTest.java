@@ -45,7 +45,7 @@ class MetadataServiceTest {
         when(dataSources.get(1006L)).thenReturn(new DataSourceView(1006L, "starrocks8", DataSourceType.STARROCKS,
                 "127.0.0.1", 9030, "ods", "root", "ACTIVE", true, null, null));
         when(dataSources.connectionInfo(1006L)).thenReturn(new DataSourceService.ConnectionInfo(1006L,
-                DataSourceType.STARROCKS, "jdbc:mysql://127.0.0.1:9030/ods", "root", "", "ods"));
+                DataSourceType.STARROCKS, "jdbc:mysql://127.0.0.1:9030/ods", "root", "", "ods", "Asia/Shanghai"));
         when(connections.getConnection(eq(1006L), anyString(), eq("root"), eq(""))).thenReturn(connection);
         when(connection.prepareStatement(anyString())).thenReturn(statement);
         when(statement.executeQuery()).thenReturn(resultSet);

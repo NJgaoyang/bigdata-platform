@@ -32,8 +32,8 @@ class FlinkCdcConfigBuilderTest {
 
     @Test
     void guideModeUsesStarRocksPipeline330SupportedSinkOptions() {
-        when(dataSources.connectionInfo(1L)).thenReturn(new DataSourceService.ConnectionInfo(1L, DataSourceType.MYSQL, "jdbc:mysql://src", "src", "secret", "app"));
-        when(dataSources.connectionInfo(2L)).thenReturn(new DataSourceService.ConnectionInfo(2L, DataSourceType.STARROCKS, "jdbc:mysql://sink", "sink", "secret", "ods"));
+        when(dataSources.connectionInfo(1L)).thenReturn(new DataSourceService.ConnectionInfo(1L, DataSourceType.MYSQL, "jdbc:mysql://src", "src", "secret", "app", "Asia/Shanghai"));
+        when(dataSources.connectionInfo(2L)).thenReturn(new DataSourceService.ConnectionInfo(2L, DataSourceType.STARROCKS, "jdbc:mysql://sink", "sink", "secret", "ods", "Asia/Shanghai"));
         when(dataSources.get(1L)).thenReturn(new DataSourceView(1L,"mysql",DataSourceType.MYSQL,"10.0.0.1",3306,"app","src","ACTIVE",true,null,null));
         when(dataSources.get(2L)).thenReturn(new DataSourceView(2L,"starrocks",DataSourceType.STARROCKS,"10.0.0.2",9030,"ods","sink","ACTIVE",true,null,null));
         Map<String,Object> spec = Map.of(
@@ -50,8 +50,8 @@ class FlinkCdcConfigBuilderTest {
         assertTrue(yaml.contains("sink.properties.strict_mode: 'true'"));
         assertFalse(yaml.contains("scan.incremental.snapshot.backfill.skip"));
         assertTrue(yaml.contains("schema-change.enabled: true"));
-        assertTrue(yaml.contains("scan.binlog.newly-added-table.enabled: true"));
-        assertFalse(yaml.contains("scan.newly-added-table.enabled:"));
+        assertTrue(yaml.contains("scan.newly-added-table.enabled: true"));
+        assertFalse(yaml.contains("scan.binlog.newly-added-table.enabled:"));
         assertTrue(yaml.contains("treat-tinyint1-as-boolean.enabled: false"));
         assertFalse(yaml.contains("debezium.bigint.unsigned.handling.mode"));
         assertFalse(yaml.contains("sink.buffer-flush.max-rows"));

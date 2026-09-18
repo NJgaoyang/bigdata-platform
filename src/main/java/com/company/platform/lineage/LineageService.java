@@ -36,8 +36,8 @@ public class LineageService {
     public List<LineageView> byWorkflow(long workflowId) {
         var workflow = store.workflows.get(workflowId);
         if (workflow == null) return List.of();
-        var fileIds = workflow.nodes().stream().map(node -> node.fileVersionId() == null ? null : store.versions.get(node.fileVersionId()))
-                .filter(java.util.Objects::nonNull).map(version -> version.fileId()).collect(java.util.stream.Collectors.toSet());
+        var fileIds = workflow.nodes().stream().map(node -> node.devFileId())
+                .filter(java.util.Objects::nonNull).collect(java.util.stream.Collectors.toSet());
         return store.lineages.values().stream().filter(item -> item.fileId() != null && fileIds.contains(item.fileId())).toList();
     }
     public void removeForFile(long fileId) {

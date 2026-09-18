@@ -2,7 +2,7 @@ package com.company.platform.system;
 
 import com.company.platform.common.BadRequestException;
 import com.company.platform.common.PlatformStore;
-import com.company.platform.config.PlatformProperties;
+import com.company.platform.config.DataSphereProperties;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -49,7 +49,7 @@ class AccessServiceTest {
     @Test
     void disablingUserInvalidatesExistingSession() {
         PlatformStore store = new PlatformStore();
-        PlatformProperties properties = new PlatformProperties();
+        DataSphereProperties properties = new DataSphereProperties();
         properties.getSecurity().setEnabled(true);
         AuthService auth = new AuthService(properties, store);
         AccessService service = new AccessService(store, new AuditService(store));

@@ -1,5 +1,3 @@
-CREATE DATABASE IF NOT EXISTS bigdata_platform
-DEFAULT CHARACTER SET utf8mb4
-COLLATE utf8mb4_general_ci;
-
-USE bigdata_platform;
+CREATE DATABASE IF NOT EXISTS datasphere
+  DEFAULT CHARACTER SET utf8mb4
+  DEFAULT COLLATE utf8mb4_0900_ai_ci;

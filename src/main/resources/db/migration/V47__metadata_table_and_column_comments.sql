@@ -1,4 +1,4 @@
--- 为 bigdata_platform 元数据库全部现有表和字段补充中文注释。
+-- 为 datasphere 元数据库全部现有表和字段补充中文注释。
 -- 仅修改 COMMENT，不改变字段类型、默认值、约束或索引语义。
 
 ALTER TABLE `alert_channel`

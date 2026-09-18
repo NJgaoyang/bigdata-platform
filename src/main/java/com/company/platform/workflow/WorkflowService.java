@@ -4,7 +4,6 @@ import com.company.platform.common.BadRequestException;
 import com.company.platform.common.NotFoundException;
 import com.company.platform.common.PlatformStore;
 import com.company.platform.development.DevelopmentScheduleService;
-import com.company.platform.development.FileVersionView;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -97,22 +96,15 @@ public class WorkflowService {
                             .filter(existing -> nodeCode.equals(existing.nodeCode())).map(WorkflowNodeView::id)
                             .findFirst().orElseGet(store::nextId);
                     if (nodeIds.putIfAbsent(nodeCode, nodeId) != null) throw new BadRequestException("工作流节点编码重复：" + nodeCode);
-                    Long devFileId = resolveDevFileId(node.devFileId(), node.fileVersionId());
+                    Long devFileId = node.devFileId();
                     if (devFileId != null && !store.files.containsKey(devFileId)) throw new BadRequestException("节点“" + node.name() + "”绑定的开发任务不存在");
                     return new WorkflowNodeView(nodeId, node.name(), node.nodeType() == null ? NodeType.SQL : node.nodeType(),
-                            devFileId, node.fileVersionId(), node.configJson(), node.x(), node.y(), nodeCode);
+                            devFileId, node.configJson(), node.x(), node.y(), nodeCode);
                 }).toList();
         List<WorkflowEdgeView> edges = request.edges() == null ? List.of() : request.edges().stream()
                 .map(edge -> new WorkflowEdgeView(store.nextId(), resolveNodeId(edge.sourceNodeId(), edge.sourceNodeCode(), nodeIds),
                         resolveNodeId(edge.targetNodeId(), edge.targetNodeCode(), nodeIds))).toList();
         return new GraphDraft(nodes, edges);
-    }
-
-    private Long resolveDevFileId(Long devFileId, Long fileVersionId) {
-        if (devFileId != null) return devFileId;
-        if (fileVersionId == null) return null;
-        FileVersionView version = store.versions.get(fileVersionId);
-        return version == null ? null : version.fileId();
     }
 
     private long resolveNodeId(Long nodeId, String nodeCode, Map<String, Long> nodeIds) {

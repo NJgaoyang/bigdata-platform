@@ -2,7 +2,7 @@ package com.company.platform.scheduler;
 
 import com.company.platform.cluster.DolphinSchedulerClusterView;
 import com.company.platform.common.PlatformStore;
-import com.company.platform.config.PlatformProperties;
+import com.company.platform.config.DataSphereProperties;
 import com.company.platform.datasource.PasswordCipher;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -28,9 +28,9 @@ import java.util.Comparator;
 @Component
 public class DolphinSchedulerRuntimeConfigurator {
     private static final Logger log = LoggerFactory.getLogger(DolphinSchedulerRuntimeConfigurator.class);
-    private static final String DEFAULT_PROJECT = "bigdata-platform";
+    private static final String DEFAULT_PROJECT = "datasphere";
     private static final String AUTO_PROJECT_DESCRIPTION = "Created automatically by BigData Platform";
-    private final PlatformProperties properties;
+    private final DataSphereProperties properties;
     private final PlatformStore store;
     private final PasswordCipher cipher;
     private final ObjectMapper mapper;
@@ -39,7 +39,7 @@ public class DolphinSchedulerRuntimeConfigurator {
     private volatile String resolvedKey;
     private volatile String resolvedProjectCode;
 
-    public DolphinSchedulerRuntimeConfigurator(PlatformProperties properties, PlatformStore store,
+    public DolphinSchedulerRuntimeConfigurator(DataSphereProperties properties, PlatformStore store,
                                                PasswordCipher cipher, ObjectMapper mapper) {
         this.properties = properties;
         this.store = store;

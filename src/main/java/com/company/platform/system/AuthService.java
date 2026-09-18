@@ -2,7 +2,7 @@ package com.company.platform.system;
 
 import com.company.platform.common.BadRequestException;
 import com.company.platform.common.PlatformStore;
-import com.company.platform.config.PlatformProperties;
+import com.company.platform.config.DataSphereProperties;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -15,40 +15,31 @@ import java.util.concurrent.ConcurrentHashMap;
 
 @Service
 public class AuthService {
-    private final PlatformProperties properties;
+    private final DataSphereProperties properties;
     private final PlatformStore store;
     private final SecureRandom random = new SecureRandom();
     private final Map<String, Session> sessions = new ConcurrentHashMap<>();
     private AuditService audit;
 
-    public AuthService(PlatformProperties properties, PlatformStore store) { this.properties = properties; this.store = store; }
+    public AuthService(DataSphereProperties properties, PlatformStore store) { this.properties = properties; this.store = store; }
     @Autowired public void setAuditService(AuditService audit) { this.audit = audit; }
     public boolean enabled() { return properties.getSecurity().isEnabled(); }
 
     public AuthSession login(AuthRequests.LoginRequest request) {
         purgeExpiredSessions();
         var security = properties.getSecurity();
-        String configuredHash = security.getAdminPasswordHash();
         String loginUsername = request.username() == null ? "" : request.username().trim();
-        String configuredAdminUsername = security.getAdminUsername() == null ? "" : security.getAdminUsername().trim();
         UserView user = store.users.values().stream().filter(item -> item.username().equalsIgnoreCase(loginUsername)).findFirst().orElse(null);
-        boolean configuredAdmin = configuredHash != null && !configuredHash.isBlank() && configuredAdminUsername.equalsIgnoreCase(loginUsername)
-                && PasswordHasher.verify(request.password(), configuredHash);
-        boolean storedUser = user != null && "ACTIVE".equalsIgnoreCase(user.status()) && PasswordHasher.verify(request.password(), user.passwordHash());
-        if (user != null && user.passwordHash() != null) configuredAdmin = false;
-        if (!configuredAdmin && !storedUser) {
+        boolean valid = user != null && "ACTIVE".equalsIgnoreCase(user.status()) && PasswordHasher.verify(request.password(), user.passwordHash());
+        if (!valid) {
             if (audit != null) audit.record("LOGIN_FAILED", "AUTH", null, loginUsername, loginUsername);
             throw new BadRequestException("用户名或密码错误");
         }
-        if (storedUser && PasswordHasher.needsUpgrade(user.passwordHash())) {
-            UserView upgraded = new UserView(user.id(), user.username(), user.displayName(), user.phone(), user.roleCode(), user.status(), user.createdAt(), PasswordHasher.hash(request.password()));
-            store.persistUser(upgraded); store.users.put(upgraded.id(), upgraded); user = upgraded;
-        }
         String token = randomToken();
         Instant expiresAt = Instant.now().plusSeconds(Math.max(5, security.getSessionTtlMinutes()) * 60L);
-        String username = configuredAdmin ? configuredAdminUsername : user.username();
+        String username = user.username();
         sessions.put(token, new Session(username, expiresAt));
-        if (audit != null) audit.record("LOGIN", "AUTH", user == null ? null : user.id(), username, username);
+        if (audit != null) audit.record("LOGIN", "AUTH", user.id(), username, username);
         return new AuthSession(token, username, expiresAt);
     }
 
@@ -61,11 +52,9 @@ public class AuthService {
         if (!newPassword.equals(confirmPassword)) throw new BadRequestException("两次输入的新密码不一致");
         UserView user = store.users.values().stream().filter(item -> item.username().equalsIgnoreCase(username)).findFirst().orElse(null);
         String currentPassword = request.currentPassword() == null ? "" : request.currentPassword();
-        String configuredHash = properties.getSecurity().getAdminPasswordHash();
         String existingHash = user == null ? null : user.passwordHash();
-        if (existingHash == null && isConfiguredAdmin(username) && configuredHash != null && !configuredHash.isBlank()) existingHash = configuredHash.trim();
         if (existingHash != null && !PasswordHasher.verify(currentPassword, existingHash)) throw new BadRequestException("当前密码不正确");
-        if (existingHash == null && enabled() && !isConfiguredAdmin(username)) throw new BadRequestException("当前账号尚未设置可验证的密码");
+        if (existingHash == null && enabled()) throw new BadRequestException("当前账号尚未设置可验证的密码");
         String nextHash = PasswordHasher.hash(newPassword);
         UserView updated = user == null
                 ? new UserView(store.nextId(), username.trim(), "平台管理员", "", "ADMIN", "ACTIVE", java.time.LocalDateTime.now(), nextHash)

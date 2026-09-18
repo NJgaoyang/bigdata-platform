@@ -11,7 +11,7 @@ import static org.mockito.Mockito.*;
 class ProductionStartupValidatorTest {
     @Test
     void acceptsPersistedPbkdf2AdminCredentialWithLocalScheduler() {
-        PlatformProperties properties = new PlatformProperties();
+        DataSphereProperties properties = new DataSphereProperties();
         properties.getSecurity().setEnabled(true);
         properties.getSeatunnel().setRealEnabled(true);
         properties.getScheduler().setType("local");

@@ -34,19 +34,6 @@ public class IntegrationService {
     private final IntegrationPreCheckService preCheckService;
     private final IntegrationStagingService stagingService;
 
-    /** Retained for existing focused unit tests. */
-    public IntegrationService(PlatformStore store, SeaTunnelConfigBuilder builder, SeaTunnelGateway gateway,
-                              ObjectMapper mapper, PasswordCipher passwordCipher, DataSourceService dataSourceService) {
-        this(store, builder, gateway, mapper, passwordCipher, dataSourceService, null, null, null, null);
-    }
-
-    /** Backwards-compatible constructor for batch runtime focused tests. */
-    public IntegrationService(PlatformStore store, SeaTunnelConfigBuilder builder, SeaTunnelGateway gateway,
-                              ObjectMapper mapper, PasswordCipher passwordCipher, DataSourceService dataSourceService,
-                              StarRocksSchemaService schemaService, IntegrationRuntimeRepository runtimeRepository) {
-        this(store, builder, gateway, mapper, passwordCipher, dataSourceService, schemaService, runtimeRepository, null, null);
-    }
-
     @Autowired
     public IntegrationService(PlatformStore store, SeaTunnelConfigBuilder builder, SeaTunnelGateway gateway,
                               ObjectMapper mapper, PasswordCipher passwordCipher, DataSourceService dataSourceService,
@@ -315,8 +302,7 @@ public class IntegrationService {
 
     public List<IntegrationTableView> tables(long taskId) {
         raw(taskId);
-        List<IntegrationTableView> persisted = store.integrationTaskTables.getOrDefault(taskId, List.of());
-        return persisted.isEmpty() ? legacyTable(raw(taskId)) : persisted;
+        return store.integrationTaskTables.getOrDefault(taskId, List.of());
     }
 
     @Transactional
@@ -454,7 +440,7 @@ public class IntegrationService {
         String masked = view.seatunnelConfig() == null ? null : view.seatunnelConfig()
                 .replaceAll("(\"password\"\\s*:\\s*\")[^\"]*(\")", "$1***$2")
                 .replaceAll("(?m)(password\\s*=\\s*\")[^\"]*(\")", "$1***$2");
-        List<IntegrationTableView> tables = view.tables() == null || view.tables().isEmpty() ? legacyTable(view) : view.tables();
+        List<IntegrationTableView> tables = view.tables() == null ? List.of() : view.tables();
         return new IntegrationTaskView(view.id(), view.name(), view.sourceType(), view.targetType(), view.syncMode(), view.status(), view.lifecycleStatus(),
                 maskJson(view.sourceConfigJson()), maskJson(view.targetConfigJson()), view.transformConfigJson(), masked, tables);
     }
@@ -617,14 +603,5 @@ public class IntegrationService {
     private List<IntegrationRequests.TableRequest> toRequests(List<IntegrationTableView> tables) {
         return tables.stream().map(table -> new IntegrationRequests.TableRequest(table.sourceDatabase(), table.sourceTable(),
                 table.targetDatabase(), table.targetTable(), table.partitionColumn())).toList();
-    }
-    private List<IntegrationTableView> legacyTable(IntegrationTaskView view) {
-        if (!hasStructuredConfig(view)) return List.of();
-        try {
-            IntegrationRequests.Endpoint source = mapper.readValue(view.sourceConfigJson(), IntegrationRequests.Endpoint.class);
-            IntegrationRequests.Endpoint target = mapper.readValue(view.targetConfigJson(), IntegrationRequests.Endpoint.class);
-            if (source.table() == null || source.table().isBlank() || target.table() == null || target.table().isBlank()) return List.of();
-            return List.of(new IntegrationTableView(view.id(), view.id(), source.database(), source.table(), target.database(), target.table(), ""));
-        } catch (Exception ignored) { return List.of(); }
     }
 }

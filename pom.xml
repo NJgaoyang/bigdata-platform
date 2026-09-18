@@ -12,10 +12,10 @@
     </parent>
 
     <groupId>com.company</groupId>
-    <artifactId>bigdata-platform</artifactId>
+    <artifactId>datasphere</artifactId>
     <version>0.1.0-SNAPSHOT</version>
-    <name>bigdata-platform</name>
-    <description>Unified big data development platform</description>
+    <name>DataSphere</name>
+    <description>DataSphere unified data development and governance platform</description>
 
     <properties>
         <java.version>21</java.version>
@@ -51,6 +51,7 @@
     </dependencies>
 
     <build>
+        <finalName>datasphere-${project.version}</finalName>
         <plugins>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>

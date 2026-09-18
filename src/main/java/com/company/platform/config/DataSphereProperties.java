@@ -2,8 +2,8 @@ package com.company.platform.config;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
-@ConfigurationProperties(prefix = "platform")
-public class PlatformProperties {
+@ConfigurationProperties(prefix = "datasphere")
+public class DataSphereProperties {
     private final Features features = new Features();
     private final Query query = new Query();
     private final Starrocks starrocks = new Starrocks();
@@ -21,14 +21,14 @@ public class PlatformProperties {
     public static class Security {
         private boolean enabled;
         private String adminUsername = "admin";
-        private String adminPasswordHash;
+        private String adminInitialPassword;
         private int sessionTtlMinutes = 480;
         public boolean isEnabled() { return enabled; }
         public void setEnabled(boolean enabled) { this.enabled = enabled; }
         public String getAdminUsername() { return adminUsername; }
         public void setAdminUsername(String adminUsername) { this.adminUsername = adminUsername; }
-        public String getAdminPasswordHash() { return adminPasswordHash; }
-        public void setAdminPasswordHash(String adminPasswordHash) { this.adminPasswordHash = adminPasswordHash; }
+        public String getAdminInitialPassword() { return adminInitialPassword; }
+        public void setAdminInitialPassword(String adminInitialPassword) { this.adminInitialPassword = adminInitialPassword; }
         public int getSessionTtlMinutes() { return sessionTtlMinutes; }
         public void setSessionTtlMinutes(int sessionTtlMinutes) { this.sessionTtlMinutes = sessionTtlMinutes; }
     }
@@ -77,7 +77,7 @@ public class PlatformProperties {
         private String version = "3.1.9";
         private String installDir = "/data/software/dolphinscheduler";
         private String username = "admin";
-        private String projectCode = "bigdata-platform";
+        private String projectCode = "datasphere";
         private String tenantCode = "bigdata";
         private String password;
         private String token;

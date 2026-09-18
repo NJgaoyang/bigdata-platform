@@ -18,11 +18,13 @@ class WorkflowPublishServiceTest {
     void publishesThroughGatewayWithoutExternalService() {
         PlatformStore store = new PlatformStore();
         WorkflowService workflowService = new WorkflowService(store, new DagValidator());
-        long versionId = store.versions.values().iterator().next().id();
+        var file = store.files.values().iterator().next();
+        var version = store.versions.values().iterator().next();
+        store.versions.put(version.id(), new com.company.platform.development.FileVersionView(version.id(), version.fileId(), version.versionNo(), version.content(), version.checksum(), true));
         // Intentionally send the wrong UI node type. The bound development file is .sql/SQL,
         // so publishing must derive the scheduler task type from the file instead of trusting UI state.
         WorkflowView workflow = workflowService.create(new WorkflowRequests.WorkflowRequest("sales_daily", "demo",
-                List.of(new WorkflowRequests.NodeRequest("daily sales", NodeType.SHELL, versionId, null, 0, 0)), List.of()));
+                List.of(new WorkflowRequests.NodeRequest("daily sales", NodeType.SHELL, file.id(), null, 0, 0)), List.of()));
         AtomicReference<SchedulerGateway.PublishRequest> published = new AtomicReference<>();
         AtomicBoolean releasedOnline = new AtomicBoolean(false);
         SchedulerGateway gateway = new SchedulerGateway() {

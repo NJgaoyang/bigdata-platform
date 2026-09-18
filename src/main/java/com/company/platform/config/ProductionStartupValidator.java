@@ -12,11 +12,11 @@ import org.springframework.stereotype.Component;
 @Component
 @Profile("prod")
 public class ProductionStartupValidator {
-    private final PlatformProperties properties;
+    private final DataSphereProperties properties;
     private final JdbcTemplate jdbc;
     private final PasswordCipher passwordCipher;
 
-    public ProductionStartupValidator(PlatformProperties properties, JdbcTemplate jdbc, PasswordCipher passwordCipher) {
+    public ProductionStartupValidator(DataSphereProperties properties, JdbcTemplate jdbc, PasswordCipher passwordCipher) {
         this.properties = properties;
         this.jdbc = jdbc;
         this.passwordCipher = passwordCipher;
@@ -25,33 +25,32 @@ public class ProductionStartupValidator {
     @EventListener(ApplicationReadyEvent.class)
     public void validate() {
         if (!properties.getSecurity().isEnabled()) {
-            throw new IllegalStateException("生产环境必须开启 PLATFORM_AUTH_ENABLED=true");
+            throw new IllegalStateException("生产环境必须开启 DATASPHERE_AUTH_ENABLED=true");
         }
-        if ((properties.getSecurity().getAdminPasswordHash() == null || properties.getSecurity().getAdminPasswordHash().isBlank())
-                && !hasPersistedAdminCredential()) {
-            throw new IllegalStateException("生产环境必须配置管理员登录凭据：PLATFORM_ADMIN_PASSWORD_SHA256，或为 admin 用户设置 PBKDF2 密码");
+        if (!hasPersistedAdminCredential()) {
+            throw new IllegalStateException("生产环境必须为管理员设置 PBKDF2 密码；首次部署可配置 DATASPHERE_ADMIN_INITIAL_PASSWORD");
         }
         if (properties.getQuery().getMaxConcurrentQueries() < 1 || properties.getQuery().getMaxConcurrentQueries() > 64) {
-            throw new IllegalStateException("PLATFORM_QUERY_MAX_CONCURRENT 必须在 1-64 之间");
+            throw new IllegalStateException("DATASPHERE_QUERY_MAX_CONCURRENT 必须在 1-64 之间");
         }
         if (!passwordCipher.masterKeyConfigured()) {
-            throw new IllegalStateException("生产环境必须配置 DATASOURCE_MASTER_KEY，禁止使用代码内置兼容密钥");
+            throw new IllegalStateException("生产环境必须配置 DATASPHERE_CREDENTIAL_MASTER_KEY，禁止使用代码内置兼容密钥");
         }
         if (!properties.getSeatunnel().isRealEnabled()) {
             throw new IllegalStateException("生产环境必须开启 SEATUNNEL_REAL_ENABLED=true，禁止使用模拟同步");
         }
         String schedulerType = properties.getScheduler().getType() == null ? "local" : properties.getScheduler().getType().trim().toLowerCase();
         if (!"local".equals(schedulerType) && !"dolphinscheduler".equals(schedulerType)) {
-            throw new IllegalStateException("PLATFORM_SCHEDULER_TYPE 仅支持 local / dolphinscheduler");
+            throw new IllegalStateException("DATASPHERE_SCHEDULER_TYPE 仅支持 local / dolphinscheduler");
         }
         if ("dolphinscheduler".equals(schedulerType)) {
-            PlatformProperties.Dolphinscheduler ds = properties.getScheduler().getDolphinscheduler();
-            if (!ds.isRealEnabled()) throw new IllegalStateException("DolphinScheduler 兼容模式必须开启 DOLPHINSCHEDULER_REAL_ENABLED=true");
+            DataSphereProperties.Dolphinscheduler ds = properties.getScheduler().getDolphinscheduler();
+            if (!ds.isRealEnabled()) throw new IllegalStateException("DolphinScheduler 模式必须开启 DOLPHINSCHEDULER_REAL_ENABLED=true");
             requireText(ds.getBaseUrl(), "DOLPHINSCHEDULER_BASE_URL");
             requireText(ds.getProjectCode(), "DOLPHINSCHEDULER_PROJECT_CODE");
             requireText(ds.getTenantCode(), "DOLPHINSCHEDULER_TENANT_CODE");
             if ((ds.getPassword() == null || ds.getPassword().isBlank()) && (ds.getToken() == null || ds.getToken().isBlank()) && !hasPersistedSchedulerCredentials()) {
-                throw new IllegalStateException("DolphinScheduler 兼容模式必须配置密码/Token，或保存可用的集群凭据");
+                throw new IllegalStateException("DolphinScheduler 模式必须配置密码/Token，或保存可用的集群凭据");
             }
         }
     }

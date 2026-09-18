@@ -106,7 +106,7 @@ public class FlinkCdcGateway {
             Path privateKey=sshDir.resolve("id_ed25519");
             Path knownHosts=sshDir.resolve("known_hosts");
             if(password!=null&&!password.isBlank()) {
-                // Password remains supported for legacy environments, but key-based auth is preferred.
+                // Password authentication is supported; key-based authentication is preferred.
             } else if(Files.isRegularFile(privateKey)) {
                 jsch.addIdentity(privateKey.toString());
             } else {

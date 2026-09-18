@@ -3,7 +3,7 @@ package com.company.platform.development;
 import com.company.platform.common.BadRequestException;
 import com.company.platform.common.NotFoundException;
 import com.company.platform.common.PlatformStore;
-import com.company.platform.config.PlatformProperties;
+import com.company.platform.config.DataSphereProperties;
 import com.company.platform.system.AccessService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -25,12 +25,12 @@ import java.util.stream.Collectors;
 @Service
 public class DevelopmentService {
     private final PlatformStore store;
-    private PlatformProperties properties;
+    private DataSphereProperties properties;
     private JdbcTemplate jdbc;
     private AccessService accessService;
 
     public DevelopmentService(PlatformStore store) { this.store = store; }
-    @Autowired public void setProperties(PlatformProperties properties) { this.properties = properties; }
+    @Autowired public void setProperties(DataSphereProperties properties) { this.properties = properties; }
     @Autowired(required = false) public void setJdbcTemplate(JdbcTemplate jdbc) { this.jdbc = jdbc; }
     @Autowired public void setAccessService(AccessService accessService) { this.accessService = accessService; }
 
@@ -130,11 +130,9 @@ public class DevelopmentService {
         if (hasFolder || hasFile) {
             Set<Long> folderIds = descendantFolderIds(id);
             List<Long> fileIds = store.files.values().stream().filter(file -> file.folderId() != null && folderIds.contains(file.folderId())).map(DevFileView::id).toList();
-            List<Long> versionIds = store.versions.values().stream().filter(version -> fileIds.contains(version.fileId())).map(FileVersionView::id).toList();
             List<String> usages = store.workflows.values().stream()
                     .filter(workflow -> workflow.nodes().stream().anyMatch(node ->
-                            node.devFileId() != null && fileIds.contains(node.devFileId())
-                                    || node.fileVersionId() != null && versionIds.contains(node.fileVersionId())))
+                            node.devFileId() != null && fileIds.contains(node.devFileId())))
                     .map(workflow -> workflow.name() + (workflow.status() == null || workflow.status().isBlank() ? "" : "（" + workflow.status() + "）"))
                     .sorted(String.CASE_INSENSITIVE_ORDER).toList();
             if (!usages.isEmpty()) throw new BadRequestException("文件夹内文件正在被调度任务使用：" + String.join("、", usages) + "，不能删除");
@@ -211,11 +209,9 @@ public class DevelopmentService {
         if (!"OFFLINE".equalsIgnoreCase(current.lifecycleStatus())) {
             throw new BadRequestException("开发任务必须先下线后才能删除");
         }
-        List<Long> versionIds = store.versions.values().stream().filter(version -> version.fileId() == id).map(FileVersionView::id).toList();
         List<String> usages = store.workflows.values().stream()
                 .filter(workflow -> workflow.nodes().stream().anyMatch(node ->
-                        node.devFileId() != null && node.devFileId() == id
-                                || node.fileVersionId() != null && versionIds.contains(node.fileVersionId())))
+                        node.devFileId() != null && node.devFileId() == id))
                 .map(workflow -> workflow.name() + (workflow.status() == null || workflow.status().isBlank() ? "" : "（" + workflow.status() + "）"))
                 .sorted(String.CASE_INSENSITIVE_ORDER).collect(Collectors.toList());
         if (!usages.isEmpty()) throw new BadRequestException("文件“" + current.name() + "”正在被调度任务使用：" + String.join("、", usages) + "，不能删除");
@@ -453,9 +449,15 @@ public class DevelopmentService {
         Set<String> permissions = accessService == null
                 ? AccessService.effectivePermissions(store.userPermissions.getOrDefault(userId, Set.of()))
                 : accessService.effectivePermissions(userId);
-        return permissions.contains("DATA_DEVELOPMENT_VIEW")
-                || permissions.contains("DATA_DEVELOPMENT_EDIT")
-                || permissions.contains(AccessService.DATA_DEVELOPMENT_PROJECT_ALL);
+        boolean projectAll = permissions.contains(AccessService.DATA_DEVELOPMENT_PROJECT_ALL);
+        boolean moduleView = permissions.contains("DATA_DEVELOPMENT_VIEW") || permissions.contains("DATA_DEVELOPMENT_EDIT") || projectAll;
+        if (!moduleView) return false;
+        if (projectAll) return true;
+        DevProjectView project = store.projects.get(projectId);
+        boolean owner = project.ownerName() != null && username.equalsIgnoreCase(project.ownerName());
+        boolean assigned = store.projectPermissions.containsKey(projectId + ":" + userId + ":VIEW")
+                || store.projectPermissions.containsKey(projectId + ":" + userId + ":EDIT");
+        return owner || assigned;
     }
     private void requireProjectEdit(long projectId, String operator) {
         requireProject(projectId);
@@ -466,7 +468,12 @@ public class DevelopmentService {
             Set<String> permissions = accessService == null
                     ? AccessService.effectivePermissions(store.userPermissions.getOrDefault(userId, Set.of()))
                     : accessService.effectivePermissions(userId);
-            if (permissions.contains("DATA_DEVELOPMENT_EDIT") || permissions.contains(AccessService.DATA_DEVELOPMENT_PROJECT_ALL)) return;
+            boolean projectAll = permissions.contains(AccessService.DATA_DEVELOPMENT_PROJECT_ALL);
+            if (projectAll) return;
+            DevProjectView project = store.projects.get(projectId);
+            boolean owner = project.ownerName() != null && username.equalsIgnoreCase(project.ownerName());
+            boolean assignedEdit = store.projectPermissions.containsKey(projectId + ":" + userId + ":EDIT");
+            if (permissions.contains("DATA_DEVELOPMENT_EDIT") && (owner || assignedEdit)) return;
         }
         throw new BadRequestException("当前用户仅有数据开发查看权限，无法编辑任务");
     }

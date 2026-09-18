@@ -54,21 +54,15 @@ public class WorkflowPublishService {
 
         for (WorkflowNodeView node : workflow.nodes()) {
             boolean taskNode = node.nodeType() != NodeType.SEATUNNEL && node.nodeType() != NodeType.CONDITION;
-            if (taskNode && node.devFileId() == null && node.fileVersionId() == null) {
+            if (taskNode && node.devFileId() == null) {
                 throw new BadRequestException("节点“" + node.name() + "”没有绑定开发任务");
             }
             String snapshot = "";
             NodeType effectiveType = node.nodeType();
             FileVersionView effectiveVersion = null;
             DevFileView devFile = null;
-            // Legacy nodes may still pin a concrete fileVersionId. New UI binds only devFileId
-            // and freezes the task's current production Vx when the workflow is published.
-            if (node.fileVersionId() != null) {
-                effectiveVersion = store.versions.get(node.fileVersionId());
-                if (effectiveVersion == null) throw new BadRequestException("节点“" + node.name() + "”绑定的历史文件版本不存在");
-                devFile = store.files.get(effectiveVersion.fileId());
-                if (devFile == null) throw new BadRequestException("节点“" + node.name() + "”绑定的开发任务不存在");
-            } else if (node.devFileId() != null) {
+            // Workflow nodes bind a development task. Publishing freezes that task's current production Vx.
+            if (node.devFileId() != null) {
                 devFile = store.files.get(node.devFileId());
                 if (devFile == null) throw new BadRequestException("节点“" + node.name() + "”绑定的开发任务不存在");
                 String boundTaskName = devFile.name();

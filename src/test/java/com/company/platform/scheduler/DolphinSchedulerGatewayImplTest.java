@@ -1,6 +1,6 @@
 package com.company.platform.scheduler;
 
-import com.company.platform.config.PlatformProperties;
+import com.company.platform.config.DataSphereProperties;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 
@@ -11,7 +11,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class DolphinSchedulerGatewayImplTest {
     @Test
     void realModeProbeDoesNotRequireCredentials() {
-        PlatformProperties properties = new PlatformProperties();
+        DataSphereProperties properties = new DataSphereProperties();
         properties.getScheduler().getDolphinscheduler().setRealEnabled(true);
         DolphinSchedulerGatewayImpl gateway = new DolphinSchedulerGatewayImpl(properties, new ObjectMapper());
 
@@ -22,7 +22,7 @@ class DolphinSchedulerGatewayImplTest {
 
     @Test
     void realModeProbeReportsDisabledWithoutThrowing() {
-        PlatformProperties properties = new PlatformProperties();
+        DataSphereProperties properties = new DataSphereProperties();
         properties.getScheduler().getDolphinscheduler().setRealEnabled(false);
         DolphinSchedulerGatewayImpl gateway = new DolphinSchedulerGatewayImpl(properties, new ObjectMapper());
 

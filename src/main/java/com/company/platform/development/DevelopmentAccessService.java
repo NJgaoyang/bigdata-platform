@@ -4,7 +4,7 @@ import com.company.platform.common.BadRequestException;
 import com.company.platform.common.ForbiddenException;
 import com.company.platform.common.NotFoundException;
 import com.company.platform.common.PlatformStore;
-import com.company.platform.config.PlatformProperties;
+import com.company.platform.config.DataSphereProperties;
 import com.company.platform.system.AccessService;
 import com.company.platform.system.UserView;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -18,10 +18,10 @@ import java.util.Set;
 public class DevelopmentAccessService {
     private final PlatformStore store;
     private final DevelopmentService development;
-    private final PlatformProperties properties;
+    private final DataSphereProperties properties;
     private AccessService accessService;
 
-    public DevelopmentAccessService(PlatformStore store, DevelopmentService development, PlatformProperties properties) {
+    public DevelopmentAccessService(PlatformStore store, DevelopmentService development, DataSphereProperties properties) {
         this.store = store;
         this.development = development;
         this.properties = properties;
@@ -48,9 +48,12 @@ public class DevelopmentAccessService {
         ModuleAccess module = moduleAccess(username);
         boolean admin = isAdministrator(username);
         boolean owner = project.ownerName() != null && username.equalsIgnoreCase(project.ownerName());
-        boolean view = admin || module.view();
-        boolean edit = admin || module.edit();
-        if (!view) throw new ForbiddenException("当前用户没有数据开发查看权限");
+        Long userId = userId(username);
+        boolean assignedView = userId != null && (hasProjectPermission(projectId, userId, "VIEW") || hasProjectPermission(projectId, userId, "EDIT"));
+        boolean assignedEdit = userId != null && hasProjectPermission(projectId, userId, "EDIT");
+        boolean view = admin || module.projectAll() || module.view() && (owner || assignedView);
+        boolean edit = admin || module.projectAll() || module.edit() && (owner || assignedEdit);
+        if (!view) throw new ForbiddenException("当前用户没有当前项目的查看权限");
         return new ProjectAccess(projectId, true, edit, owner, module.projectAll());
     }
 

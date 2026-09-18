@@ -15,7 +15,7 @@ import static org.mockito.Mockito.mock;
 class IntegrationIncrementalPolicyTest {
     @Test void incrementalRequiresHalfOpenWindow() {
         IntegrationService service = new IntegrationService(new PlatformStore(), new SeaTunnelConfigBuilder(new ObjectMapper()),
-                mock(SeaTunnelGateway.class), new ObjectMapper(), mock(PasswordCipher.class), null);
+                mock(SeaTunnelGateway.class), new ObjectMapper(), mock(PasswordCipher.class), null, null, null, null, null);
         var source = new IntegrationRequests.Endpoint("mysql",3306,"app","u","p","orders");
         var target = new IntegrationRequests.Endpoint("sr",9030,"ods","u","p","orders");
         var tables = List.of(new IntegrationRequests.TableRequest("app","orders","ods","orders",""));

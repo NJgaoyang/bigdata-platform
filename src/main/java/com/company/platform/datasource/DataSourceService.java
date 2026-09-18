@@ -147,10 +147,5 @@ public class DataSourceService {
 
     public record ConnectionTestResult(boolean success, String message) { }
     public record ConnectionInfo(long id, DataSourceType type, String jdbcUrl, String username, String password,
-                                 String databaseName, String timezone) {
-        /** Backwards-compatible constructor for focused tests and legacy callers. */
-        public ConnectionInfo(long id, DataSourceType type, String jdbcUrl, String username, String password, String databaseName) {
-            this(id, type, jdbcUrl, username, password, databaseName, "Asia/Shanghai");
-        }
-    }
+                                 String databaseName, String timezone) { }
 }

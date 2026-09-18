@@ -28,8 +28,8 @@ jobs:
         run: mvn -B package -DskipTests
       - name: Verify frontend is packaged into jar
         run: |
-          jar tf target/bigdata-platform-0.1.0-SNAPSHOT.jar | grep -q 'BOOT-INF/classes/static/index.html'
-          unzip -p target/bigdata-platform-0.1.0-SNAPSHOT.jar BOOT-INF/classes/static/index.html | grep -q 'DataSphere'
+          jar tf target/datasphere-0.1.0-SNAPSHOT.jar | grep -q 'BOOT-INF/classes/static/index.html'
+          unzip -p target/datasphere-0.1.0-SNAPSHOT.jar BOOT-INF/classes/static/index.html | grep -q 'DataSphere'
 
   frontend:
     runs-on: ubuntu-latest

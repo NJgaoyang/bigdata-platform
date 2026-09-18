@@ -5,13 +5,13 @@ spring:
   lifecycle:
     timeout-per-shutdown-phase: 30s
   datasource:
-    url: ${PLATFORM_DB_URL:jdbc:mysql://172.17.0.12:3306/bigdata_platform?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true}
-    username: ${PLATFORM_DB_USERNAME:root}
-    password: ${PLATFORM_DB_PASSWORD}
+    url: ${DATASPHERE_DB_URL:jdbc:mysql://127.0.0.1:3306/datasphere?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true}
+    username: ${DATASPHERE_DB_USERNAME:root}
+    password: ${DATASPHERE_DB_PASSWORD}
     hikari:
-      connection-timeout: ${PLATFORM_DB_CONNECTION_TIMEOUT_MS:10000}
-      validation-timeout: ${PLATFORM_DB_VALIDATION_TIMEOUT_MS:5000}
-      maximum-pool-size: ${PLATFORM_DB_POOL_SIZE:20}
+      connection-timeout: ${DATASPHERE_DB_CONNECTION_TIMEOUT_MS:10000}
+      validation-timeout: ${DATASPHERE_DB_VALIDATION_TIMEOUT_MS:5000}
+      maximum-pool-size: ${DATASPHERE_DB_POOL_SIZE:20}
 
 springdoc:
   api-docs:
@@ -19,24 +19,24 @@ springdoc:
   swagger-ui:
     enabled: ${SPRINGDOC_ENABLED:false}
 
-platform:
+datasphere:
   security:
-    enabled: ${PLATFORM_AUTH_ENABLED:true}
-    admin-username: ${PLATFORM_ADMIN_USERNAME:admin}
-    admin-password-hash: ${PLATFORM_ADMIN_PASSWORD_SHA256:}
+    enabled: ${DATASPHERE_AUTH_ENABLED:true}
+    admin-username: ${DATASPHERE_ADMIN_USERNAME:admin}
+    admin-initial-password: ${DATASPHERE_ADMIN_INITIAL_PASSWORD:}
   query:
-    default-max-rows: ${PLATFORM_QUERY_MAX_ROWS:1000}
-    timeout-seconds: ${PLATFORM_QUERY_TIMEOUT_SECONDS:300}
-    max-concurrent-queries: ${PLATFORM_QUERY_MAX_CONCURRENT:8}
+    default-max-rows: ${DATASPHERE_QUERY_MAX_ROWS:1000}
+    timeout-seconds: ${DATASPHERE_QUERY_TIMEOUT_SECONDS:300}
+    max-concurrent-queries: ${DATASPHERE_QUERY_MAX_CONCURRENT:8}
   seatunnel:
     real-enabled: ${SEATUNNEL_REAL_ENABLED:true}
   scheduler:
-    type: ${PLATFORM_SCHEDULER_TYPE:local}
+    type: ${DATASPHERE_SCHEDULER_TYPE:local}
     dolphinscheduler:
       base-url: ${DOLPHINSCHEDULER_BASE_URL:http://172.17.0.12:12345}
       username: ${DOLPHINSCHEDULER_USERNAME:admin}
-      project-code: ${DOLPHINSCHEDULER_PROJECT_CODE:bigdata-platform}
-      tenant-code: ${DOLPHINSCHEDULER_TENANT_CODE:bigdata}
+      project-code: ${DOLPHINSCHEDULER_PROJECT_CODE:datasphere}
+      tenant-code: ${DOLPHINSCHEDULER_TENANT_CODE:datasphere}
       password: ${DOLPHINSCHEDULER_PASSWORD:}
       token: ${DOLPHINSCHEDULER_TOKEN:}
       real-enabled: ${DOLPHINSCHEDULER_REAL_ENABLED:true}

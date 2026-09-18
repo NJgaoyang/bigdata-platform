@@ -5,15 +5,11 @@ import java.util.List;
 
 public final class WorkflowRequests {
     private WorkflowRequests() { }
-    public record NodeRequest(@NotBlank String name, NodeType nodeType, Long devFileId, Long fileVersionId,
+    public record NodeRequest(@NotBlank String name, NodeType nodeType, Long devFileId,
                               String configJson, int x, int y, String nodeCode) {
-        public NodeRequest(String name, NodeType nodeType, Long fileVersionId,
-                           String configJson, int x, int y, String nodeCode) {
-            this(name, nodeType, null, fileVersionId, configJson, x, y, nodeCode);
-        }
-        public NodeRequest(String name, NodeType nodeType, Long fileVersionId,
+        public NodeRequest(String name, NodeType nodeType, Long devFileId,
                            String configJson, int x, int y) {
-            this(name, nodeType, null, fileVersionId, configJson, x, y, null);
+            this(name, nodeType, devFileId, configJson, x, y, null);
         }
     }
     public record EdgeRequest(Long sourceNodeId, Long targetNodeId,

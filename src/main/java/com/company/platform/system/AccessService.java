@@ -22,7 +22,6 @@ public class AccessService {
     @Autowired public void setAuthService(AuthService auth) { this.auth = auth; }
 
     public static final Set<String> MODULES = Set.of("WORKBENCH", "METADATA", "DATA_INTEGRATION", "DATA_DEVELOPMENT", "WORKFLOW", "OPERATIONS", "METRICS", "DATA_ASSETS", "RELEASE", "SYSTEM_SETTINGS");
-    public static final Set<String> LEGACY_MODULE_PERMISSIONS = Set.of("DATA_INTEGRATION", "DATA_DEVELOPMENT", "DATA_EXPLORE", "DATA_LINEAGE", "SCHEDULER", "OPERATIONS", "SYSTEM_SETTINGS");
     public static final String PERMISSION_MARKER = "_CONFIGURED";
     public static final String DATA_DEVELOPMENT_PROJECT_ALL = "DATA_DEVELOPMENT_PROJECT_ALL";
     public static final Set<String> MODULE_PERMISSIONS = allPermissionCodes();
@@ -124,7 +123,7 @@ public class AccessService {
     public Set<String> setPermissions(long userId, Set<String> requested) {
         if (!store.users.containsKey(userId)) throw new NotFoundException("用户不存在：" + userId);
         Set<String> permissions = new HashSet<>(requested == null ? Set.of() : requested);
-        if (!MODULE_PERMISSIONS.containsAll(permissions) && !LEGACY_MODULE_PERMISSIONS.containsAll(permissions)) throw new BadRequestException("包含不支持的模块权限");
+        if (!MODULE_PERMISSIONS.containsAll(permissions)) throw new BadRequestException("包含不支持的模块权限");
         permissions.add(PERMISSION_MARKER);
         store.persistUserPermissions(userId, permissions);
         UserView user = store.users.get(userId);
@@ -218,14 +217,11 @@ public class AccessService {
         Set<String> result = new HashSet<>();
         for (String permission : stored) {
             if (PERMISSION_MARKER.equals(permission)) continue;
-            if (LEGACY_MODULE_PERMISSIONS.contains(permission)) {
-                String module = legacyModule(permission);
-                result.add(module + "_VIEW"); result.add(module + "_EDIT");
-            } else if (DATA_DEVELOPMENT_PROJECT_ALL.equals(permission)) {
+            if (DATA_DEVELOPMENT_PROJECT_ALL.equals(permission)) {
                 result.add(DATA_DEVELOPMENT_PROJECT_ALL);
                 result.add("DATA_DEVELOPMENT_VIEW");
                 result.add("DATA_DEVELOPMENT_EDIT");
-            } else result.add(permission);
+            } else if (MODULE_PERMISSIONS.contains(permission)) result.add(permission);
         }
         return Set.copyOf(result);
     }
@@ -238,16 +234,7 @@ public class AccessService {
         Set<String> result = new HashSet<>();
         MODULES.forEach(module -> { result.add(module + "_VIEW"); result.add(module + "_EDIT"); });
         result.add(DATA_DEVELOPMENT_PROJECT_ALL);
-        result.addAll(LEGACY_MODULE_PERMISSIONS);
         return Set.copyOf(result);
-    }
-    private static String legacyModule(String permission) {
-        return switch (permission) {
-            case "DATA_EXPLORE" -> "METADATA";
-            case "DATA_LINEAGE" -> "DATA_ASSETS";
-            case "SCHEDULER" -> "WORKFLOW";
-            default -> permission;
-        };
     }
 
     @Transactional

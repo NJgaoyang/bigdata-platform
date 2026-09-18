@@ -1,7 +1,7 @@
 package com.company.platform.scheduler;
 
 import com.company.platform.common.PlatformStore;
-import com.company.platform.config.PlatformProperties;
+import com.company.platform.config.DataSphereProperties;
 import com.company.platform.datasource.PasswordCipher;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sun.net.httpserver.HttpExchange;
@@ -31,9 +31,9 @@ class DolphinSchedulerRuntimeConfiguratorTest {
         AtomicInteger createCalls = new AtomicInteger();
         server = startServer(created, createCalls, false);
 
-        PlatformProperties properties = properties(server.getAddress().getPort());
+        DataSphereProperties properties = properties(server.getAddress().getPort());
         DolphinSchedulerRuntimeConfigurator configurator = new DolphinSchedulerRuntimeConfigurator(
-                properties, new PlatformStore(), new PasswordCipher(), new ObjectMapper());
+                properties, new PlatformStore(), new PasswordCipher("test-master-key"), new ObjectMapper());
 
         configurator.refresh(true);
 
@@ -47,9 +47,9 @@ class DolphinSchedulerRuntimeConfiguratorTest {
         AtomicInteger createCalls = new AtomicInteger();
         server = startServer(created, createCalls, true);
 
-        PlatformProperties properties = properties(server.getAddress().getPort());
+        DataSphereProperties properties = properties(server.getAddress().getPort());
         DolphinSchedulerRuntimeConfigurator configurator = new DolphinSchedulerRuntimeConfigurator(
-                properties, new PlatformStore(), new PasswordCipher(), new ObjectMapper());
+                properties, new PlatformStore(), new PasswordCipher("test-master-key"), new ObjectMapper());
 
         configurator.refresh(true);
         configurator.refresh(true);
@@ -58,14 +58,14 @@ class DolphinSchedulerRuntimeConfiguratorTest {
         assertEquals(0, createCalls.get());
     }
 
-    private PlatformProperties properties(int port) {
-        PlatformProperties properties = new PlatformProperties();
+    private DataSphereProperties properties(int port) {
+        DataSphereProperties properties = new DataSphereProperties();
         var ds = properties.getScheduler().getDolphinscheduler();
         ds.setRealEnabled(true);
         ds.setBaseUrl("http://127.0.0.1:" + port);
         ds.setUsername("admin");
         ds.setPassword("test-password");
-        ds.setProjectCode("bigdata-platform");
+        ds.setProjectCode("datasphere");
         return properties;
     }
 
@@ -78,7 +78,7 @@ class DolphinSchedulerRuntimeConfiguratorTest {
         httpServer.createContext("/dolphinscheduler/projects", exchange -> {
             if ("POST".equals(exchange.getRequestMethod())) {
                 String body = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
-                if (!body.contains("projectName=bigdata-platform")) {
+                if (!body.contains("projectName=datasphere")) {
                     respond(exchange, 400, "{\"code\":10001}");
                     return;
                 }
@@ -88,7 +88,7 @@ class DolphinSchedulerRuntimeConfiguratorTest {
                 return;
             }
             String list = created.get()
-                    ? "[{\"name\":\"bigdata-platform\",\"code\":22919517565792}]"
+                    ? "[{\"name\":\"datasphere\",\"code\":22919517565792}]"
                     : "[]";
             respond(exchange, 200, "{\"code\":0,\"data\":{\"totalList\":" + list + "}}");
         });

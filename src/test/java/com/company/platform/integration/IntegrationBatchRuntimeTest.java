@@ -36,7 +36,7 @@ class IntegrationBatchRuntimeTest {
 
         IntegrationService service = new IntegrationService(
                 store, builder, gateway, new ObjectMapper(), mock(PasswordCipher.class),
-                mock(DataSourceService.class), null, runtime);
+                mock(DataSourceService.class), null, runtime, null, null);
 
         assertThrows(BadRequestException.class, () -> service.execute(7L));
         verify(runtime).createBatch(eq(7L), eq("MANUAL"), anyString(), isNull(), eq("{}"), isNull(), eq("platform"));
@@ -51,7 +51,7 @@ class IntegrationBatchRuntimeTest {
                 "root", 22, "/seatunnel", null, "HEALTHY", LocalDateTime.now().minusDays(1)));
         IntegrationService service = new IntegrationService(
                 store, mock(SeaTunnelConfigBuilder.class), mock(SeaTunnelGateway.class), new ObjectMapper(),
-                mock(PasswordCipher.class), mock(DataSourceService.class), null, mock(IntegrationRuntimeRepository.class));
+                mock(PasswordCipher.class), mock(DataSourceService.class), null, mock(IntegrationRuntimeRepository.class), null, null);
 
         assertEquals(7L, service.runtimeClusterId());
     }
@@ -69,7 +69,7 @@ class IntegrationBatchRuntimeTest {
         SeaTunnelGateway gateway = mock(SeaTunnelGateway.class);
         IntegrationService service = new IntegrationService(
                 store, mock(SeaTunnelConfigBuilder.class), gateway, new ObjectMapper(),
-                mock(PasswordCipher.class), mock(DataSourceService.class), null, mock(IntegrationRuntimeRepository.class));
+                mock(PasswordCipher.class), mock(DataSourceService.class), null, mock(IntegrationRuntimeRepository.class), null, null);
 
         assertThrows(BadRequestException.class, () -> service.execute(8L));
         assertThrows(BadRequestException.class, () -> service.backfill(8L, new IntegrationRequests.BackfillRequest("id > 0", null, null)));

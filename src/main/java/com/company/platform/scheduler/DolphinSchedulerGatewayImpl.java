@@ -1,6 +1,6 @@
 package com.company.platform.scheduler;
 
-import com.company.platform.config.PlatformProperties;
+import com.company.platform.config.DataSphereProperties;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
@@ -33,7 +33,7 @@ public class DolphinSchedulerGatewayImpl implements DolphinSchedulerGateway {
     private static final Pattern RESULT_CODE = Pattern.compile("\\\"code\\\"\\s*:\\s*([0-9]+)");
     private static final Pattern DATA_CODE = Pattern.compile("\\\"data\\\"\\s*:\\s*\\{.*?\\\"code\\\"\\s*:\\s*([0-9]+)", Pattern.DOTALL);
     private static final Pattern PROCESS_INSTANCE_ID = Pattern.compile("\\\"(?:processInstanceId|processCode)\\\"\\s*:\\s*\\\"?([A-Za-z0-9_-]+)");
-    private final PlatformProperties properties;
+    private final DataSphereProperties properties;
     private final ObjectMapper mapper;
     private final DolphinSchedulerProcessConverter processConverter;
     private final HttpClient client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
@@ -42,10 +42,10 @@ public class DolphinSchedulerGatewayImpl implements DolphinSchedulerGateway {
     private final Map<String, String> resolvedPendingInstances = new ConcurrentHashMap<>();
     private volatile String sessionId;
 
-    public DolphinSchedulerGatewayImpl(PlatformProperties properties) { this(properties, new ObjectMapper()); }
+    public DolphinSchedulerGatewayImpl(DataSphereProperties properties) { this(properties, new ObjectMapper()); }
 
     @Autowired
-    public DolphinSchedulerGatewayImpl(PlatformProperties properties, ObjectMapper mapper) {
+    public DolphinSchedulerGatewayImpl(DataSphereProperties properties, ObjectMapper mapper) {
         this.properties = properties;
         this.mapper = mapper;
         var ds = properties.getScheduler().getDolphinscheduler();

@@ -1,13 +1,13 @@
 server:
-  port: 8080
+  port: ${DATASPHERE_PORT:8080}
 
 spring:
   application:
-    name: bigdata-platform
+    name: DataSphere
   datasource:
-    url: ${PLATFORM_DB_URL:jdbc:mysql://172.17.0.12:3306/bigdata_platform?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true}
-    username: ${PLATFORM_DB_USERNAME:root}
-    password: ${PLATFORM_DB_PASSWORD:}
+    url: ${DATASPHERE_DB_URL:jdbc:mysql://127.0.0.1:3306/datasphere?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true}
+    username: ${DATASPHERE_DB_USERNAME:root}
+    password: ${DATASPHERE_DB_PASSWORD:}
     driver-class-name: com.mysql.cj.jdbc.Driver
     hikari:
       connection-timeout: 10000
@@ -36,18 +36,18 @@ mybatis:
   configuration:
     map-underscore-to-camel-case: true
 
-platform:
+datasphere:
   features:
     realtime-sync: true
   security:
-    enabled: ${PLATFORM_AUTH_ENABLED:false}
-    admin-username: ${PLATFORM_ADMIN_USERNAME:admin}
-    admin-password-hash: ${PLATFORM_ADMIN_PASSWORD_SHA256:}
-    session-ttl-minutes: ${PLATFORM_SESSION_TTL_MINUTES:480}
+    enabled: ${DATASPHERE_AUTH_ENABLED:false}
+    admin-username: ${DATASPHERE_ADMIN_USERNAME:admin}
+    admin-initial-password: ${DATASPHERE_ADMIN_INITIAL_PASSWORD:}
+    session-ttl-minutes: ${DATASPHERE_SESSION_TTL_MINUTES:480}
   query:
-    default-max-rows: ${PLATFORM_QUERY_MAX_ROWS:1000}
-    timeout-seconds: ${PLATFORM_QUERY_TIMEOUT_SECONDS:300}
-    max-concurrent-queries: ${PLATFORM_QUERY_MAX_CONCURRENT:8}
+    default-max-rows: ${DATASPHERE_QUERY_MAX_ROWS:1000}
+    timeout-seconds: ${DATASPHERE_QUERY_TIMEOUT_SECONDS:300}
+    max-concurrent-queries: ${DATASPHERE_QUERY_MAX_CONCURRENT:8}
   starrocks:
     version: "3.3.22"
   seatunnel:
@@ -55,14 +55,14 @@ platform:
     home: ${SEATUNNEL_HOME:/data/software/seatunnel}
     real-enabled: ${SEATUNNEL_REAL_ENABLED:false}
   scheduler:
-    type: ${PLATFORM_SCHEDULER_TYPE:local}
+    type: ${DATASPHERE_SCHEDULER_TYPE:local}
     dolphinscheduler:
       base-url: ${DOLPHINSCHEDULER_BASE_URL:http://127.0.0.1:12345}
       version: "3.1.9"
       install-dir: /data/software/dolphinscheduler
       username: ${DOLPHINSCHEDULER_USERNAME:admin}
-      project-code: ${DOLPHINSCHEDULER_PROJECT_CODE:bigdata-platform}
-      tenant-code: ${DOLPHINSCHEDULER_TENANT_CODE:bigdata}
+      project-code: ${DOLPHINSCHEDULER_PROJECT_CODE:datasphere}
+      tenant-code: ${DOLPHINSCHEDULER_TENANT_CODE:datasphere}
       password: ${DOLPHINSCHEDULER_PASSWORD:}
       token: ${DOLPHINSCHEDULER_TOKEN:}
       real-enabled: ${DOLPHINSCHEDULER_REAL_ENABLED:false}

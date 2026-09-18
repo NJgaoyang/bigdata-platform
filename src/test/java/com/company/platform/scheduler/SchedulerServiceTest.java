@@ -46,9 +46,11 @@ class SchedulerServiceTest {
         PlatformStore store = new PlatformStore();
         WorkflowService workflows = new WorkflowService(store, new DagValidator());
         var gateway = testGateway();
-        long versionId = store.versions.values().iterator().next().id();
+        var file = store.files.values().iterator().next();
+        var version = store.versions.values().iterator().next();
+        store.versions.put(version.id(), new com.company.platform.development.FileVersionView(version.id(), version.fileId(), version.versionNo(), version.content(), version.checksum(), true));
         var published = workflows.create(new WorkflowRequests.WorkflowRequest("published_sales", "demo",
-                List.of(new WorkflowRequests.NodeRequest("query", NodeType.SQL, versionId, null, 0, 0)), List.of()));
+                List.of(new WorkflowRequests.NodeRequest("query", NodeType.SQL, file.id(), null, 0, 0)), List.of()));
         new com.company.platform.workflow.WorkflowPublishService(workflows, gateway, store,
                 new LineageService(store, new SqlLineageParser())).publish(published.id());
         SchedulerService service = new SchedulerService(store, workflows, gateway);
