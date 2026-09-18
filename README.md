@@ -29,7 +29,7 @@ CREATE DATABASE IF NOT EXISTS datasphere
   COLLATE utf8mb4_general_ci;
 ```
 
-复制 `deploy/datasphere.env.example` 为运行环境配置，填写数据库、凭据主密钥和外部运行组件地址。详细步骤见 `deploy/DEPLOYMENT.md`。
+复制 `deploy/datasphere.env.example` 为运行环境配置，填写数据库、凭据主密钥和外部运行组件地址。首次生产启动还需要设置 `DATASPHERE_ADMIN_INITIAL_PASSWORD`，成功启动后从环境文件删除该明文变量。详细步骤见 `deploy/DEPLOYMENT.md`。
 
 源码目录可直接使用：
 

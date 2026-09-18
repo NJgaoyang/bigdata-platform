@@ -11,11 +11,13 @@ DataSphere is distributed as `datasphere-0.1.0-SNAPSHOT.jar`. The metadata datab
 
 ## Prepare MySQL
 
-Run `deploy/init-database.sql` with a database administrator, then create a dedicated account with privileges on `datasphere.*`. Do not reuse the old `bigdata_platform` database for a new DataSphere installation.
+From a source checkout, run `deploy/init-database.sql`. From a release bundle, run `config/init-database.sql`. Then create a dedicated MySQL account with privileges on `datasphere.*`. Do not reuse the old `bigdata_platform` database for a new DataSphere installation.
 
 ## Configure
 
-Copy `config/datasphere.env.example` to `.run/datasphere.env` (source checkout) or `config/datasphere.env` (release bundle) and fill in the target environment values. Secrets must not be committed to Git.
+Copy `deploy/datasphere.env.example` to `.run/datasphere.env` when running from source, or copy `config/datasphere.env.example` to `config/datasphere.env` in a release bundle. Fill in the target environment values. Secrets must not be committed to Git.
+
+For the first production start, set `DATASPHERE_ADMIN_INITIAL_PASSWORD` to the initial admin password. DataSphere hashes it with PBKDF2 and stores only the hash in MySQL. After the first successful start, remove `DATASPHERE_ADMIN_INITIAL_PASSWORD` from the environment file.
 
 ## Start from a release bundle
 
@@ -23,4 +25,4 @@ Place `datasphere-0.1.0-SNAPSHOT.jar` in the release root and run `bin/start.sh`
 
 ## Build a portable release bundle
 
-Run `scripts/build-release.sh`. It produces `target/datasphere-0.1.0-SNAPSHOT-dist.tar.gz`, containing the jar, lifecycle scripts, configuration template and this deployment guide. Extract that archive on another JDK 21 server, configure the new environment, and start it without rebuilding the frontend or backend.
+Run `scripts/build-release.sh`. It produces `target/datasphere-0.1.0-SNAPSHOT-dist.tar.gz`, containing the jar, lifecycle scripts, configuration template, database initialization SQL, SHA-256 checksum and this deployment guide. Extract that archive on another JDK 21 server, configure the new environment, and start it without rebuilding the frontend or backend.
