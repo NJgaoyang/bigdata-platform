@@ -27,8 +27,8 @@ export const productNavigation: ProductNavItem[] = [
   { key: 'metrics', label: '指标中心', path: '/metrics/overview', side: [
     { label: '指标总览', path: '/metrics/overview' },
     { label: '指标管理', path: '/metrics/manage' },
-    { label: '维度管理', path: '/metrics/dimensions' },
-    { label: '指标血缘', path: '/metrics/lineage' }
+    { label: '主题域管理', path: '/metrics/domains' },
+    { label: '主题管理', path: '/metrics/themes' }
   ]},
   { key: 'assets', label: '数据资产', path: '/assets/catalog', side: [
     { label: '资产目录', path: '/assets/catalog' },

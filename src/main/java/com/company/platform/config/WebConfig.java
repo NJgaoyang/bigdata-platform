@@ -33,7 +33,7 @@ public class WebConfig implements WebMvcConfigurer {
                 "/workflow/definitions",
                 "/operations/overview", "/operations/tasks", "/operations/instances", "/operations/failures", "/operations/alerts",
                 "/metadata/catalog",
-                "/metrics/overview", "/metrics/manage", "/metrics/dimensions", "/metrics/lineage",
+                "/metrics/overview", "/metrics/manage", "/metrics/domains", "/metrics/themes", "/metrics/dimensions", "/metrics/lineage",
                 "/assets/catalog", "/assets/favorites",
                 "/release/history", "/release/queue", "/release/policy",
                 "/system/users", "/system/roles", "/system/data-source-permissions", "/system/environments", "/system/audit"
