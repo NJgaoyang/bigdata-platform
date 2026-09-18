@@ -5,6 +5,7 @@ DataSphere is distributed as `datasphere-0.1.0-SNAPSHOT.jar`. The metadata datab
 ## Requirements
 
 - JDK 21 (the bundled scripts use `java`, `jar` and `jps`)
+- curl (used by the startup health check)
 - MySQL 8.0
 - Node.js/npm are only needed when building from source, not on the deployment host
 - SeaTunnel / DolphinScheduler are configured externally when those runtime modes are enabled

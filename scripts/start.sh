@@ -53,19 +53,26 @@ nohup java ${JAVA_OPTS:-} -cp "$CLASSPATH" com.company.platform.DataSphere > "$L
 PID=$!
 printf '%s' "$PID" > "$PID_FILE"
 
-for _ in {1..60}; do
+PORT="${DATASPHERE_PORT:-8080}"
+STARTED=false
+for _ in {1..90}; do
   if ! kill -0 "$PID" 2>/dev/null; then
     echo "DataSphere failed to start. See $LOG_FILE" >&2
     tail -n 120 "$LOG_FILE" >&2 || true
     rm -f "$PID_FILE"
     exit 1
   fi
-  if grep -q "Started DataSphere" "$LOG_FILE" 2>/dev/null; then
-    echo "DataSphere started, pid=$PID, log=$LOG_FILE"
-    exit 0
+  if grep -q "Started DataSphere" "$LOG_FILE" 2>/dev/null; then STARTED=true; fi
+  if [[ "$STARTED" == "true" ]] && curl -fsS "http://127.0.0.1:${PORT}/api/health" >/dev/null 2>&1; then
+    sleep 2
+    if kill -0 "$PID" 2>/dev/null; then
+      echo "DataSphere started, pid=$PID, log=$LOG_FILE"
+      exit 0
+    fi
   fi
   sleep 1
 done
 
-echo "DataSphere startup timed out. See $LOG_FILE" >&2
+echo "DataSphere startup timed out or health check failed. See $LOG_FILE" >&2
+tail -n 120 "$LOG_FILE" >&2 || true
 exit 1
