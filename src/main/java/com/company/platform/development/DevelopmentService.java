@@ -132,7 +132,9 @@ public class DevelopmentService {
             List<Long> fileIds = store.files.values().stream().filter(file -> file.folderId() != null && folderIds.contains(file.folderId())).map(DevFileView::id).toList();
             List<Long> versionIds = store.versions.values().stream().filter(version -> fileIds.contains(version.fileId())).map(FileVersionView::id).toList();
             List<String> usages = store.workflows.values().stream()
-                    .filter(workflow -> workflow.nodes().stream().anyMatch(node -> node.fileVersionId() != null && versionIds.contains(node.fileVersionId())))
+                    .filter(workflow -> workflow.nodes().stream().anyMatch(node ->
+                            node.devFileId() != null && fileIds.contains(node.devFileId())
+                                    || node.fileVersionId() != null && versionIds.contains(node.fileVersionId())))
                     .map(workflow -> workflow.name() + (workflow.status() == null || workflow.status().isBlank() ? "" : "（" + workflow.status() + "）"))
                     .sorted(String.CASE_INSENSITIVE_ORDER).toList();
             if (!usages.isEmpty()) throw new BadRequestException("文件夹内文件正在被调度任务使用：" + String.join("、", usages) + "，不能删除");
@@ -211,7 +213,9 @@ public class DevelopmentService {
         }
         List<Long> versionIds = store.versions.values().stream().filter(version -> version.fileId() == id).map(FileVersionView::id).toList();
         List<String> usages = store.workflows.values().stream()
-                .filter(workflow -> workflow.nodes().stream().anyMatch(node -> node.fileVersionId() != null && versionIds.contains(node.fileVersionId())))
+                .filter(workflow -> workflow.nodes().stream().anyMatch(node ->
+                        node.devFileId() != null && node.devFileId() == id
+                                || node.fileVersionId() != null && versionIds.contains(node.fileVersionId())))
                 .map(workflow -> workflow.name() + (workflow.status() == null || workflow.status().isBlank() ? "" : "（" + workflow.status() + "）"))
                 .sorted(String.CASE_INSENSITIVE_ORDER).collect(Collectors.toList());
         if (!usages.isEmpty()) throw new BadRequestException("文件“" + current.name() + "”正在被调度任务使用：" + String.join("、", usages) + "，不能删除");
@@ -296,6 +300,27 @@ public class DevelopmentService {
     }
     @Transactional
     public DevFileView saveFile(long id, DevelopmentRequests.SaveFileRequest request, String operator) { requireProjectEdit(requireFile(id).projectId(), operator); return saveFile(id, request); }
+
+    /**
+     * Create a new user-visible task version when non-code task configuration changes.
+     * The code snapshot is intentionally duplicated so task version Vx always identifies
+     * one complete development state while schedule/release sequence numbers stay internal.
+     */
+    @Transactional
+    public DevFileView bumpTaskVersion(long fileId, String operator) {
+        DevFileView current = requireFile(fileId);
+        requireProjectEdit(current.projectId(), operator);
+        requireOfflineForEdit(current);
+        DevFileView updated = new DevFileView(current.id(), current.projectId(), current.folderId(), current.name(), current.fileType(),
+                current.content(), current.description(), "DRAFT", current.currentVersion() + 1, LocalDateTime.now(),
+                current.lifecycleStatus(), current.everOnline(), current.ownerName());
+        FileVersionView version = newVersion(updated);
+        store.persistVersion(version);
+        store.persistFile(updated);
+        store.versions.put(version.id(), version);
+        store.files.put(fileId, updated);
+        return updated;
+    }
 
     public List<FileVersionView> versions(long fileId) {
         requireFile(fileId);

@@ -6,6 +6,7 @@ import com.company.platform.query.QueryService;
 import com.company.platform.system.AlertSettingService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.quartz.*;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -25,10 +26,14 @@ public class DevelopmentScheduleService {
     private final QueryService queryService;
     private final ObjectMapper mapper;
     private final AlertSettingService alerts;
+    private DevelopmentService developmentService;
 
     public DevelopmentScheduleService(JdbcTemplate jdbc, Scheduler quartz, QueryService queryService, ObjectMapper mapper, AlertSettingService alerts) {
         this.jdbc=jdbc; this.quartz=quartz; this.queryService=queryService; this.mapper=mapper; this.alerts=alerts;
     }
+
+    @Autowired
+    public void setDevelopmentService(DevelopmentService developmentService) { this.developmentService = developmentService; }
 
     public ScheduleView get(long fileId) {
         requireFile(fileId);
@@ -55,7 +60,20 @@ public class DevelopmentScheduleService {
         for(Long upstream: safeIds(r.upstreamFileIds())) jdbc.update("INSERT INTO dev_file_schedule_dependency(file_id,upstream_file_id) VALUES(?,?)",fileId,upstream);
         try { jdbc.update("INSERT INTO dev_file_schedule_version(file_id,version_no,config_json,created_by) VALUES(?,?,?,?)",fileId,next,mapper.writeValueAsString(get(fileId)),operator(operator)); }
         catch(Exception ex){throw new BadRequestException("保存调度版本失败："+ex.getMessage());}
+        if (developmentService != null) developmentService.bumpTaskVersion(fileId, operator(operator));
         return get(fileId);
+    }
+
+    /** Shared entry used by workflow editing. Development and workflow always mutate the same dependency set. */
+    @Transactional
+    public ScheduleView replaceUpstreamsFromWorkflow(long fileId, List<Long> upstreamFileIds, String operator) {
+        ScheduleView current = get(fileId);
+        List<Long> desired = safeIds(upstreamFileIds).stream().sorted().toList();
+        List<Long> existing = current.dependencies().stream().map(DependencyView::fileId).sorted().toList();
+        if (existing.equals(desired)) return current;
+        return save(fileId, new ScheduleRequest(current.enabled(), current.cycleType(), current.executionTime(),
+                current.cronExpression(), current.timezone(), current.dataSourceId(), current.databaseName(),
+                current.bizDateParam(), current.retryTimes(), current.retryIntervalMinutes(), current.timeoutMinutes(), desired), operator);
     }
 
     @Transactional
@@ -234,7 +252,29 @@ public class DevelopmentScheduleService {
     private int nextReleaseNo(long fileId){Integer v=jdbc.queryForObject("SELECT COALESCE(MAX(release_no),0)+1 FROM dev_file_release_bundle WHERE file_id=?",Integer.class,fileId);return v==null?1:v;}
     private List<DependencyView> dependencies(long fileId){return jdbc.query("SELECT d.upstream_file_id,f.name FROM dev_file_schedule_dependency d JOIN dev_file f ON f.id=d.upstream_file_id WHERE d.file_id=? ORDER BY f.name",(rs,n)->new DependencyView(rs.getLong(1),rs.getString(2)),fileId);}
     private List<DependencyView> downstream(long fileId){return jdbc.query("SELECT d.file_id,f.name FROM dev_file_schedule_dependency d JOIN dev_file f ON f.id=d.file_id WHERE d.upstream_file_id=? ORDER BY f.name",(rs,n)->new DependencyView(rs.getLong(1),rs.getString(2)),fileId);}
-    private void validate(ScheduleRequest r,long fileId){if(r==null||r.cronExpression()==null||!org.quartz.CronExpression.isValidExpression(r.cronExpression().trim()))throw new BadRequestException("Cron 表达式无效，请使用 Quartz Cron 格式");try{ZoneId.of(norm(r.timezone(),"Asia/Shanghai"));}catch(Exception ex){throw new BadRequestException("无效时区");}if(r.dataSourceId()==null)throw new BadRequestException("请选择 StarRocks 数据源");Integer count=jdbc.queryForObject("SELECT COUNT(*) FROM data_source WHERE id=? AND type='STARROCKS'",Integer.class,r.dataSourceId());if(count==null||count==0)throw new BadRequestException("调度仅支持 StarRocks 数据源");for(Long id:safeIds(r.upstreamFileIds())){if(id==fileId)throw new BadRequestException("任务不能依赖自身");requireFile(id);Integer same=jdbc.queryForObject("SELECT COUNT(*) FROM dev_file a JOIN dev_file b ON a.project_id=b.project_id WHERE a.id=? AND b.id=?",Integer.class,fileId,id);if(same==null||same==0)throw new BadRequestException("上游依赖必须属于当前开发项目");}}
+    private void validate(ScheduleRequest r,long fileId){
+        if(r==null||r.cronExpression()==null||!org.quartz.CronExpression.isValidExpression(r.cronExpression().trim())) throw new BadRequestException("Cron 表达式无效，请使用 Quartz Cron 格式");
+        try{ZoneId.of(norm(r.timezone(),"Asia/Shanghai"));}catch(Exception ex){throw new BadRequestException("无效时区");}
+        if(r.enabled()&&r.dataSourceId()==null) throw new BadRequestException("启用调度前请选择 StarRocks 数据源");
+        if(r.dataSourceId()!=null){Integer count=jdbc.queryForObject("SELECT COUNT(*) FROM data_source WHERE id=? AND type='STARROCKS'",Integer.class,r.dataSourceId());if(count==null||count==0)throw new BadRequestException("调度仅支持 StarRocks 数据源");}
+        List<Long> upstreams=safeIds(r.upstreamFileIds());
+        for(Long id:upstreams){if(id==fileId)throw new BadRequestException("任务不能依赖自身");requireFile(id);Integer same=jdbc.queryForObject("SELECT COUNT(*) FROM dev_file a JOIN dev_file b ON a.project_id=b.project_id WHERE a.id=? AND b.id=?",Integer.class,fileId,id);if(same==null||same==0)throw new BadRequestException("上游依赖必须属于当前开发项目");}
+        validateNoDependencyCycle(fileId,upstreams);
+    }
+
+    private void validateNoDependencyCycle(long fileId,List<Long> candidateUpstreams){
+        Map<Long,List<Long>> downstreamByUpstream=new HashMap<>();
+        jdbc.query("SELECT file_id,upstream_file_id FROM dev_file_schedule_dependency WHERE file_id<>?",rs->{long downstream=rs.getLong(1),upstream=rs.getLong(2);downstreamByUpstream.computeIfAbsent(upstream,k->new ArrayList<>()).add(downstream);},fileId);
+        for(Long upstream:candidateUpstreams){
+            if(pathExists(fileId,upstream,downstreamByUpstream,new HashSet<>())) throw new BadRequestException("调度依赖存在环路，请调整上游关系");
+        }
+    }
+
+    private boolean pathExists(long current,long target,Map<Long,List<Long>> graph,Set<Long> visited){
+        if(current==target)return true;if(!visited.add(current))return false;
+        for(Long next:graph.getOrDefault(current,List.of()))if(pathExists(next,target,graph,visited))return true;
+        return false;
+    }
     private void requireFile(long fileId){Integer c=jdbc.queryForObject("SELECT COUNT(*) FROM dev_file WHERE id=?",Integer.class,fileId);if(c==null||c==0)throw new NotFoundException("开发任务不存在："+fileId);}
     private List<Long> safeIds(List<Long> ids){return ids==null?List.of():ids.stream().filter(Objects::nonNull).distinct().toList();}
     private String resolveBizDate(String param,String timezone){LocalDate d=LocalDate.now(ZoneId.of(timezone));return "${system.biz.date}".equals(param)||"${system.date}".equals(param)?d.toString():d.minusDays(1).toString();}

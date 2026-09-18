@@ -49,7 +49,7 @@ public class ReleaseService {
         try{switch(request.resourceType()){
             case "WORKFLOW" -> {var r=workflows.publish(request.resourceId());releasedVersion=r.version();detail=r.message();}
             case "REALTIME" -> {var r=realtime.publish(request.resourceId(),operator);releasedVersion=r.publishedVersion()==null?r.definitionVersion():r.publishedVersion();detail="实时同步版本已发布";}
-            case "DEVELOPMENT" -> {var r=development.publishFile(request.resourceId(),operator);releasedVersion=r.currentVersion();String remark=developmentRemark(requestId);var bundle=developmentSchedules.publish(request.resourceId(),releasedVersion,operator,remark);detail="开发任务统一发布 P"+bundle.releaseNo()+" · SQL V"+bundle.publishedSqlVersion()+" + 调度 S"+bundle.publishedScheduleVersion();}
+            case "DEVELOPMENT" -> {var r=development.publishFile(request.resourceId(),operator);releasedVersion=r.currentVersion();String remark=developmentRemark(requestId);var bundle=developmentSchedules.publish(request.resourceId(),releasedVersion,operator,remark);detail="开发任务 V"+releasedVersion+" 已发布（代码、调度与依赖统一生效）";}
             case "METRIC" -> {var r=metrics.publish(request.resourceId(),releasedVersion,operator);releasedVersion=r.currentVersion();detail="指标 V"+releasedVersion+" 已发布";}
             default -> throw new BadRequestException("不支持的发布资源类型："+request.resourceType());
         }}catch(RuntimeException ex){result="FAILED";detail=ex.getMessage()==null?ex.getClass().getSimpleName():ex.getMessage();jdbc.update("UPDATE release_request SET status='FAILED',review_comment=? WHERE id=?",detail,requestId);insertRecord(request,releasedVersion,result,detail,operator);throw ex;}

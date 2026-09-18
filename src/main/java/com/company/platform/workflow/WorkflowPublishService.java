@@ -53,26 +53,43 @@ public class WorkflowPublishService {
         List<FileVersionView> sqlVersions = new ArrayList<>();
 
         for (WorkflowNodeView node : workflow.nodes()) {
-            if (node.nodeType() != NodeType.SEATUNNEL && node.nodeType() != NodeType.CONDITION && node.fileVersionId() == null) {
-                throw new BadRequestException("节点“" + node.name() + "”没有绑定开发文件版本");
+            boolean taskNode = node.nodeType() != NodeType.SEATUNNEL && node.nodeType() != NodeType.CONDITION;
+            if (taskNode && node.devFileId() == null && node.fileVersionId() == null) {
+                throw new BadRequestException("节点“" + node.name() + "”没有绑定开发任务");
             }
             String snapshot = "";
             NodeType effectiveType = node.nodeType();
+            FileVersionView effectiveVersion = null;
+            DevFileView devFile = null;
+            // Legacy nodes may still pin a concrete fileVersionId. New UI binds only devFileId
+            // and freezes the task's current production Vx when the workflow is published.
             if (node.fileVersionId() != null) {
-                FileVersionView fileVersion = store.versions.get(node.fileVersionId());
-                if (fileVersion == null) throw new BadRequestException("节点“" + node.name() + "”绑定的文件版本不存在");
-                DevFileView devFile = store.files.get(fileVersion.fileId());
-                if (devFile == null) throw new BadRequestException("节点“" + node.name() + "”绑定的开发文件不存在");
+                effectiveVersion = store.versions.get(node.fileVersionId());
+                if (effectiveVersion == null) throw new BadRequestException("节点“" + node.name() + "”绑定的历史文件版本不存在");
+                devFile = store.files.get(effectiveVersion.fileId());
+                if (devFile == null) throw new BadRequestException("节点“" + node.name() + "”绑定的开发任务不存在");
+            } else if (node.devFileId() != null) {
+                devFile = store.files.get(node.devFileId());
+                if (devFile == null) throw new BadRequestException("节点“" + node.name() + "”绑定的开发任务不存在");
+                String boundTaskName = devFile.name();
+                effectiveVersion = store.versions.values().stream()
+                        .filter(v -> v.fileId() == node.devFileId() && v.publishFlag())
+                        .max(java.util.Comparator.comparingInt(FileVersionView::versionNo))
+                        .orElseThrow(() -> new BadRequestException("开发任务“" + boundTaskName + "”还没有生产版本，请先发布任务"));
+            }
+            if (effectiveVersion != null && devFile != null) {
                 effectiveType = node.nodeType() == NodeType.CONDITION ? NodeType.CONDITION : resolveTaskType(devFile.fileType(), devFile.name());
-                snapshot = Base64.getEncoder().encodeToString(fileVersion.content().getBytes(StandardCharsets.UTF_8));
-                if (effectiveType == NodeType.SQL) sqlVersions.add(fileVersion);
+                snapshot = Base64.getEncoder().encodeToString(effectiveVersion.content().getBytes(StandardCharsets.UTF_8));
+                if (effectiveType == NodeType.SQL) sqlVersions.add(effectiveVersion);
             }
             ObjectNode item = nodes.addObject();
             item.put("id", node.id());
             item.put("name", node.name());
             item.put("type", effectiveType.name());
             item.put("configJson", node.configJson() == null ? "" : node.configJson());
-            if (node.fileVersionId() == null) item.putNull("fileVersionId"); else item.put("fileVersionId", node.fileVersionId());
+            if (node.devFileId() == null) item.putNull("devFileId"); else item.put("devFileId", node.devFileId());
+            if (effectiveVersion == null) item.putNull("fileVersionId"); else item.put("fileVersionId", effectiveVersion.id());
+            if (effectiveVersion == null) item.putNull("taskVersion"); else item.put("taskVersion", effectiveVersion.versionNo());
             item.put("contentBase64", snapshot);
             item.put("x", node.x());
             item.put("y", node.y());

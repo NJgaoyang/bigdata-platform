@@ -156,11 +156,12 @@ public class PlatformStore {
             });
             Map<Long, List<WorkflowNodeView>> loadedNodes = new HashMap<>();
             Map<Long, List<WorkflowEdgeView>> loadedEdges = new HashMap<>();
-            jdbc.query("SELECT id,workflow_id,node_code,node_name,node_type,file_version_id,config_json,x,y FROM workflow_node", rs -> {
+            jdbc.query("SELECT n.id,n.workflow_id,n.node_code,n.node_name,n.node_type,COALESCE(n.dev_file_id,v.file_id) AS dev_file_id,n.file_version_id,n.config_json,n.x,n.y FROM workflow_node n LEFT JOIN dev_file_version v ON v.id=n.file_version_id", rs -> {
                 long workflowId = rs.getLong("workflow_id");
                 loadedNodes.computeIfAbsent(workflowId, ignored -> new ArrayList<>()).add(new WorkflowNodeView(
                         rs.getLong("id"), rs.getString("node_name"), com.company.platform.workflow.NodeType.valueOf(rs.getString("node_type")),
-                        rs.getObject("file_version_id", Long.class), rs.getString("config_json"), rs.getInt("x"), rs.getInt("y"), rs.getString("node_code")));
+                        rs.getObject("dev_file_id", Long.class), rs.getObject("file_version_id", Long.class), rs.getString("config_json"),
+                        rs.getInt("x"), rs.getInt("y"), rs.getString("node_code")));
                 advanceId(rs.getLong("id"));
             });
             jdbc.query("SELECT id,workflow_id,source_node_id,target_node_id FROM workflow_edge", rs -> {
@@ -419,8 +420,8 @@ public class PlatformStore {
         jdbc.update("DELETE FROM workflow_node WHERE workflow_id=?", workflow.id());
         jdbc.update("DELETE FROM workflow_edge WHERE workflow_id=?", workflow.id());
         for (WorkflowNodeView node : workflow.nodes()) {
-            jdbc.update("INSERT INTO workflow_node (id,workflow_id,node_code,node_name,node_type,file_version_id,config_json,x,y) VALUES (?,?,?,?,?,?,?,?,?)",
-                    node.id(), workflow.id(), node.nodeCode(), node.name(), node.nodeType().name(), node.fileVersionId(), node.configJson(), node.x(), node.y());
+            jdbc.update("INSERT INTO workflow_node (id,workflow_id,node_code,node_name,node_type,dev_file_id,file_version_id,config_json,x,y) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                    node.id(), workflow.id(), node.nodeCode(), node.name(), node.nodeType().name(), node.devFileId(), node.fileVersionId(), node.configJson(), node.x(), node.y());
         }
         for (WorkflowEdgeView edge : workflow.edges()) {
             jdbc.update("INSERT INTO workflow_edge (id,workflow_id,source_node_id,target_node_id) VALUES (?,?,?,?)",
