@@ -461,6 +461,9 @@ ALTER TABLE `operation_log`
   MODIFY COLUMN `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
   COMMENT = '运维操作日志';
 
+ALTER TABLE `platform_user`
+  DROP FOREIGN KEY `fk_platform_user_role`;
+
 ALTER TABLE `platform_role`
   MODIFY COLUMN `id` bigint NOT NULL AUTO_INCREMENT COMMENT '主键ID',
   MODIFY COLUMN `role_code` varchar(64) COLLATE utf8mb4_general_ci NOT NULL COMMENT '角色编码',
@@ -478,6 +481,9 @@ ALTER TABLE `platform_user`
   MODIFY COLUMN `password_hash` varchar(255) COLLATE utf8mb4_general_ci DEFAULT NULL COMMENT '密码哈希',
   MODIFY COLUMN `role_code` varchar(64) COLLATE utf8mb4_general_ci NOT NULL DEFAULT 'USER' COMMENT '角色编码',
   COMMENT = '平台用户';
+
+ALTER TABLE `platform_user`
+  ADD CONSTRAINT `fk_platform_user_role` FOREIGN KEY (`role_code`) REFERENCES `platform_role` (`role_code`) ON DELETE RESTRICT;
 
 ALTER TABLE `project_member`
   MODIFY COLUMN `id` bigint NOT NULL AUTO_INCREMENT COMMENT '主键ID',
